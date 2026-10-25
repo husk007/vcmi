@@ -126,3 +126,57 @@ ModListVerificationStatus ModVerificationInfo::verifyListAgainstLocalMods(const 
 
 	return result;
 }
+
+bool ModSyncPlan::requiresChanges() const
+{
+	return !downloadOrUpdate.empty() || !reuseCachedArchive.empty() || !activate.empty() || !deactivate.empty();
+}
+
+ModSyncPlan ModVerificationInfo::buildSyncPlan(
+	const ModListVerificationStatus & statuses,
+	const ModArchiveHashes & expectedSha256,
+	const ModArchiveHashes & verifiedCachedSha256)
+{
+	ModSyncPlan plan;
+
+	for(const auto & [modId, status] : statuses)
+	{
+		if(modId == ModScope::scopeBuiltin())
+			continue;
+
+		const TModID rootId = modId.substr(0, modId.find('.'));
+
+		switch(status)
+		{
+			case ModVerificationStatus::NOT_INSTALLED:
+			case ModVerificationStatus::VERSION_MISMATCH:
+			{
+				const auto expected = expectedSha256.find(rootId);
+				const auto cached = verifiedCachedSha256.find(rootId);
+				if(expected != expectedSha256.end() && !expected->second.empty()
+					&& cached != verifiedCachedSha256.end() && expected->second == cached->second)
+					plan.reuseCachedArchive.insert(rootId);
+				else
+					plan.downloadOrUpdate.insert(rootId);
+
+				plan.activate.insert(rootId);
+				plan.activate.insert(modId);
+				break;
+			}
+			case ModVerificationStatus::DISABLED:
+				plan.activate.insert(rootId);
+				plan.activate.insert(modId);
+				break;
+			case ModVerificationStatus::EXCESSIVE:
+				plan.deactivate.insert(modId);
+				break;
+			case ModVerificationStatus::FULL_MATCH:
+				break;
+		}
+	}
+
+	for(const auto & rootId : plan.downloadOrUpdate)
+		plan.reuseCachedArchive.erase(rootId);
+
+	return plan;
+}
