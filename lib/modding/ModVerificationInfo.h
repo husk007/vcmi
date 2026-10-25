@@ -26,6 +26,19 @@ enum class ModVerificationStatus
 
 using ModListVerificationStatus = std::map<std::string, ModVerificationStatus>;
 
+using ModArchiveHashes = std::map<TModID, std::string>;
+
+/// Operations required to match the host's mod set without changing the player's normal preset.
+struct DLL_LINKAGE ModSyncPlan
+{
+	std::set<TModID> downloadOrUpdate;
+	std::set<TModID> reuseCachedArchive;
+	std::set<TModID> activate;
+	std::set<TModID> deactivate;
+
+	bool requiresChanges() const;
+};
+
 struct DLL_LINKAGE ModVerificationInfo
 {
 	/// human-readable mod name
@@ -46,6 +59,8 @@ struct DLL_LINKAGE ModVerificationInfo
 	static JsonNode jsonSerializeList(const ModCompatibilityInfo & input);
 	static ModCompatibilityInfo jsonDeserializeList(const JsonNode & input);
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
+	/// Cache entries must describe archives whose SHA-256 has already been verified.
+	static ModSyncPlan buildSyncPlan(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const ModArchiveHashes & verifiedCachedSha256);
 
 	template <typename Handler>
 	void serialize(Handler & h)
