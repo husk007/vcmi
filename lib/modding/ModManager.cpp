@@ -126,6 +126,49 @@ double ModsState::getInstalledModSizeMegabytes(const TModID & modName) const
 
 ///////////////////////////////////////////////////////////////////////////////
 
+const std::string & LanModSessionState::temporaryPresetName()
+{
+	static const std::string name = "__vcmi_lan_session";
+	return name;
+}
+
+void LanModSessionState::begin(JsonNode & config)
+{
+	if(!config["lanSession"].isNull())
+		throw std::runtime_error("A LAN mod session is already active");
+
+	const std::string previous = config["activePreset"].String();
+	const auto & sessionName = temporaryPresetName();
+	if(previous.empty() || previous == sessionName || config["presets"][previous].isNull())
+		throw std::runtime_error("Cannot snapshot an invalid active mod preset");
+	if(!config["presets"][sessionName].isNull())
+		throw std::runtime_error("Reserved LAN mod preset name is already in use");
+
+	const JsonNode original = config["presets"][previous];
+	config["lanSession"]["originalPresetName"].String() = previous;
+	config["lanSession"]["originalPreset"] = original;
+	config["presets"][sessionName] = original;
+	config["activePreset"].String() = sessionName;
+}
+
+bool LanModSessionState::restore(JsonNode & config)
+{
+	const JsonNode session = config["lanSession"];
+	if(session.isNull())
+		return false;
+
+	const std::string previous = session["originalPresetName"].String();
+	const JsonNode original = session["originalPreset"];
+	if(previous.empty() || previous == temporaryPresetName() || original.isNull())
+		throw std::runtime_error("Cannot restore an invalid LAN mod session snapshot");
+
+	config["presets"][previous] = original;
+	config["activePreset"].String() = previous;
+	config["presets"].Struct().erase(temporaryPresetName());
+	config.Struct().erase("lanSession");
+	return true;
+}
+
 ModsPresetState::ModsPresetState(bool useTestPreset)
 	: settingsPath(JsonPath::builtin(useTestPreset ? "config/testModSettings.json" : "config/modSettings.json"))
 {
@@ -153,6 +196,18 @@ ModsPresetState::ModsPresetState(bool useTestPreset)
 		modConfig["activePreset"] = JsonNode(allPresets.front());
 
 	logGlobal->debug("Loading following mod settings: %s", modConfig.toCompactString());
+}
+
+void ModsPresetState::beginLanSession()
+{
+	LanModSessionState::begin(modConfig);
+	saveConfigurationState();
+}
+
+void ModsPresetState::restoreLanSession()
+{
+	if(LanModSessionState::restore(modConfig))
+		saveConfigurationState();
 }
 
 void ModsPresetState::createInitialPreset()
@@ -891,6 +946,16 @@ void ModManager::activatePreset(const std::string & presetName)
 {
 	modsPreset->activatePreset(presetName);
 	modsPreset->saveConfigurationState();
+}
+
+void ModManager::beginLanSession()
+{
+	modsPreset->beginLanSession();
+}
+
+void ModManager::restoreLanSession()
+{
+	modsPreset->restoreLanSession();
 }
 
 void ModManager::renamePreset(const std::string & oldPresetName, const std::string & newPresetName)
