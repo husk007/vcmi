@@ -262,3 +262,16 @@ More details in [`docs/developers/Logging_API.md`](docs/developers/Logging_API.m
 ## Dependencies
 
 Major dependencies are managed by Conan — see `dependencies/conanfile.py` for the full list. Notably: Lua/LuaJIT scripting (optional), see [`docs/developers/Lua_Scripting_System.md`](docs/developers/Lua_Scripting_System.md).
+
+## Fork workstreams: LAN mod sync and WebAssembly
+
+The fork-specific execution plan lives in [ROADMAP.md](ROADMAP.md). Review this file and the relevant design document before starting any task. Prioritize the LAN mod synchronization milestones (L0-L4), then progress on the browser client feasibility milestones (W0-W4). Keep features optional so unmodified VCMI games remain compatible.
+
+- Preserve the player's exact pre-session mod preset and enabled/disabled submod settings. Use a temporary multiplayer preset and a durable restore journal before applying changes.
+- Retain downloaded redistributable mod packages across LAN sessions. Verify the host's SHA-256 and reuse packages when the digest matches. Never silently overwrite an existing personal mod version.
+- Handle normal exit, disconnect, transfer failure, crash recovery, and controlled relaunch explicitly. A failed session must not destroy the saved original preset.
+- Only transfer redistributable mods from trusted LAN peers. Never transfer proprietary Heroes III game assets as part of synchronization. Treat mods containing scripts as untrusted content.
+- Implement and test protocol negotiation before changing the multiplayer packets. Clients without the feature must keep their current behavior.
+- For the browser port, isolate Emscripten builds and route browser connections through a WebSocket adapter; do not require native TCP or the Qt launcher inside the browser.
+- Mark roadmap tasks complete only after relevant tests pass. Add focused unit tests for pure synchronization logic and integration tests before claiming a working LAN transfer or playable browser build.
+- Follow the existing GitHub contribution policy above: automated agents must not create upstream PRs/issues or post comments. Changes should remain on a dedicated fork branch for human review.
