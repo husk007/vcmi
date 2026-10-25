@@ -32,6 +32,15 @@ public:
 	double getInstalledModSizeMegabytes(const TModID & modName) const;
 };
 
+/// Keeps the player's original mod preset intact during temporary LAN sessions.
+class DLL_LINKAGE LanModSessionState
+{
+public:
+	static const std::string & temporaryPresetName();
+	static void begin(JsonNode & config);
+	static bool restore(JsonNode & config);
+};
+
 /// Provides interface to access or change current mod preset
 class ModsPresetState : boost::noncopyable
 {
@@ -49,6 +58,8 @@ public:
 	void createNewPreset(const std::string & presetName);
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
+	void beginLanSession();
+	void restoreLanSession();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;
@@ -158,6 +169,8 @@ public:
 	void createNewPreset(const std::string & presetName);
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
+	void beginLanSession();
+	void restoreLanSession();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;
