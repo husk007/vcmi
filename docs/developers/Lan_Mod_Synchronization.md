@@ -61,16 +61,16 @@ The current `ModSyncPlan::buildSyncPlan` consumes two maps: expected archive SHA
 The helper is currently available through `ModsPresetState` / `ModManager`. The implementation now supports a **one-shot controlled relaunch marker**:
 
 - When a LAN session is active, the future launcher will generate an unpredictable local token, call `ModManager::prepareControlledRelaunch(token)` and only restart after the settings file has been written atomically.
-- On the restarted process, the same token must be supplied to the `ModManager` constructor (last argument). An exact match consumes the marker on disk while keeping the temporary preset and original recovery snapshot.
+- The desktop client now accepts a one-shot `--lan-relaunch-token` argument. `EntryPoint.cpp` forwards it through `GameLibrary::initializeFilesystem`, `CModHandler`, and the `ModManager` constructor. An exact match consumes the marker on disk while keeping the temporary preset and original recovery snapshot.
 - A missing or mismatched token restores the original preset. If the client crashes after consuming a valid token, the next startup also restores automatically. Corrupt session snapshots raise an error rather than discarding recovery data.
 - The default constructor arguments supply no token, so existing clients retain safe interrupted-session restoration behavior.
-- Token transport through `CModHandler` / launcher process arguments and controlled restart itself are **not yet implemented**, so the new API alone does not enable session resume.
+- Startup token propagation is implemented, but automatic token creation, passing it to a spawned process, controlled process restart, and rejoining the original LAN room are **not yet implemented**. The new CLI option does not by itself start or resume a multiplayer game.
 
 Before enabling it in production:
 
 - Make the journal write crash-safe (write temporary file, fsync when supported, atomically replace).
 - Handle normal disconnect, host dropout, user cancellation, client crash, and restart recovery separately.
-- Wire the existing one-shot marker to an actual controlled process relaunch, including a fresh locally generated token and startup propagation through `CModHandler`.
+- Generate a cryptographically unpredictable one-shot token when the client prepares a restart, persist it through `ModManager::prepareControlledRelaunch`, and propagate it to the next client process. Ensure process relaunch and room rejoin only proceed after durable writes.
 - If personal and host mod versions differ, keep the original personal version side by side; never overwrite it.
 - Restore the original preset **only after** the session has ended, then reload engine resources if necessary.
 - Treat an invalid journal as recoverable user data. Preserve a backup and present an actionable error instead of deleting it.
