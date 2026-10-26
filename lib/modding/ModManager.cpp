@@ -9,6 +9,7 @@
  */
 #include "StdInc.h"
 #include "ModManager.h"
+#include "AtomicModSettings.h"
 
 #include "ModDescription.h"
 #include "ModScope.h"
@@ -157,6 +158,9 @@ bool LanModSessionState::restore(JsonNode & config)
 	if(session.isNull())
 		return false;
 
+	if(config["activePreset"].String() != temporaryPresetName())
+		throw std::runtime_error("LAN mod recovery requires the temporary preset to be active");
+
 	const std::string previous = session["originalPresetName"].String();
 	const JsonNode original = session["originalPreset"];
 	if(previous.empty() || previous == temporaryPresetName() || original.isNull())
@@ -182,6 +186,13 @@ ModsPresetState::ModsPresetState(bool useTestPreset)
 		CResourceHandler::get("local")->createResource(settingsPath.getOriginalName() + ".json");
 	}
 
+	// A saved LAN snapshot means the previous game closed before restoring its preset.
+	if(!modConfig["lanSession"].isNull())
+	{
+		restoreLanSession();
+		logGlobal->warn("Recovered the original mod preset after an interrupted LAN session");
+	}
+
 	if(modConfig["presets"].isNull() || modConfig["presets"].Struct().empty())
 	{
 		modConfig["activePreset"] = JsonNode("default");
@@ -200,14 +211,20 @@ ModsPresetState::ModsPresetState(bool useTestPreset)
 
 void ModsPresetState::beginLanSession()
 {
-	LanModSessionState::begin(modConfig);
-	saveConfigurationState();
+	JsonNode pending = modConfig;
+	LanModSessionState::begin(pending);
+	saveConfigurationState(pending);
+	modConfig = std::move(pending);
 }
 
 void ModsPresetState::restoreLanSession()
 {
-	if(LanModSessionState::restore(modConfig))
-		saveConfigurationState();
+	JsonNode restored = modConfig;
+	if(LanModSessionState::restore(restored))
+	{
+		saveConfigurationState(restored);
+		modConfig = std::move(restored);
+	}
 }
 
 void ModsPresetState::createInitialPreset()
@@ -369,10 +386,18 @@ void ModsPresetState::setValidatedChecksum(const TModID & modName, std::optional
 		modConfig["validatedMods"].Struct().erase(modName);
 }
 
+void ModsPresetState::saveConfigurationState(const JsonNode & state) const
+{
+	const auto destination = CResourceHandler::get()->getResourceName(ResourcePath(settingsPath));
+	if(!destination)
+		throw std::runtime_error("Cannot locate the mod settings file");
+
+	AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString());
+}
+
 void ModsPresetState::saveConfigurationState() const
 {
-	std::fstream file(CResourceHandler::get()->getResourceName(ResourcePath(settingsPath))->c_str(), std::ofstream::out | std::ofstream::trunc);
-	file << modConfig.toCompactString();
+	saveConfigurationState(modConfig);
 }
 
 void ModsPresetState::createNewPreset(const std::string & presetName)
