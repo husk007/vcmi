@@ -77,6 +77,9 @@ public:
 	void load();
 	void afterLoad();
 
+	/// Restore the player's original preset on a clean shutdown, unless relaunch is pending.
+	void restoreLanSessionOnShutdown();
+
 	explicit CModHandler(bool useTestPreset = false, const std::string & lanRelaunchToken = {});
 	~CModHandler();
 };
