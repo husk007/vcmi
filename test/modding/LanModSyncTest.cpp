@@ -164,5 +164,15 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 	EXPECT_TRUE(std::filesystem::is_directory(directoryTarget));
 	EXPECT_FALSE(std::filesystem::exists(testDirectory / "do-not-replace.pending"));
 
+	// A pre-existing staging directory must never be deleted if opening it fails.
+	const auto blockedStage = testDirectory / "modSettings.json.pending";
+	std::filesystem::create_directory(blockedStage);
+	EXPECT_THROW(AtomicModSettings::replace(settings, "{\"invalid\":true}"), std::system_error);
+	EXPECT_TRUE(std::filesystem::is_directory(blockedStage));
+
+	std::ifstream recovered(settings, std::ios::binary);
+	const std::string preserved((std::istreambuf_iterator<char>(recovered)), std::istreambuf_iterator<char>());
+	EXPECT_EQ(preserved, "{\"new\":true}");
+
 	std::filesystem::remove_all(testDirectory);
 }
