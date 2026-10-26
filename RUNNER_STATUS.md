@@ -9,7 +9,7 @@ This file is updated by the scheduled task only when the outcome materially chan
 - Plan: [ROADMAP.md](ROADMAP.md)
 - Rules: [AGENTS.md](AGENTS.md), [RUNNER.md](RUNNER.md)
 - Scope: complete LAN milestones L0-L4 before WebAssembly W0-W4, except independent blocked work
-- Scheduled execution: configured outside the repo in ChatGPT Tasks; the existence of this file alone does not start a runner
+- Scheduled execution: ACTIVE in ChatGPT Tasks, once per hour (first planned trigger 2026-10-26 16:48 Europe/Warsaw). The repository file itself is not an executor.
 
 ## Latest known state
 
@@ -26,4 +26,4 @@ Keep the most recent meaningful outcomes below. Each entry must use a real commi
 
 | Run | Criterion | Status | Commit | Validation | Remaining / blocker |
 | --- | --- | --- | --- | --- | --- |
-| Initial setup | Runner operating procedure | PARTIAL | See commit history | Source checked; compile NOT RUN | Activate hourly ChatGPT task and iterate on L0 |
+| 2026-10-26 setup | Runner policy, hourly schedule, roadmap gates | DONE (configuration only) | See branch commit history | GitHub files verified; build NOT RUN | Begin L0 source validation and implementation on the next hourly run |
