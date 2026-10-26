@@ -201,7 +201,7 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 
 	const auto directoryTarget = testDirectory / "do-not-replace";
 	std::filesystem::create_directory(directoryTarget);
-	EXPECT_THROW(AtomicModSettings::replace(directoryTarget, "unexpected"), std::filesystem::filesystem_error);
+	EXPECT_THROW(AtomicModSettings::replace(directoryTarget, "unexpected"), std::system_error);
 	EXPECT_TRUE(std::filesystem::is_directory(directoryTarget));
 	EXPECT_FALSE(std::filesystem::exists(testDirectory / "do-not-replace.pending"));
 
@@ -222,8 +222,11 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 		EXPECT_EQ(preserved, "{\"newer\":true}");
 	}
 	for(const auto & entry : std::filesystem::directory_iterator(testDirectory))
-		EXPECT_FALSE(entry.path().filename().string().starts_with("modSettings.json.pending."))
-			<< entry.path();
+	{
+		const std::string filename = entry.path().filename().string();
+		EXPECT_FALSE(filename.starts_with("modSettings.json.pending.")) << entry.path();
+		EXPECT_FALSE(filename.starts_with("do-not-replace.pending.")) << entry.path();
+	}
 
 	std::filesystem::remove_all(testDirectory);
 }
