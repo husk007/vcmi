@@ -37,6 +37,11 @@ CModHandler::CModHandler(bool useTestPreset, const std::string & lanRelaunchToke
 
 CModHandler::~CModHandler() = default;
 
+void CModHandler::restoreLanSessionOnShutdown()
+{
+	modManager->restoreLanSessionOnShutdown();
+}
+
 std::vector<std::string> CModHandler::getAllMods() const
 {
 	return modManager->getAllMods();
