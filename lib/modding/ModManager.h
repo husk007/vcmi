@@ -32,12 +32,21 @@ public:
 	double getInstalledModSizeMegabytes(const TModID & modName) const;
 };
 
+enum class LanSessionStartupAction
+{
+	NONE,
+	RESTORED,
+	RESUMED
+};
+
 /// Keeps the player's original mod preset intact during temporary LAN sessions.
 class DLL_LINKAGE LanModSessionState
 {
 public:
 	static const std::string & temporaryPresetName();
 	static void begin(JsonNode & config);
+	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
+	static LanSessionStartupAction recoverOnStartup(JsonNode & config, const std::string & relaunchToken);
 	static bool restore(JsonNode & config);
 };
 
@@ -54,12 +63,13 @@ class ModsPresetState : boost::noncopyable
 	const JsonNode & getActivePresetConfig() const;
 
 public:
-	explicit ModsPresetState(bool useTestPreset = false);
+	explicit ModsPresetState(bool useTestPreset = false, const std::string & relaunchToken = {});
 
 	void createNewPreset(const std::string & presetName);
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
+	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
@@ -148,7 +158,7 @@ class DLL_LINKAGE ModManager : boost::noncopyable
 
 public:
 	/// newMods - installed mods to activate together with mods from active preset
-	ModManager(const JsonNode & repositoryList, bool useTestPreset = false, const TModList & newMods = {});
+	ModManager(const JsonNode & repositoryList, bool useTestPreset = false, const TModList & newMods = {}, const std::string & relaunchToken = {});
 	ModManager();
 	~ModManager();
 
@@ -171,6 +181,7 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
+	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
