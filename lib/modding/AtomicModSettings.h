@@ -6,6 +6,8 @@
  */
 #pragma once
 
+#include "LanRelaunchToken.h"
+
 #include <cerrno>
 #include <cstdio>
 #include <filesystem>
@@ -13,6 +15,7 @@
 #include <system_error>
 
 #ifdef _WIN32
+#include <fcntl.h>
 #include <io.h>
 #include <windows.h>
 #else
@@ -28,23 +31,51 @@ namespace AtomicModSettings
 inline bool replace(const std::filesystem::path & destination, const std::string & serializedConfig)
 {
 	std::filesystem::path temporary = destination;
-	temporary += ".pending";
+	temporary += ".pending.";
+	temporary += LanRelaunchToken::generate().substr(0, 32);
 	std::FILE * file = nullptr;
 	bool ownsTemporary = false;
 
 	try
 	{
 #ifdef _WIN32
-		const errno_t openError = _wfopen_s(&file, temporary.c_str(), L"wb");
-		if(openError != 0)
-			throw std::system_error(openError, std::generic_category(), "Unable to open temporary mod settings file");
-#else
-		file = std::fopen(temporary.c_str(), "wb");
-		if(!file)
-			throw std::system_error(errno, std::generic_category(), "Unable to open temporary mod settings file");
-#endif
+		const HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if(handle == INVALID_HANDLE_VALUE)
+			throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Unable to create temporary mod settings file");
 
 		ownsTemporary = true;
+		const int descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_WRONLY | _O_BINARY);
+		if(descriptor < 0)
+		{
+			const int openError = errno ? errno : EIO;
+			CloseHandle(handle);
+			throw std::system_error(openError, std::generic_category(), "Unable to attach temporary mod settings file");
+		}
+		file = _fdopen(descriptor, "wb");
+		if(!file)
+		{
+			const int openError = errno ? errno : EIO;
+			_close(descriptor);
+			throw std::system_error(openError, std::generic_category(), "Unable to open temporary mod settings stream");
+		}
+#else
+		int flags = O_WRONLY | O_CREAT | O_EXCL;
+#ifdef O_CLOEXEC
+		flags |= O_CLOEXEC;
+#endif
+		const int descriptor = ::open(temporary.c_str(), flags, 0600);
+		if(descriptor < 0)
+			throw std::system_error(errno, std::generic_category(), "Unable to create temporary mod settings file");
+
+		ownsTemporary = true;
+		file = ::fdopen(descriptor, "wb");
+		if(!file)
+		{
+			const int openError = errno ? errno : EIO;
+			::close(descriptor);
+			throw std::system_error(openError, std::generic_category(), "Unable to open temporary mod settings stream");
+		}
+#endif
 		if(!serializedConfig.empty() && std::fwrite(serializedConfig.data(), 1, serializedConfig.size(), file) != serializedConfig.size())
 			throw std::system_error(errno ? errno : EIO, std::generic_category(), "Unable to write temporary mod settings file");
 
