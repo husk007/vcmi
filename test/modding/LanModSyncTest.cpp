@@ -7,12 +7,14 @@
 
 #include "StdInc.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 
 #include "../../lib/modding/AtomicModSettings.h"
+#include "../../lib/modding/LanRelaunchToken.h"
 
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
@@ -317,4 +319,34 @@ TEST(LanModSyncTest, InvalidSessionStartIsReadOnly)
 
 	EXPECT_THROW(LanModSessionState::begin(config), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, GeneratedRelaunchTokensAreUniqueAndCLICompatible)
+{
+	std::set<std::string> seen;
+
+	for(int i = 0; i < 64; ++i)
+	{
+		const std::string token = LanRelaunchToken::generate();
+		EXPECT_EQ(token.size(), 64);
+		EXPECT_TRUE(std::all_of(token.begin(), token.end(), [](char byte)
+		{
+			return (byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f');
+		}));
+		EXPECT_TRUE(seen.insert(token).second);
+	}
+
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+	LanModSessionState::begin(config);
+	const std::string token = LanRelaunchToken::generate();
+	LanModSessionState::prepareControlledRelaunch(config, token);
+
+	const std::string onDisk = config.toCompactString();
+	JsonNode relaunched(onDisk.data(), onDisk.size(), "Generated LAN token test");
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(relaunched, token), LanSessionStartupAction::RESUMED);
+	EXPECT_TRUE(LanModSessionState::restore(relaunched));
+	EXPECT_EQ(relaunched.toCompactString(), original);
 }
