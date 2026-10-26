@@ -153,9 +153,11 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 
 	AtomicModSettings::replace(settings, "{\"old\":true}");
 	AtomicModSettings::replace(settings, "{\"new\":true}");
-	std::ifstream file(settings, std::ios::binary);
-	const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-	EXPECT_EQ(content, "{\"new\":true}");
+	{
+		std::ifstream file(settings, std::ios::binary);
+		const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		EXPECT_EQ(content, "{\"new\":true}");
+	}
 	EXPECT_FALSE(std::filesystem::exists(testDirectory / "modSettings.json.pending"));
 
 	const auto directoryTarget = testDirectory / "do-not-replace";
@@ -170,9 +172,11 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 	EXPECT_THROW(AtomicModSettings::replace(settings, "{\"invalid\":true}"), std::system_error);
 	EXPECT_TRUE(std::filesystem::is_directory(blockedStage));
 
-	std::ifstream recovered(settings, std::ios::binary);
-	const std::string preserved((std::istreambuf_iterator<char>(recovered)), std::istreambuf_iterator<char>());
-	EXPECT_EQ(preserved, "{\"new\":true}");
+	{
+		std::ifstream recovered(settings, std::ios::binary);
+		const std::string preserved((std::istreambuf_iterator<char>(recovered)), std::istreambuf_iterator<char>());
+		EXPECT_EQ(preserved, "{\"new\":true}");
+	}
 
 	std::filesystem::remove_all(testDirectory);
 }
