@@ -218,6 +218,16 @@ bool LanModSessionState::restore(JsonNode & config)
 	return true;
 }
 
+bool LanModSessionState::shouldRestoreOnShutdown(const JsonNode & config)
+{
+	if(config["lanSession"].isNull())
+		return false;
+
+	validateLanSessionSnapshot(config);
+	// A relaunch marker is consumed by the replacement client, not by the exiting process.
+	return config["lanSession"]["relaunchToken"].String().empty();
+}
+
 ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunchToken)
 	: settingsPath(JsonPath::builtin(useTestPreset ? "config/testModSettings.json" : "config/modSettings.json"))
 {
@@ -284,6 +294,16 @@ void ModsPresetState::restoreLanSession()
 		saveConfigurationState(restored);
 		modConfig = std::move(restored);
 	}
+}
+
+void ModsPresetState::restoreLanSessionOnShutdown()
+{
+	const JsonNode & current = modConfig;
+	if(!LanModSessionState::shouldRestoreOnShutdown(current))
+		return;
+
+	// Do not discard the in-memory recovery journal until the rollback is safely on disk.
+	restoreLanSession();
 }
 
 void ModsPresetState::createInitialPreset()
@@ -1053,6 +1073,11 @@ void ModManager::prepareControlledRelaunch(const std::string & relaunchToken)
 void ModManager::restoreLanSession()
 {
 	modsPreset->restoreLanSession();
+}
+
+void ModManager::restoreLanSessionOnShutdown()
+{
+	modsPreset->restoreLanSessionOnShutdown();
 }
 
 void ModManager::renamePreset(const std::string & oldPresetName, const std::string & newPresetName)
