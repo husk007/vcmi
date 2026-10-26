@@ -486,6 +486,21 @@ int main(int argc, char * argv[])
 				ENGINE.reset();
 			}
 
+			// Restore personal mod settings only after the game has released its resources.
+			// A pending controlled relaunch keeps the temporary preset for the next process.
+			if(LIBRARY && LIBRARY->modh)
+			{
+				try
+				{
+					LIBRARY->modh->restoreLanSessionOnShutdown();
+				}
+				catch(const std::exception & e)
+				{
+					// The recovery journal stays on disk; the next startup will retry.
+					logGlobal->error("Unable to restore LAN mod preset on shutdown: %s", e.what());
+				}
+			}
+
 			delete LIBRARY;
 			LIBRARY = nullptr;
 			logConfigurator.deconfigure();
