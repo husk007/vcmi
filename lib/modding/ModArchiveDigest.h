@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <string_view>
 
 /// Comparison of canonical SHA-256 archive digests supplied by the LAN manifest and verified cache.
@@ -28,7 +29,7 @@ inline bool sameSha256(std::string_view expected, std::string_view cached)
 	if(expected.size() != 64 || cached.size() != 64)
 		return false;
 
-	for(size_t index = 0; index < 64; ++index)
+	for(std::size_t index = 0; index < 64; ++index)
 	{
 		const int left = hexDigit(expected[index]);
 		const int right = hexDigit(cached[index]);
