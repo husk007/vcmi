@@ -181,6 +181,8 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
+	/// Persist a new one-shot token before spawning a replacement client.
+	std::string prepareControlledRelaunch();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
