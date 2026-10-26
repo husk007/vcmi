@@ -10,6 +10,7 @@
 #include "StdInc.h"
 #include "ModManager.h"
 #include "AtomicModSettings.h"
+#include "LanRelaunchToken.h"
 
 #include "ModDescription.h"
 #include "ModScope.h"
@@ -1035,6 +1036,13 @@ void ModManager::activatePreset(const std::string & presetName)
 void ModManager::beginLanSession()
 {
 	modsPreset->beginLanSession();
+}
+
+std::string ModManager::prepareControlledRelaunch()
+{
+	const std::string token = LanRelaunchToken::generate();
+	modsPreset->prepareControlledRelaunch(token);
+	return token;
 }
 
 void ModManager::prepareControlledRelaunch(const std::string & relaunchToken)
