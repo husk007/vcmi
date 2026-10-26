@@ -440,3 +440,45 @@ TEST(LanModSyncTest, GeneratedRelaunchTokensAreUniqueAndCLICompatible)
 	EXPECT_TRUE(LanModSessionState::restore(relaunched));
 	EXPECT_EQ(relaunched.toCompactString(), original);
 }
+
+TEST(LanModSyncTest, CleanShutdownRestoresExactPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["mods"].Vector().emplace_back("maps");
+	config["presets"]["personal"]["settings"]["maps"]["large"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	EXPECT_FALSE(LanModSessionState::shouldRestoreOnShutdown(config));
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector().emplace_back("hota");
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["maps"]["large"].Bool() = true;
+
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_EQ(config.toCompactString(), original);
+	EXPECT_FALSE(LanModSessionState::shouldRestoreOnShutdown(config));
+}
+
+TEST(LanModSyncTest, PendingRelaunchSkipsShutdownRollbackButConsumedMarkerAllowsIt)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["hota"]["units"].Bool() = true;
+	LanModSessionState::prepareControlledRelaunch(config, "controlled-restart");
+	const std::string persisted = config.toCompactString();
+
+	EXPECT_FALSE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_EQ(config.toCompactString(), persisted);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "controlled-restart"), LanSessionStartupAction::RESUMED);
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_EQ(config.toCompactString(), original);
+}
