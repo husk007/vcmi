@@ -8,10 +8,12 @@
 #include "StdInc.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <thread>
 
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanRelaunchToken.h"
@@ -203,20 +205,70 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 	EXPECT_TRUE(std::filesystem::is_directory(directoryTarget));
 	EXPECT_FALSE(std::filesystem::exists(testDirectory / "do-not-replace.pending"));
 
-	// A pre-existing staging directory must never be deleted if opening it fails.
-	const auto blockedStage = testDirectory / "modSettings.json.pending";
-	std::filesystem::create_directory(blockedStage);
-	EXPECT_THROW(AtomicModSettings::replace(settings, "{\"invalid\":true}"), std::system_error);
-	EXPECT_TRUE(std::filesystem::is_directory(blockedStage));
+	// Legacy .pending staging data may belong to an interrupted or parallel writer.
+	const auto legacyStage = testDirectory / "modSettings.json.pending";
+	std::filesystem::create_directory(legacyStage);
+	const auto marker = legacyStage / "keep.txt";
+	{
+		std::ofstream foreign(marker);
+		foreign << "other writer";
+	}
+	AtomicModSettings::replace(settings, "{\"newer\":true}");
+	EXPECT_TRUE(std::filesystem::exists(marker));
 
 	{
 		std::ifstream recovered(settings, std::ios::binary);
 		const std::string preserved((std::istreambuf_iterator<char>(recovered)), std::istreambuf_iterator<char>());
-		EXPECT_EQ(preserved, "{\"new\":true}");
+		EXPECT_EQ(preserved, "{\"newer\":true}");
 	}
+	for(const auto & entry : std::filesystem::directory_iterator(testDirectory))
+		EXPECT_FALSE(entry.path().filename().string().starts_with("modSettings.json.pending."))
+			<< entry.path();
 
 	std::filesystem::remove_all(testDirectory);
 }
+
+#ifndef _WIN32
+TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
+{
+	const auto testDirectory = std::filesystem::temp_directory_path() /
+		("vcmi-lan-parallel-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	std::filesystem::create_directory(testDirectory);
+	const auto settings = testDirectory / "modSettings.json";
+
+	std::atomic<int> failures{0};
+	std::vector<std::thread> writers;
+	for(int i = 0; i < 12; ++i)
+	{
+		writers.emplace_back([&, i]()
+		{
+			try
+			{
+				AtomicModSettings::replace(settings, std::string(4096, static_cast<char>('A' + i)));
+			}
+			catch(const std::exception &)
+			{
+				++failures;
+			}
+		});
+	}
+	for(auto & writer : writers)
+		writer.join();
+
+	EXPECT_EQ(failures.load(), 0);
+	std::ifstream file(settings, std::ios::binary);
+	const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+	EXPECT_EQ(content.size(), 4096);
+	if(!content.empty())
+		EXPECT_EQ(content, std::string(content.size(), content[0]));
+
+	for(const auto & entry : std::filesystem::directory_iterator(testDirectory))
+		EXPECT_FALSE(entry.path().filename().string().starts_with("modSettings.json.pending."))
+			<< entry.path();
+
+	std::filesystem::remove_all(testDirectory);
+}
+#endif
 
 TEST(LanModSyncTest, ControlledRelaunchResumesOnlyOnce)
 {
