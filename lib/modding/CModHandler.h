@@ -77,6 +77,6 @@ public:
 	void load();
 	void afterLoad();
 
-	explicit CModHandler(bool useTestPreset = false);
+	explicit CModHandler(bool useTestPreset = false, const std::string & lanRelaunchToken = {});
 	~CModHandler();
 };
