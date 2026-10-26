@@ -133,6 +133,18 @@ const std::string & LanModSessionState::temporaryPresetName()
 	return name;
 }
 
+static void validateLanSessionSnapshot(const JsonNode & config)
+{
+	if(config["activePreset"].String() != LanModSessionState::temporaryPresetName())
+		throw std::runtime_error("LAN mod recovery requires the temporary preset to be active");
+
+	const JsonNode & session = config["lanSession"];
+	const std::string & originalName = session["originalPresetName"].String();
+	if(originalName.empty() || originalName == LanModSessionState::temporaryPresetName()
+		|| session["originalPreset"].isNull())
+		throw std::runtime_error("Cannot recover an invalid LAN mod session snapshot");
+}
+
 void LanModSessionState::begin(JsonNode & config)
 {
 	if(!config["lanSession"].isNull())
@@ -152,19 +164,47 @@ void LanModSessionState::begin(JsonNode & config)
 	config["activePreset"].String() = sessionName;
 }
 
+void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken)
+{
+	if(relaunchToken.empty() || relaunchToken.size() > 128)
+		throw std::invalid_argument("Controlled LAN relaunch requires a nonempty token of at most 128 bytes");
+	if(config["lanSession"].isNull())
+		throw std::runtime_error("Cannot relaunch without a LAN mod session");
+	validateLanSessionSnapshot(config);
+	if(!config["lanSession"]["relaunchToken"].isNull())
+		throw std::runtime_error("LAN mod session already has a pending controlled relaunch");
+
+	config["lanSession"]["relaunchToken"].String() = relaunchToken;
+}
+
+LanSessionStartupAction LanModSessionState::recoverOnStartup(JsonNode & config, const std::string & relaunchToken)
+{
+	if(config["lanSession"].isNull())
+		return LanSessionStartupAction::NONE;
+
+	const JsonNode & session = config["lanSession"];
+	if(!relaunchToken.empty() && session["relaunchToken"].String() == relaunchToken)
+	{
+		validateLanSessionSnapshot(config);
+		// Consume the marker on the first matching startup. Future crashes restore normally.
+		config["lanSession"].Struct().erase("relaunchToken");
+		return LanSessionStartupAction::RESUMED;
+	}
+
+	restore(config);
+	return LanSessionStartupAction::RESTORED;
+}
+
 bool LanModSessionState::restore(JsonNode & config)
 {
 	const JsonNode session = config["lanSession"];
 	if(session.isNull())
 		return false;
 
-	if(config["activePreset"].String() != temporaryPresetName())
-		throw std::runtime_error("LAN mod recovery requires the temporary preset to be active");
+	validateLanSessionSnapshot(config);
 
 	const std::string previous = session["originalPresetName"].String();
 	const JsonNode original = session["originalPreset"];
-	if(previous.empty() || previous == temporaryPresetName() || original.isNull())
-		throw std::runtime_error("Cannot restore an invalid LAN mod session snapshot");
 
 	config["presets"][previous] = original;
 	config["activePreset"].String() = previous;
@@ -173,7 +213,7 @@ bool LanModSessionState::restore(JsonNode & config)
 	return true;
 }
 
-ModsPresetState::ModsPresetState(bool useTestPreset)
+ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunchToken)
 	: settingsPath(JsonPath::builtin(useTestPreset ? "config/testModSettings.json" : "config/modSettings.json"))
 {
 	if(CResourceHandler::get("local")->existsResource(ResourcePath(settingsPath)))
@@ -186,11 +226,17 @@ ModsPresetState::ModsPresetState(bool useTestPreset)
 		CResourceHandler::get("local")->createResource(settingsPath.getOriginalName() + ".json");
 	}
 
-	// A saved LAN snapshot means the previous game closed before restoring its preset.
+	// Preserve the LAN preset only for a matching one-shot controlled relaunch.
 	if(!modConfig["lanSession"].isNull())
 	{
-		restoreLanSession();
-		logGlobal->warn("Recovered the original mod preset after an interrupted LAN session");
+		JsonNode recovered = modConfig;
+		const auto action = LanModSessionState::recoverOnStartup(recovered, relaunchToken);
+		saveConfigurationState(recovered);
+		modConfig = std::move(recovered);
+		if(action == LanSessionStartupAction::RESUMED)
+			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
+		else
+			logGlobal->warn("Recovered the original mod preset after an interrupted LAN session");
 	}
 
 	if(modConfig["presets"].isNull() || modConfig["presets"].Struct().empty())
@@ -213,6 +259,14 @@ void ModsPresetState::beginLanSession()
 {
 	JsonNode pending = modConfig;
 	LanModSessionState::begin(pending);
+	saveConfigurationState(pending);
+	modConfig = std::move(pending);
+}
+
+void ModsPresetState::prepareControlledRelaunch(const std::string & relaunchToken)
+{
+	JsonNode pending = modConfig;
+	LanModSessionState::prepareControlledRelaunch(pending, relaunchToken);
 	saveConfigurationState(pending);
 	modConfig = std::move(pending);
 }
@@ -563,9 +617,9 @@ ModManager::ModManager()
 {
 }
 
-ModManager::ModManager(const JsonNode & repositoryList, bool useTestPreset, const TModList & newMods)
+ModManager::ModManager(const JsonNode & repositoryList, bool useTestPreset, const TModList & newMods, const std::string & relaunchToken)
 	: modsState(std::make_unique<ModsState>())
-	, modsPreset(std::make_unique<ModsPresetState>(useTestPreset))
+	, modsPreset(std::make_unique<ModsPresetState>(useTestPreset, relaunchToken))
 {
 	modsStorage = std::make_unique<ModsStorage>(modsState->getInstalledMods(), repositoryList);
 
@@ -977,6 +1031,11 @@ void ModManager::activatePreset(const std::string & presetName)
 void ModManager::beginLanSession()
 {
 	modsPreset->beginLanSession();
+}
+
+void ModManager::prepareControlledRelaunch(const std::string & relaunchToken)
+{
+	modsPreset->prepareControlledRelaunch(relaunchToken);
 }
 
 void ModManager::restoreLanSession()
