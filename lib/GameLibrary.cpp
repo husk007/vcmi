@@ -149,7 +149,7 @@ void GameLibrary::loadFilesystem(bool extractArchives)
 	logGlobal->info("\tData loading: %d ms", loadTime.getDiff());
 }
 
-void GameLibrary::loadModFilesystem(bool useTestPreset)
+void GameLibrary::loadModFilesystem(bool useTestPreset, const std::string & lanRelaunchToken)
 {
 	CStopWatch loadTime;
 	// Test preset discovers the vcmi-test fixtures mod from test/testdata/ instead of the
@@ -159,7 +159,7 @@ void GameLibrary::loadModFilesystem(bool useTestPreset)
 		auto loader = std::make_unique<CFilesystemLoader>("MODS/", "test/testdata/", 64);
 		dynamic_cast<CFilesystemList*>(CResourceHandler::get("initial"))->addLoader(std::move(loader), false);
 	}
-	modh = std::make_unique<CModHandler>(useTestPreset);
+	modh = std::make_unique<CModHandler>(useTestPreset, lanRelaunchToken);
 	identifiersHandler = std::make_unique<CIdentifierStorage>();
 	logGlobal->info("\tMod handler: %d ms", loadTime.getDiff());
 
@@ -173,13 +173,13 @@ void createHandler(std::unique_ptr<Handler> & handler)
 	handler = std::make_unique<Handler>();
 }
 
-void GameLibrary::initializeFilesystem(bool extractArchives, bool useTestPreset)
+void GameLibrary::initializeFilesystem(bool extractArchives, bool useTestPreset, const std::string & lanRelaunchToken)
 {
 	loadFilesystem(extractArchives);
 	settings.init("config/settings.json", "vcmi:settings");
 	persistentStorage.init("config/persistentStorage.json", "");
 	keyBindingsConfig.init("config/keyBindingsConfig.json", "");
-	loadModFilesystem(useTestPreset);
+	loadModFilesystem(useTestPreset, lanRelaunchToken);
 
 	// Detect game data mode after filesystem is loaded
 	gameDataMode = GameDataMode::SOD;
