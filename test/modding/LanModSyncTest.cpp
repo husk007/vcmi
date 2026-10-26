@@ -206,6 +206,35 @@ TEST(LanModSyncTest, ControlledRelaunchResumesOnlyOnce)
 	EXPECT_EQ(nextProcess.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, NormalDisconnectAfterControlledRelaunchRestoresExactPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "player";
+	config["presets"]["player"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["player"]["mods"].Vector().emplace_back("maps");
+	config["presets"]["player"]["settings"]["maps"]["large"].Bool() = true;
+	config["presets"]["player"]["settings"]["maps"]["small"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	const std::string & temporary = LanModSessionState::temporaryPresetName();
+	config["presets"][temporary]["mods"].Vector().emplace_back("hota");
+	config["presets"][temporary]["settings"]["maps"]["large"].Bool() = false;
+	config["presets"][temporary]["settings"]["maps"]["small"].Bool() = true;
+	LanModSessionState::prepareControlledRelaunch(config, "rejoin-once");
+
+	const std::string onDisk = config.toCompactString();
+	JsonNode restarted(onDisk.data(), onDisk.size(), "Restarted LAN preset test");
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(restarted, "rejoin-once"), LanSessionStartupAction::RESUMED);
+	EXPECT_EQ(restarted["activePreset"].String(), temporary);
+	EXPECT_TRUE(restarted["presets"][temporary]["settings"]["maps"]["small"].Bool());
+
+	// Leaving the multiplayer room restores personal and unrelated presets exactly.
+	EXPECT_TRUE(LanModSessionState::restore(restarted));
+	EXPECT_EQ(restarted.toCompactString(), original);
+}
+
 TEST(LanModSyncTest, WrongRelaunchTokenRestoresOriginalPreset)
 {
 	JsonNode config;
