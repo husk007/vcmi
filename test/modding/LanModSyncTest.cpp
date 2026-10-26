@@ -266,3 +266,26 @@ TEST(LanModSyncTest, CorruptedRelaunchSnapshotIsNotDiscarded)
 	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, "other-token"), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), corrupted);
 }
+
+TEST(LanModSyncTest, NoSessionRecoveryIsReadOnly)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "stale-token"), LanSessionStartupAction::NONE);
+	EXPECT_FALSE(LanModSessionState::restore(config));
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, "stale-token"), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, InvalidSessionStartIsReadOnly)
+{
+	JsonNode config;
+	config["activePreset"].String() = "missing";
+	const std::string original = config.toCompactString();
+
+	EXPECT_THROW(LanModSessionState::begin(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), original);
+}
