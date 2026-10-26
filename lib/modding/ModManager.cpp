@@ -147,17 +147,18 @@ static void validateLanSessionSnapshot(const JsonNode & config)
 
 void LanModSessionState::begin(JsonNode & config)
 {
-	if(!config["lanSession"].isNull())
+	const JsonNode & current = config;
+	if(!current["lanSession"].isNull())
 		throw std::runtime_error("A LAN mod session is already active");
 
-	const std::string previous = config["activePreset"].String();
+	const std::string previous = current["activePreset"].String();
 	const auto & sessionName = temporaryPresetName();
-	if(previous.empty() || previous == sessionName || config["presets"][previous].isNull())
+	if(previous.empty() || previous == sessionName || current["presets"][previous].isNull())
 		throw std::runtime_error("Cannot snapshot an invalid active mod preset");
-	if(!config["presets"][sessionName].isNull())
+	if(!current["presets"][sessionName].isNull())
 		throw std::runtime_error("Reserved LAN mod preset name is already in use");
 
-	const JsonNode original = config["presets"][previous];
+	const JsonNode original = current["presets"][previous];
 	config["lanSession"]["originalPresetName"].String() = previous;
 	config["lanSession"]["originalPreset"] = original;
 	config["presets"][sessionName] = original;
@@ -168,10 +169,11 @@ void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std:
 {
 	if(relaunchToken.empty() || relaunchToken.size() > 128)
 		throw std::invalid_argument("Controlled LAN relaunch requires a nonempty token of at most 128 bytes");
-	if(config["lanSession"].isNull())
+	const JsonNode & current = config;
+	if(current["lanSession"].isNull())
 		throw std::runtime_error("Cannot relaunch without a LAN mod session");
-	validateLanSessionSnapshot(config);
-	if(!config["lanSession"]["relaunchToken"].isNull())
+	validateLanSessionSnapshot(current);
+	if(!current["lanSession"]["relaunchToken"].isNull())
 		throw std::runtime_error("LAN mod session already has a pending controlled relaunch");
 
 	config["lanSession"]["relaunchToken"].String() = relaunchToken;
@@ -179,10 +181,11 @@ void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std:
 
 LanSessionStartupAction LanModSessionState::recoverOnStartup(JsonNode & config, const std::string & relaunchToken)
 {
-	if(config["lanSession"].isNull())
+	const JsonNode & current = config;
+	if(current["lanSession"].isNull())
 		return LanSessionStartupAction::NONE;
 
-	const JsonNode & session = config["lanSession"];
+	const JsonNode & session = current["lanSession"];
 	if(!relaunchToken.empty() && session["relaunchToken"].String() == relaunchToken)
 	{
 		validateLanSessionSnapshot(config);
@@ -197,7 +200,8 @@ LanSessionStartupAction LanModSessionState::recoverOnStartup(JsonNode & config, 
 
 bool LanModSessionState::restore(JsonNode & config)
 {
-	const JsonNode session = config["lanSession"];
+	const JsonNode & current = config;
+	const JsonNode session = current["lanSession"];
 	if(session.isNull())
 		return false;
 
