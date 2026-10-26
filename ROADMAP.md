@@ -2,6 +2,21 @@
 
 This roadmap describes opt-in features developed on `husk007/vcmi`. It does not change upstream VCMI behavior unless the feature is explicitly enabled. Work in small, reviewable changes and verify each milestone before marking it complete.
 
+## Hourly execution order
+
+The scheduled ChatGPT task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUNNER_STATUS.md](RUNNER_STATUS.md). It works on `feature/lan-mod-sync-and-web-roadmap`, not `develop`. Each run must deliver a focused committed change if feasible and report verification honestly; marking a checkbox complete requires its real acceptance criteria.
+
+Current next step: **L0: compile the foundation and run `vcmitest`**. If the scheduled runtime lacks the Linux build toolchain, keep it open as PARTIAL/BLOCKED with exact evidence and implement the next independent L0 prerequisite (not a redundant plan). Once L0 is validated, proceed L1 → L2 → L3 → L4; only then prioritize W0 → W4. A genuinely blocked stage may be bypassed for an independent, safe step, but must remain unchecked and tracked.
+
+### Release gates (must all be satisfied before claiming working LAN mod sync)
+
+- [ ] Repeat-session gate: a previously verified matching host mod requires no network transfer, only temporary activation if inactive.
+- [ ] Restoration gate: original preset, root mods, and enabled/disabled submods are restored after clean exit, disconnect, cancelled join, crashed client, and a controlled restart.
+- [ ] Integrity gate: SHA-256 verified for staged content; no overwrite of privately installed versions, no proprietary game assets transmitted.
+- [ ] Compatibility gate: normal VCMI clients without the new capability still work; all guests confirm compatible gameplay content before start.
+- [ ] End-to-end gate: two real clients successfully finish a LAN match and return to their own original mod configurations.
+
+
 ## A. LAN multiplayer: host-managed mod set (first priority)
 
 **Goal:** Joining a game should automatically prepare the host's compatible gameplay mods, use previously downloaded packages without retransmitting them, and restore the guest's exact prior active preset after the match.
