@@ -190,7 +190,8 @@ int main(int argc, char * argv[])
 		("nointro,i", "skips intro movies")
 		("donotstartserver,d","do not attempt to start server and just connect to it instead server")
 		("serverport", po::value<si64>(), "override port specified in config file")
-		("savefrequency", po::value<si64>(), "limit auto save creation to each N days");
+		("savefrequency", po::value<si64>(), "limit auto save creation to each N days")
+		("lan-relaunch-token", po::value<std::string>(), "one-time marker for controlled LAN mod session relaunch");
 
 	if(argc > 1)
 	{
@@ -222,6 +223,13 @@ int main(int argc, char * argv[])
 #else
 		return 0;
 #endif
+	}
+
+	const std::string lanRelaunchToken = vm.count("lan-relaunch-token") ? vm["lan-relaunch-token"].as<std::string>() : std::string{};
+	if(vm.count("lan-relaunch-token") && (lanRelaunchToken.empty() || lanRelaunchToken.size() > 128))
+	{
+		std::cerr << "LAN relaunch token must be between 1 and 128 bytes" << std::endl;
+		return 1;
 	}
 
 	// Init old logging system and new (temporary) logging system
@@ -259,7 +267,7 @@ int main(int argc, char * argv[])
 	try
 	{
 		LIBRARY = new GameLibrary;
-		LIBRARY->initializeFilesystem(false);
+		LIBRARY->initializeFilesystem(false, false, lanRelaunchToken);
 	}
 	catch (const DataLoadingException & e)
 	{
