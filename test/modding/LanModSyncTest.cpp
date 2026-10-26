@@ -7,6 +7,13 @@
 
 #include "StdInc.h"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+#include "../../lib/modding/AtomicModSettings.h"
+
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
@@ -105,4 +112,57 @@ TEST(LanModSyncTest, DoesNotOverwriteSnapshotForNestedSession)
 	EXPECT_THROW(LanModSessionState::begin(config), std::runtime_error);
 	EXPECT_EQ(config["lanSession"].toCompactString(), snapshot);
 	EXPECT_TRUE(LanModSessionState::restore(config));
+}
+
+TEST(LanModSyncTest, RestoresSnapshotAfterSerializedSessionReload)
+{
+	JsonNode config;
+	config["activePreset"].String() = "my_mods";
+	config["presets"]["my_mods"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["my_mods"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["hota"]["units"].Bool() = true;
+	const std::string onDisk = config.toCompactString();
+
+	JsonNode recovered(onDisk.data(), onDisk.size(), "LAN session recovery test");
+	EXPECT_TRUE(LanModSessionState::restore(recovered));
+	EXPECT_EQ(recovered.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, RefusesToRestoreIntoUnrelatedActivePreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "original";
+	config["presets"]["original"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+	config["activePreset"].String() = "different";
+	const std::string before = config.toCompactString();
+
+	EXPECT_THROW(LanModSessionState::restore(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), before);
+}
+
+TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
+{
+	const auto testDirectory = std::filesystem::temp_directory_path() /
+		("vcmi-lan-atomic-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	std::filesystem::create_directory(testDirectory);
+	const auto settings = testDirectory / "modSettings.json";
+
+	AtomicModSettings::replace(settings, "{\"old\":true}");
+	AtomicModSettings::replace(settings, "{\"new\":true}");
+	std::ifstream file(settings, std::ios::binary);
+	const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+	EXPECT_EQ(content, "{\"new\":true}");
+	EXPECT_FALSE(std::filesystem::exists(testDirectory / "modSettings.json.pending"));
+
+	const auto directoryTarget = testDirectory / "do-not-replace";
+	std::filesystem::create_directory(directoryTarget);
+	EXPECT_THROW(AtomicModSettings::replace(directoryTarget, "unexpected"), std::filesystem::filesystem_error);
+	EXPECT_TRUE(std::filesystem::is_directory(directoryTarget));
+	EXPECT_FALSE(std::filesystem::exists(testDirectory / "do-not-replace.pending"));
+
+	std::filesystem::remove_all(testDirectory);
 }
