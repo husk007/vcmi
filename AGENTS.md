@@ -265,7 +265,7 @@ Major dependencies are managed by Conan — see `dependencies/conanfile.py` for 
 
 ## Fork workstreams: LAN mod sync and WebAssembly
 
-The fork-specific execution plan lives in [ROADMAP.md](ROADMAP.md). Review this file and the relevant design document before starting any task. Prioritize the LAN mod synchronization milestones (L0-L4), then progress on the browser client feasibility milestones (W0-W4). Keep features optional so unmodified VCMI games remain compatible.
+The fork-specific execution plan lives in [ROADMAP.md](ROADMAP.md). The hourly executor must also follow [RUNNER.md](RUNNER.md) and read [RUNNER_STATUS.md](RUNNER_STATUS.md) at the start of every run. Prioritize the LAN mod synchronization milestones (L0-L4), then progress on the browser client feasibility milestones (W0-W4). Keep features optional so unmodified VCMI games remain compatible.
 
 - Preserve the player's exact pre-session mod preset and enabled/disabled submod settings. Use a temporary multiplayer preset and a durable restore journal before applying changes.
 - Retain downloaded redistributable mod packages across LAN sessions. Verify the host's SHA-256 and reuse packages when the digest matches. Never silently overwrite an existing personal mod version.
@@ -275,3 +275,13 @@ The fork-specific execution plan lives in [ROADMAP.md](ROADMAP.md). Review this 
 - For the browser port, isolate Emscripten builds and route browser connections through a WebSocket adapter; do not require native TCP or the Qt launcher inside the browser.
 - Mark roadmap tasks complete only after relevant tests pass. Add focused unit tests for pure synchronization logic and integration tests before claiming a working LAN transfer or playable browser build.
 - Follow the existing GitHub contribution policy above: automated agents must not create upstream PRs/issues or post comments. Changes should remain on a dedicated fork branch for human review.
+
+### Hourly automation working agreement
+
+- Work only in `husk007/vcmi` on `feature/lan-mod-sync-and-web-roadmap`, always fetching the branch HEAD before writing. Never modify `develop`, upstream `vcmi/vcmi`, or someone else's branch.
+- Each hourly iteration must select a specific unchecked ROADMAP criterion, implement one focused, useful increment when possible, and persist it as one or more real commits. An uncommitted idea or a rewritten plan is not an implementation.
+- Reuse the existing LAN lobby mod compatibility preview, temporary preset support, and mod installer. Continue from previous commits instead of recreating them; inspect the diff and tests before changes.
+- Preserve previously downloaded mod archives by verified SHA-256 in a persistent cache; a repeated match with the same host/mod hashes must avoid retransmission. A matching installed version should only be activated in the temporary preset.
+- Before altering guest mod selection, persist a durable recovery snapshot of the original active preset and disabled submods. Restore exactly that state after all exit and failure paths; a completed archive transfer does not justify altering the user's personal mod installation.
+- Record verification honestly. `[x]` means its acceptance criteria were actually met; if tests cannot run, mark the result PARTIAL and leave build/runtime-dependent checkboxes open. Record blockers with a next action in `RUNNER_STATUS.md`, avoiding pointless hourly status-only commits.
+- Respect the existing no-AI-PR/no-issue rule. Commit changes directly to the fork feature branch for human review. Do not force-push or merge to `develop`.
