@@ -15,6 +15,7 @@
 
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanRelaunchToken.h"
+#include "../../lib/modding/ModArchiveDigest.h"
 
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
@@ -61,6 +62,40 @@ TEST(LanModSyncTest, DownloadsChangedArchiveInsteadOfReusingStaleCache)
 
 	EXPECT_EQ(plan.downloadOrUpdate, std::set<TModID>({"hota"}));
 	EXPECT_TRUE(plan.reuseCachedArchive.empty());
+}
+
+TEST(LanModSyncTest, RejectsMalformedMatchingCachedArchiveDigests)
+{
+	const ModListVerificationStatus states = {{"hota", ModVerificationStatus::NOT_INSTALLED}};
+	const std::vector<std::string> invalidDigests = {
+		"identical-version-label",
+		std::string(63, 'a'),
+		std::string(64, 'g'),
+		"sha256:" + std::string(64, 'a')
+	};
+
+	for(const auto & digest : invalidDigests)
+	{
+		EXPECT_FALSE(ModArchiveDigest::sameSha256(digest, digest));
+		const auto plan = ModVerificationInfo::buildSyncPlan(
+			states, {{"hota", digest}}, {{"hota", digest}});
+		EXPECT_EQ(plan.downloadOrUpdate, std::set<TModID>({"hota"}));
+		EXPECT_TRUE(plan.reuseCachedArchive.empty());
+	}
+}
+
+TEST(LanModSyncTest, ReusesValidDigestRegardlessOfHexLetterCase)
+{
+	const std::string expected = std::string(32, 'a') + std::string(32, 'F');
+	const std::string cached = std::string(32, 'A') + std::string(32, 'f');
+	const ModListVerificationStatus states = {{"hota", ModVerificationStatus::VERSION_MISMATCH}};
+
+	EXPECT_TRUE(ModArchiveDigest::sameSha256(expected, cached));
+	const auto plan = ModVerificationInfo::buildSyncPlan(
+		states, {{"hota", expected}}, {{"hota", cached}});
+	EXPECT_TRUE(plan.downloadOrUpdate.empty());
+	EXPECT_EQ(plan.reuseCachedArchive, std::set<TModID>({"hota"}));
+	EXPECT_EQ(plan.activate, std::set<TModID>({"hota"}));
 }
 
 TEST(LanModSyncTest, ActivatesAlreadyInstalledModWithoutDownloading)
