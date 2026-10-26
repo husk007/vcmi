@@ -9,6 +9,7 @@
  */
 #include "StdInc.h"
 #include "ModVerificationInfo.h"
+#include "ModArchiveDigest.h"
 
 #include "CModHandler.h"
 #include "ModDescription.h"
@@ -153,8 +154,8 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 			{
 				const auto expected = expectedSha256.find(rootId);
 				const auto cached = verifiedCachedSha256.find(rootId);
-				if(expected != expectedSha256.end() && !expected->second.empty()
-					&& cached != verifiedCachedSha256.end() && expected->second == cached->second)
+				if(expected != expectedSha256.end() && cached != verifiedCachedSha256.end()
+					&& ModArchiveDigest::sameSha256(expected->second, cached->second))
 					plan.reuseCachedArchive.insert(rootId);
 				else
 					plan.downloadOrUpdate.insert(rootId);
