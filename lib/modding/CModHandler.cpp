@@ -29,9 +29,9 @@
 #include <tbb/parallel_invoke.h>
 #include <zlib.h>
 
-CModHandler::CModHandler(bool useTestPreset)
+CModHandler::CModHandler(bool useTestPreset, const std::string & lanRelaunchToken)
 	: content(std::make_shared<CContentHandler>())
-	, modManager(std::make_unique<ModManager>(JsonNode(), useTestPreset))
+	, modManager(std::make_unique<ModManager>(JsonNode(), useTestPreset, TModList{}, lanRelaunchToken))
 {
 }
 
