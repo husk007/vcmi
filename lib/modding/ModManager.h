@@ -48,6 +48,8 @@ public:
 	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
 	static LanSessionStartupAction recoverOnStartup(JsonNode & config, const std::string & relaunchToken);
 	static bool restore(JsonNode & config);
+	/// Skip shutdown rollback only while a controlled client relaunch is pending.
+	static bool shouldRestoreOnShutdown(const JsonNode & config);
 };
 
 /// Provides interface to access or change current mod preset
@@ -71,6 +73,7 @@ public:
 	void beginLanSession();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
+	void restoreLanSessionOnShutdown();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;
@@ -185,6 +188,7 @@ public:
 	std::string prepareControlledRelaunch();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
+	void restoreLanSessionOnShutdown();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;
