@@ -47,6 +47,7 @@ class ModsPresetState : boost::noncopyable
 	JsonNode modConfig;
 	JsonPath settingsPath; // which mod-settings file we read AND write
 
+	void saveConfigurationState(const JsonNode & state) const;
 	void createInitialPreset();
 	void importInitialPreset();
 
