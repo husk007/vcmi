@@ -392,7 +392,8 @@ void ModsPresetState::saveConfigurationState(const JsonNode & state) const
 	if(!destination)
 		throw std::runtime_error("Cannot locate the mod settings file");
 
-	AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString());
+	if(!AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString()))
+		logGlobal->warn("Mod settings replaced but parent directory sync failed; power-loss durability is not guaranteed");
 }
 
 void ModsPresetState::saveConfigurationState() const
