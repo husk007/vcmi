@@ -58,11 +58,19 @@ The current `ModSyncPlan::buildSyncPlan` consumes two maps: expected archive SHA
 
 `LanModSessionState::begin` clones the complete current preset into a reserved `__vcmi_lan_session` preset and stores `lanSession.originalPresetName` and `lanSession.originalPreset`. This retains disabled submods as well as enabled mods, and preserves the user's other presets. `restore` reinstates the original preset and its settings and removes the temporary preset.
 
-The helper is currently available through `ModsPresetState` / `ModManager`. It is not yet wired to the network join/disconnect paths. Before enabling it in production:
+The helper is currently available through `ModsPresetState` / `ModManager`. The implementation now supports a **one-shot controlled relaunch marker**:
+
+- When a LAN session is active, the future launcher will generate an unpredictable local token, call `ModManager::prepareControlledRelaunch(token)` and only restart after the settings file has been written atomically.
+- On the restarted process, the same token must be supplied to the `ModManager` constructor (last argument). An exact match consumes the marker on disk while keeping the temporary preset and original recovery snapshot.
+- A missing or mismatched token restores the original preset. If the client crashes after consuming a valid token, the next startup also restores automatically. Corrupt session snapshots raise an error rather than discarding recovery data.
+- The default constructor arguments supply no token, so existing clients retain safe interrupted-session restoration behavior.
+- Token transport through `CModHandler` / launcher process arguments and controlled restart itself are **not yet implemented**, so the new API alone does not enable session resume.
+
+Before enabling it in production:
 
 - Make the journal write crash-safe (write temporary file, fsync when supported, atomically replace).
 - Handle normal disconnect, host dropout, user cancellation, client crash, and restart recovery separately.
-- Add a session-state marker for an intentional relaunch, so the next launch can continue a pending LAN join instead of restoring prematurely.
+- Wire the existing one-shot marker to an actual controlled process relaunch, including a fresh locally generated token and startup propagation through `CModHandler`.
 - If personal and host mod versions differ, keep the original personal version side by side; never overwrite it.
 - Restore the original preset **only after** the session has ended, then reload engine resources if necessary.
 - Treat an invalid journal as recoverable user data. Preserve a backup and present an actionable error instead of deleting it.
