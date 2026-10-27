@@ -44,8 +44,8 @@ void CModHandler::beginLanSession()
 
 void CModHandler::restoreLanSession()
 {
-	modManager->restoreLanSession();
 	lanRelaunchRequested.store(false, std::memory_order_release);
+	modManager->restoreLanSession();
 }
 
 void CModHandler::requestLanRelaunch()
