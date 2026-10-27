@@ -452,6 +452,72 @@ TEST(LanModSyncTest, MalformedStoredSnapshotPreservesRecoveryData)
 	EXPECT_EQ(config.toCompactString(), badPreset);
 }
 
+TEST(LanModSyncTest, InvalidPersonalPresetCannotStartOrEraseRecoveryJournal)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Integer() = 1;
+	const std::string invalidOriginal = config.toCompactString();
+
+	EXPECT_THROW(LanModSessionState::begin(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), invalidOriginal);
+
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	LanModSessionState::begin(config);
+	config["lanSession"]["originalPreset"]["mods"].Vector().front().Integer() = 42;
+	const std::string invalidSnapshot = config.toCompactString();
+
+	EXPECT_THROW(LanModSessionState::restore(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), invalidSnapshot);
+	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, ""), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), invalidSnapshot);
+}
+
+TEST(LanModSyncTest, CorruptedTemporaryPresetCannotResumeControlledRelaunch)
+{
+	for(int damage = 0; damage < 2; ++damage)
+	{
+		JsonNode config;
+		config["activePreset"].String() = "personal";
+		config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+		config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+		const std::string original = config.toCompactString();
+
+		LanModSessionState::begin(config);
+		const std::string token(64, 'd');
+		LanModSessionState::prepareControlledRelaunch(config, token);
+
+		const auto & sessionName = LanModSessionState::temporaryPresetName();
+		if(damage == 0)
+			config["presets"][sessionName]["mods"].Vector().front().Integer() = 7;
+		else
+			config["presets"][sessionName]["settings"]["hota"]["units"].Integer() = 7;
+
+		EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+		EXPECT_EQ(LanModSessionState::recoverOnStartup(config, token), LanSessionStartupAction::RESTORED);
+		EXPECT_EQ(config.toCompactString(), original);
+	}
+}
+
+TEST(LanModSyncTest, MissingTemporaryPresetStillRestoresPersonalSubmods)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	const std::string token(64, 'e');
+	LanModSessionState::prepareControlledRelaunch(config, token);
+	config["presets"].Struct().erase(LanModSessionState::temporaryPresetName());
+
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, token), LanSessionStartupAction::RESTORED);
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
 TEST(LanModSyncTest, InvalidActivePresetTypeCannotStartLanSession)
 {
 	JsonNode config;
