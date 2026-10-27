@@ -355,8 +355,8 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 	std::filesystem::create_directory(testDirectory);
 	const auto settings = testDirectory / "modSettings.json";
 
-	AtomicModSettings::replace(settings, "{\"old\":true}");
-	AtomicModSettings::replace(settings, "{\"new\":true}");
+	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\"old\":true}"));
+	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\"new\":true}"));
 	{
 		std::ifstream file(settings, std::ios::binary);
 		const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -378,7 +378,7 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 		std::ofstream foreign(marker);
 		foreign << "other writer";
 	}
-	AtomicModSettings::replace(settings, "{\"newer\":true}");
+	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\"newer\":true}"));
 	EXPECT_TRUE(std::filesystem::exists(marker));
 
 	{
@@ -412,7 +412,8 @@ TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
 		{
 			try
 			{
-				AtomicModSettings::replace(settings, std::string(4096, static_cast<char>('A' + i)));
+				if(!AtomicModSettings::replace(settings, std::string(4096, static_cast<char>('A' + i))))
+					++failures;
 			}
 			catch(const std::exception &)
 			{

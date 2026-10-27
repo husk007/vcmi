@@ -298,7 +298,8 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 	{
 		JsonNode recovered = modConfig;
 		const auto action = LanModSessionState::recoverOnStartup(recovered, relaunchToken);
-		saveConfigurationState(recovered);
+		if(!saveConfigurationState(recovered))
+			throw std::runtime_error("LAN session startup recovery could not sync the mod settings directory");
 		modConfig = std::move(recovered);
 		if(action == LanSessionStartupAction::RESUMED)
 			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
@@ -326,7 +327,8 @@ void ModsPresetState::beginLanSession()
 {
 	JsonNode pending = modConfig;
 	LanModSessionState::begin(pending);
-	saveConfigurationState(pending);
+	if(!saveConfigurationState(pending))
+		throw std::runtime_error("LAN session snapshot could not sync the mod settings directory");
 	modConfig = std::move(pending);
 }
 
@@ -334,7 +336,8 @@ void ModsPresetState::prepareControlledRelaunch(const std::string & relaunchToke
 {
 	JsonNode pending = modConfig;
 	LanModSessionState::prepareControlledRelaunch(pending, relaunchToken);
-	saveConfigurationState(pending);
+	if(!saveConfigurationState(pending))
+		throw std::runtime_error("LAN relaunch marker could not sync the mod settings directory");
 	modConfig = std::move(pending);
 }
 
@@ -343,7 +346,8 @@ void ModsPresetState::restoreLanSession()
 	JsonNode restored = modConfig;
 	if(LanModSessionState::restore(restored))
 	{
-		saveConfigurationState(restored);
+		if(!saveConfigurationState(restored))
+			throw std::runtime_error("LAN session restoration could not sync the mod settings directory");
 		modConfig = std::move(restored);
 	}
 }
@@ -517,14 +521,16 @@ void ModsPresetState::setValidatedChecksum(const TModID & modName, std::optional
 		modConfig["validatedMods"].Struct().erase(modName);
 }
 
-void ModsPresetState::saveConfigurationState(const JsonNode & state) const
+bool ModsPresetState::saveConfigurationState(const JsonNode & state) const
 {
 	const auto destination = CResourceHandler::get()->getResourceName(ResourcePath(settingsPath));
 	if(!destination)
 		throw std::runtime_error("Cannot locate the mod settings file");
 
-	if(!AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString()))
+	const bool directorySynced = AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString());
+	if(!directorySynced)
 		logGlobal->warn("Mod settings replaced but parent directory sync failed; power-loss durability is not guaranteed");
+	return directorySynced;
 }
 
 void ModsPresetState::saveConfigurationState() const
