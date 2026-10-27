@@ -181,7 +181,23 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 	for(const auto & rootId : plan.downloadOrUpdate)
 		plan.reuseCachedArchive.erase(rootId);
 
-	// A required submod cannot be activated while its root mod is deactivated.
+	// Nested submods also require their intermediate parents. A matching submod
+	// protects its parents from an inconsistent excessive-mod status.
+	for(const auto & [modId, status] : statuses)
+	{
+		if(modId == ModScope::scopeBuiltin() || status == ModVerificationStatus::EXCESSIVE)
+			continue;
+
+		for(size_t separator = modId.find('.'); separator != std::string::npos; separator = modId.find('.', separator + 1))
+		{
+			const TModID ancestor = modId.substr(0, separator);
+			if(status != ModVerificationStatus::FULL_MATCH)
+				plan.activate.insert(ancestor);
+			plan.deactivate.erase(ancestor);
+		}
+	}
+
+	// Required mods and submods must not be deactivated by contradictory statuses.
 	for(const auto & modId : plan.activate)
 		plan.deactivate.erase(modId);
 
