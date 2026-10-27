@@ -500,3 +500,71 @@ TEST(LanModSyncTest, DesktopRelaunchRejectsInvalidTokensBeforeCreatingProcesses)
 #endif
 #endif
 }
+
+#ifndef VCMI_MOBILE
+TEST(LanModSyncTest, FailedDesktopRelaunchRestoresSavedPersonalPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["maps"]["large"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["maps"]["large"].Bool() = true;
+
+	int prepared = 0;
+	int restored = 0;
+	EXPECT_THROW(LanRelaunchProcess::spawnWithRollback("/__vcmi_lan_relaunch_missing__",
+		[&]()
+		{
+			++prepared;
+			const std::string token(64, 'a');
+			LanModSessionState::prepareControlledRelaunch(config, token);
+			return token;
+		},
+		[&]()
+		{
+			++restored;
+			EXPECT_TRUE(LanModSessionState::restore(config));
+		}), std::system_error);
+
+	EXPECT_EQ(prepared, 1);
+	EXPECT_EQ(restored, 1);
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, FailedRelaunchReportsPresetRestoreFailureWithoutDiscardingJournal)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+	const std::string token(64, 'b');
+
+	std::string error;
+	try
+	{
+		LanRelaunchProcess::spawnWithRollback("/__vcmi_lan_relaunch_missing__",
+			[&]()
+			{
+				LanModSessionState::prepareControlledRelaunch(config, token);
+				return token;
+			},
+			[]()
+			{
+				throw std::runtime_error("recovery storage unavailable");
+			});
+		FAIL() << "Missing executable must cause a relaunch error";
+	}
+	catch(const std::runtime_error & e)
+	{
+		error = e.what();
+	}
+
+	EXPECT_NE(error.find("LAN client relaunch failed"), std::string::npos);
+	EXPECT_NE(error.find("recovery storage unavailable"), std::string::npos);
+	EXPECT_EQ(config["lanSession"]["relaunchToken"].String(), token);
+	EXPECT_FALSE(config["lanSession"]["originalPreset"].isNull());
+}
+#endif
