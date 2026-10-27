@@ -133,6 +133,20 @@ bool ModSyncPlan::requiresChanges() const
 	return !downloadOrUpdate.empty() || !reuseCachedArchive.empty() || !activate.empty() || !deactivate.empty();
 }
 
+static bool isReservedWindowsLanComponent(std::string component)
+{
+	std::transform(component.begin(), component.end(), component.begin(), [](unsigned char ch){
+		return static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+	});
+
+	if(component == "con" || component == "prn" || component == "aux" || component == "nul"
+		|| component == "conin$" || component == "conout$" || component == "clock$")
+		return true;
+
+	return component.size() == 4 && (component.compare(0, 3, "com") == 0 || component.compare(0, 3, "lpt") == 0)
+		&& component[3] >= '1' && component[3] <= '9';
+}
+
 static bool isValidLanModId(const TModID & modId)
 {
 	if(modId.empty() || modId.front() == '.' || modId.back() == '.'
@@ -140,9 +154,23 @@ static bool isValidLanModId(const TModID & modId)
 		|| modId.find_first_of("<>:\"/\\|?*") != TModID::npos)
 		return false;
 
-	return std::none_of(modId.begin(), modId.end(), [](unsigned char ch){
+	if(std::any_of(modId.begin(), modId.end(), [](unsigned char ch){
 		return ch < 0x20 || ch == 0x7f;
-	});
+	}))
+		return false;
+
+	// Every component becomes a directory name when installing nested mods.
+	for(size_t begin = 0; begin < modId.size();)
+	{
+		const size_t end = modId.find('.', begin);
+		const std::string component = modId.substr(begin, end - begin);
+		if(component.back() == ' ' || isReservedWindowsLanComponent(component))
+			return false;
+		if(end == TModID::npos)
+			break;
+		begin = end + 1;
+	}
+	return true;
 }
 
 ModSyncPlan ModVerificationInfo::buildSyncPlan(
