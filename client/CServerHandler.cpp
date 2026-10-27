@@ -294,6 +294,17 @@ void CServerHandler::onTimer()
 		logNetwork->info("Connection aborted by player!");
 		serverRunner->wait();
 		serverRunner.reset();
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				LIBRARY->modh->restoreLanSession();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after cancelled local server connection: %s", e.what());
+			}
+		}
 		if (ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>() != nullptr)
 			ENGINE->windows().popWindows(1);
 		return;
