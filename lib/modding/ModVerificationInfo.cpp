@@ -179,5 +179,9 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 	for(const auto & rootId : plan.downloadOrUpdate)
 		plan.reuseCachedArchive.erase(rootId);
 
+	// A required submod cannot be activated while its root mod is deactivated.
+	for(const auto & modId : plan.activate)
+		plan.deactivate.erase(modId);
+
 	return plan;
 }
