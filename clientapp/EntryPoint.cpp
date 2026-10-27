@@ -44,6 +44,7 @@
 #include "../lib/GameLibrary.h"
 #include "../lib/ScopeGuard.h"
 #include "../lib/VCMIDirs.h"
+#include "LanRelaunchProcess.h"
 
 #include <boost/program_options.hpp>
 #include <vstd/StringUtils.h>
@@ -226,9 +227,9 @@ int main(int argc, char * argv[])
 	}
 
 	const std::string lanRelaunchToken = vm.count("lan-relaunch-token") ? vm["lan-relaunch-token"].as<std::string>() : std::string{};
-	if(vm.count("lan-relaunch-token") && (lanRelaunchToken.empty() || lanRelaunchToken.size() > 128))
+	if(vm.count("lan-relaunch-token") && !LanRelaunchProcess::isValidToken(lanRelaunchToken))
 	{
-		std::cerr << "LAN relaunch token must be between 1 and 128 bytes" << std::endl;
+		std::cerr << "LAN relaunch token must contain 64 lowercase hexadecimal characters" << std::endl;
 		return 1;
 	}
 
