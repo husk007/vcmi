@@ -37,6 +37,7 @@
 #include "../../lib/networkPacks/PacksForLobby.h"
 #include "../../lib/rmg/CMapGenOptions.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/modding/CModHandler.h"
 
 CLobbyScreen::CLobbyScreen(ESelectionScreen screenType, bool hideScreen)
 	: CSelectionBase(screenType), bonusSel(nullptr)
@@ -127,7 +128,19 @@ CLobbyScreen::CLobbyScreen(ESelectionScreen screenType, bool hideScreen)
 	buttonBack = std::make_shared<CButton>(Point(581, 535), AnimationPath::builtin("SCNRBACK.DEF"), LIBRARY->generaltexth->zelp[105], [&]()
 	{
 		bool wasInLobbyRoom = GAME->server().inLobbyRoom();
+		bool leavingNetworkLobby = isMultiplayerNetworkLobby();
 		GAME->server().sendClientDisconnecting();
+		if(leavingNetworkLobby && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				LIBRARY->modh->restoreLanSession();
+			}
+			catch(const std::exception & e)
+			{
+				logGlobal->error("Unable to restore LAN mod preset after leaving multiplayer lobby: %s", e.what());
+			}
+		}
 		close();
 
 		if (wasInLobbyRoom)
