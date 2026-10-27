@@ -28,6 +28,35 @@
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
+#include "../../lib/modding/CModHandler.h"
+#include "../../lib/GameLibrary.h"
+
+TEST(LanModSyncTest, InactiveInstalledModWithDifferentVersionRequiresUpdate)
+{
+	const auto & active = LIBRARY->modh->getActiveMods();
+	for(const auto & modId : LIBRARY->modh->getAllMods())
+	{
+		if(modId == "vcmi" || std::find(active.begin(), active.end(), modId) != active.end())
+			continue;
+
+		const CModVersion localVersion = LIBRARY->modh->getModInfo(modId).getVersion();
+		ModVerificationInfo hostMod;
+		hostMod.impactsGameplay = true;
+		hostMod.version = CModVersion(localVersion.major == 0 ? 1 : 0, localVersion.minor, localVersion.patch);
+
+		const auto mismatch = ModVerificationInfo::verifyListAgainstLocalMods({{modId, hostMod}});
+		ASSERT_TRUE(mismatch.contains(modId));
+		EXPECT_EQ(mismatch.at(modId), ModVerificationStatus::VERSION_MISMATCH);
+
+		hostMod.version = localVersion;
+		const auto matching = ModVerificationInfo::verifyListAgainstLocalMods({{modId, hostMod}});
+		ASSERT_TRUE(matching.contains(modId));
+		EXPECT_EQ(matching.at(modId), ModVerificationStatus::DISABLED);
+		return;
+	}
+
+	GTEST_SKIP() << "Test environment has no installed inactive mod";
+}
 
 TEST(LanModSyncTest, PlansMissingDisabledAndExcessModsWithoutUninstall)
 {
