@@ -77,15 +77,15 @@ inline std::uint64_t spawn(const std::filesystem::path & executable, const std::
 #endif
 }
 
-/// Persist the one-shot marker before spawning; restore the player's preset if spawn fails.
+/// Persist the one-shot marker before spawning; restore the player's preset if handoff fails.
 /// The caller must release gameplay resources before using this handoff.
 template<typename PersistMarker, typename RestorePreset>
 inline std::uint64_t spawnWithRollback(const std::filesystem::path & executable,
 	PersistMarker && persistMarker, RestorePreset && restorePreset)
 {
-	const std::string token = persistMarker();
 	try
 	{
+		const std::string token = persistMarker();
 		return spawn(executable, token);
 	}
 	catch(const std::exception & launchError)
