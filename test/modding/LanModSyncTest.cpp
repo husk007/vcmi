@@ -29,6 +29,8 @@
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
 #include "../../lib/modding/CModHandler.h"
+#include "../../lib/modding/ModDescription.h"
+#include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
 
 TEST(LanModSyncTest, InactiveInstalledModWithDifferentVersionRequiresUpdate)
@@ -36,7 +38,7 @@ TEST(LanModSyncTest, InactiveInstalledModWithDifferentVersionRequiresUpdate)
 	const auto & active = LIBRARY->modh->getActiveMods();
 	for(const auto & modId : LIBRARY->modh->getAllMods())
 	{
-		if(modId == "vcmi" || std::find(active.begin(), active.end(), modId) != active.end())
+		if(modId == ModScope::scopeBuiltin() || std::find(active.begin(), active.end(), modId) != active.end())
 			continue;
 
 		const CModVersion localVersion = LIBRARY->modh->getModInfo(modId).getVersion();
