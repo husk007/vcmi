@@ -576,6 +576,35 @@ TEST(LanModSyncTest, FailedDesktopRelaunchRestoresSavedPersonalPreset)
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, FailedMarkerPersistenceRestoresPersonalPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["maps"]["large"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["maps"]["large"].Bool() = true;
+	int restored = 0;
+
+	// A failed persistence acknowledgement can occur after the marker has been written.
+	EXPECT_THROW(LanRelaunchProcess::spawnWithRollback("/__vcmi_lan_relaunch_missing__",
+		[&]() -> std::string
+		{
+			LanModSessionState::prepareControlledRelaunch(config, std::string(64, 'c'));
+			throw std::runtime_error("marker persistence failed");
+		},
+		[&]()
+		{
+			++restored;
+			EXPECT_TRUE(LanModSessionState::restore(config));
+		}), std::runtime_error);
+
+	EXPECT_EQ(restored, 1);
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
 TEST(LanModSyncTest, FailedRelaunchReportsPresetRestoreFailureWithoutDiscardingJournal)
 {
 	JsonNode config;
