@@ -17,6 +17,7 @@
 
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanRelaunchToken.h"
+#include "../../clientapp/LanRelaunchProcess.h"
 #include "../../lib/modding/ModArchiveDigest.h"
 
 #include "../../lib/json/JsonNode.h"
@@ -481,4 +482,21 @@ TEST(LanModSyncTest, PendingRelaunchSkipsShutdownRollbackButConsumedMarkerAllows
 	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
 	EXPECT_TRUE(LanModSessionState::restore(config));
 	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, DesktopRelaunchRejectsInvalidTokensBeforeCreatingProcesses)
+{
+	const std::string validToken(64, 'a');
+	EXPECT_TRUE(LanRelaunchProcess::isValidToken(validToken));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a')));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(64, 'A')));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a') + "z"));
+
+#if !defined(VCMI_MOBILE)
+	EXPECT_THROW(LanRelaunchProcess::spawn({}, validToken), std::invalid_argument);
+	EXPECT_THROW(LanRelaunchProcess::spawn("vcmi-client", std::string(64, 'g')), std::invalid_argument);
+#ifndef _WIN32
+	EXPECT_THROW(LanRelaunchProcess::spawn("/__vcmi_lan_relaunch_missing__", validToken), std::system_error);
+#endif
+#endif
 }
