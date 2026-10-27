@@ -11,6 +11,8 @@
 
 #include "../json/JsonNode.h"
 
+#include <atomic>
+
 class CModHandler;
 class ModDescription;
 class CContentHandler;
@@ -23,6 +25,7 @@ using TModID = std::string;
 class DLL_LINKAGE CModHandler final : boost::noncopyable
 {
 	std::unique_ptr<ModManager> modManager;
+	std::atomic_bool lanRelaunchRequested{false};
 	std::map<std::string, uint32_t> modChecksums;
 	std::set<std::string> validationPassed;
 
@@ -77,6 +80,14 @@ public:
 	void load();
 	void afterLoad();
 
+	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
+	void beginLanSession();
+	/// Restore the saved personal preset when a LAN join or session is cancelled.
+	void restoreLanSession();
+	/// Request a one-shot relaunch after gameplay resources are released.
+	void requestLanRelaunch();
+	bool consumeLanRelaunchRequest();
+	std::string prepareControlledLanRelaunch();
 	/// Restore the player's original preset on a clean shutdown, unless relaunch is pending.
 	void restoreLanSessionOnShutdown();
 

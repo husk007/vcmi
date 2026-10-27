@@ -15,6 +15,10 @@
 #include <iterator>
 #include <thread>
 
+#if !defined(VCMI_MOBILE) && !defined(_WIN32)
+#include <sys/wait.h>
+#endif
+
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanRelaunchToken.h"
 #include "../../lib/modding/LanRelaunchTokenFormat.h"
@@ -752,5 +756,44 @@ TEST(LanModSyncTest, FailedRelaunchReportsPresetRestoreFailureWithoutDiscardingJ
 	EXPECT_NE(error.find("recovery storage unavailable"), std::string::npos);
 	EXPECT_EQ(config["lanSession"]["relaunchToken"].String(), token);
 	EXPECT_FALSE(config["lanSession"]["originalPreset"].isNull());
+}
+#endif
+
+#if !defined(VCMI_MOBILE) && !defined(_WIN32)
+TEST(LanModSyncTest, SuccessfulDesktopRelaunchPreservesMarkerForReplacement)
+{
+	const std::filesystem::path executable("/bin/true");
+	if(!std::filesystem::exists(executable))
+		GTEST_SKIP() << "The POSIX smoke-test executable is not installed";
+
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+
+	int prepared = 0;
+	int restored = 0;
+	const std::string token(64, 'a');
+	const auto pid = LanRelaunchProcess::spawnWithRollback(executable,
+		[&]()
+		{
+			++prepared;
+			LanModSessionState::prepareControlledRelaunch(config, token);
+			return token;
+		},
+		[&]()
+		{
+			++restored;
+			LanModSessionState::restore(config);
+		});
+
+	int status = 0;
+	ASSERT_EQ(::waitpid(static_cast<pid_t>(pid), &status, 0), static_cast<pid_t>(pid));
+	EXPECT_TRUE(WIFEXITED(status));
+	EXPECT_EQ(WEXITSTATUS(status), 0);
+	EXPECT_EQ(prepared, 1);
+	EXPECT_EQ(restored, 0);
+	EXPECT_EQ(config["lanSession"]["relaunchToken"].String(), token);
+	EXPECT_EQ(config["activePreset"].String(), LanModSessionState::temporaryPresetName());
 }
 #endif

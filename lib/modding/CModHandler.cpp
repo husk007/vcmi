@@ -37,6 +37,34 @@ CModHandler::CModHandler(bool useTestPreset, const std::string & lanRelaunchToke
 
 CModHandler::~CModHandler() = default;
 
+void CModHandler::beginLanSession()
+{
+	modManager->beginLanSession();
+}
+
+void CModHandler::restoreLanSession()
+{
+	modManager->restoreLanSession();
+	lanRelaunchRequested.store(false, std::memory_order_release);
+}
+
+void CModHandler::requestLanRelaunch()
+{
+	if(modManager->getActivePreset() != LanModSessionState::temporaryPresetName())
+		throw std::runtime_error("Cannot relaunch without an active LAN mod preset");
+	lanRelaunchRequested.store(true, std::memory_order_release);
+}
+
+bool CModHandler::consumeLanRelaunchRequest()
+{
+	return lanRelaunchRequested.exchange(false, std::memory_order_acq_rel);
+}
+
+std::string CModHandler::prepareControlledLanRelaunch()
+{
+	return modManager->prepareControlledRelaunch();
+}
+
 void CModHandler::restoreLanSessionOnShutdown()
 {
 	modManager->restoreLanSessionOnShutdown();

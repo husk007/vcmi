@@ -163,6 +163,8 @@ int main(int argc, char * argv[])
 #endif
 
 #if !defined(VCMI_MOBILE)
+	// Resolve the executable before changing cwd; the relaunch must use the same binary.
+	const std::filesystem::path lanRelaunchExecutable = std::filesystem::absolute(std::filesystem::path(argv[0]));
 	// Correct working dir executable folder (not bundle folder) so we can use executable relative paths
 	boost::filesystem::current_path(boost::filesystem::system_complete(argv[0]).parent_path());
 #endif
@@ -486,6 +488,23 @@ int main(int argc, char * argv[])
 
 				ENGINE.reset();
 			}
+
+#if !defined(VCMI_MOBILE)
+			if(LIBRARY && LIBRARY->modh && LIBRARY->modh->consumeLanRelaunchRequest())
+			{
+				try
+				{
+					const auto pid = LanRelaunchProcess::spawnWithRollback(lanRelaunchExecutable,
+						[&]() { return LIBRARY->modh->prepareControlledLanRelaunch(); },
+						[&]() { LIBRARY->modh->restoreLanSession(); });
+					logGlobal->info("Started controlled LAN client relaunch, process ID: %llu", static_cast<unsigned long long>(pid));
+				}
+				catch(const std::exception & e)
+				{
+					logGlobal->error("Controlled LAN client relaunch failed: %s", e.what());
+				}
+			}
+#endif
 
 			// Restore personal mod settings only after the game has released its resources.
 			// A pending controlled relaunch keeps the temporary preset for the next process.
