@@ -26,6 +26,21 @@
 namespace AtomicModSettings
 {
 
+#ifndef _WIN32
+/// Retry interrupted POSIX syncs; other I/O errors must still stop durable LAN journal writes.
+template<typename Sync>
+inline bool syncDescriptorWithRetry(int descriptor, Sync && sync)
+{
+	int result;
+	do
+	{
+		result = sync(descriptor);
+	}
+	while(result < 0 && errno == EINTR);
+	return result == 0;
+}
+#endif
+
 /// Replaces an existing settings file after flushing the new contents to storage.
 /// Returns false if the replacement succeeded but syncing its parent directory failed.
 inline bool replace(const std::filesystem::path & destination, const std::string & serializedConfig)
@@ -85,7 +100,7 @@ inline bool replace(const std::filesystem::path & destination, const std::string
 #ifdef _WIN32
 		if(_commit(_fileno(file)) != 0)
 #else
-		if(::fsync(::fileno(file)) != 0)
+		if(!syncDescriptorWithRetry(::fileno(file), ::fsync))
 #endif
 			throw std::system_error(errno ? errno : EIO, std::generic_category(), "Unable to sync temporary mod settings file");
 
@@ -123,7 +138,7 @@ inline bool replace(const std::filesystem::path & destination, const std::string
 	if(directoryFd < 0)
 		return false;
 
-	const bool synced = ::fsync(directoryFd) == 0;
+	const bool synced = syncDescriptorWithRetry(directoryFd, ::fsync);
 	const bool closed = ::close(directoryFd) == 0;
 	return synced && closed;
 #else

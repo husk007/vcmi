@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -347,6 +348,36 @@ TEST(LanModSyncTest, RefusesToRestoreIntoUnrelatedActivePreset)
 	EXPECT_THROW(LanModSessionState::restore(config), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), before);
 }
+
+#ifndef _WIN32
+TEST(LanModSyncTest, InterruptedPosixSyncRetriesWithoutIgnoringPersistentErrors)
+{
+	int attempts = 0;
+	const bool recovered = AtomicModSettings::syncDescriptorWithRetry(17, [&](int descriptor)
+	{
+		EXPECT_EQ(descriptor, 17);
+		++attempts;
+		if(attempts <= 2)
+		{
+			errno = EINTR;
+			return -1;
+		}
+		return 0;
+	});
+	EXPECT_TRUE(recovered);
+	EXPECT_EQ(attempts, 3);
+
+	int failures = 0;
+	const bool synced = AtomicModSettings::syncDescriptorWithRetry(19, [&](int)
+	{
+		++failures;
+		errno = EIO;
+		return -1;
+	});
+	EXPECT_FALSE(synced);
+	EXPECT_EQ(failures, 1);
+}
+#endif
 
 TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 {
