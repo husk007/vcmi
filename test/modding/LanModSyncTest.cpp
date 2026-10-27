@@ -413,6 +413,55 @@ TEST(LanModSyncTest, CorruptedRelaunchSnapshotIsNotDiscarded)
 }
 
 
+TEST(LanModSyncTest, NumericRelaunchMarkerRestoresPresetWithoutCrashing)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["maps"]["small"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["maps"]["small"].Bool() = true;
+	config["lanSession"]["relaunchToken"].Integer() = 42;
+
+	const std::string persisted = config.toCompactString();
+	JsonNode restarted(persisted.data(), persisted.size(), "Non-string LAN relaunch marker");
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(restarted));
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(restarted, std::string(64, 'a')),
+		LanSessionStartupAction::RESTORED);
+	EXPECT_EQ(restarted.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, MalformedStoredSnapshotPreservesRecoveryData)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+
+	config["lanSession"]["originalPresetName"].Integer() = 17;
+	const std::string badName = config.toCompactString();
+	EXPECT_THROW(LanModSessionState::restore(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), badName);
+
+	config["lanSession"]["originalPresetName"].String() = "personal";
+	config["lanSession"]["originalPreset"].String() = "not-a-preset";
+	const std::string badPreset = config.toCompactString();
+	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, ""), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), badPreset);
+}
+
+TEST(LanModSyncTest, InvalidActivePresetTypeCannotStartLanSession)
+{
+	JsonNode config;
+	config["activePreset"].Integer() = 1;
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	const std::string previous = config.toCompactString();
+	EXPECT_THROW(LanModSessionState::begin(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), previous);
+}
+
 TEST(LanModSyncTest, InvalidPersistedRelaunchMarkerCannotBypassRecovery)
 {
 	JsonNode config;
