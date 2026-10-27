@@ -447,7 +447,7 @@ int main(int argc, char * argv[])
 			}
 		};
 
-		const auto & cleanupEngine = [&logConfigurator]()
+		const auto & cleanupEngine = [&]()
 		{
 			if(settings["session"]["headless"].Bool() && GAME->server().client)
 				GAME->server().endGameplay();
