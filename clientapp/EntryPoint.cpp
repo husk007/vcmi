@@ -166,8 +166,8 @@ int main(int argc, char * argv[])
 #if !defined(VCMI_MOBILE)
 	// argv[0] may be a PATH command or symlink; relaunch the actual running binary.
 	const std::filesystem::path lanRelaunchExecutable(boost::dll::program_location().native());
-	// Correct working dir executable folder (not bundle folder) so we can use executable relative paths
-	boost::filesystem::current_path(boost::filesystem::system_complete(argv[0]).parent_path());
+	// Use the real executable directory for relative paths, even when started through PATH or a symlink.
+	boost::filesystem::current_path(boost::filesystem::path(lanRelaunchExecutable.parent_path().native()));
 #endif
 	std::cout << "Starting... " << std::endl;
 	po::options_description opts("Allowed options");
