@@ -352,6 +352,32 @@ TEST(LanModSyncTest, NormalDisconnectAfterControlledRelaunchRestoresExactPreset)
 	EXPECT_EQ(restarted.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, CancellingLobbyJoinBeforeRelaunchRestoresOriginalSubmods)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["mods"].Vector().emplace_back("maps");
+	config["presets"]["personal"]["settings"]["maps"]["large"].Bool() = true;
+	config["presets"]["personal"]["settings"]["maps"]["small"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	const auto & temporary = LanModSessionState::temporaryPresetName();
+	config["presets"][temporary]["mods"].Vector().emplace_back("host_mod");
+	config["presets"][temporary]["settings"]["maps"]["large"].Bool() = false;
+	config["presets"][temporary]["settings"]["maps"]["small"].Bool() = true;
+
+	const std::string token(64, 'd');
+	LanModSessionState::prepareControlledRelaunch(config, token);
+
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_EQ(config.toCompactString(), original);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, token), LanSessionStartupAction::NONE);
+	EXPECT_FALSE(LanModSessionState::restore(config));
+}
+
 TEST(LanModSyncTest, WrongRelaunchTokenRestoresOriginalPreset)
 {
 	JsonNode config;
