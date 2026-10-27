@@ -133,6 +133,18 @@ bool ModSyncPlan::requiresChanges() const
 	return !downloadOrUpdate.empty() || !reuseCachedArchive.empty() || !activate.empty() || !deactivate.empty();
 }
 
+static bool isValidLanModId(const TModID & modId)
+{
+	if(modId.empty() || modId.front() == '.' || modId.back() == '.'
+		|| modId.find("..") != TModID::npos
+		|| modId.find_first_of("<>:\"/\\|?*") != TModID::npos)
+		return false;
+
+	return std::none_of(modId.begin(), modId.end(), [](unsigned char ch){
+		return ch < 0x20 || ch == 0x7f;
+	});
+}
+
 ModSyncPlan ModVerificationInfo::buildSyncPlan(
 	const ModListVerificationStatus & statuses,
 	const ModArchiveHashes & expectedSha256,
@@ -142,6 +154,8 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 
 	for(const auto & [modId, status] : statuses)
 	{
+		if(!isValidLanModId(modId))
+			throw std::runtime_error("LAN mod compatibility list contains unsafe mod ID");
 		if(modId == ModScope::scopeBuiltin())
 			continue;
 
