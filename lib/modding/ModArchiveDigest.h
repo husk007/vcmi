@@ -23,19 +23,26 @@ inline int hexDigit(char digit)
 	return -1;
 }
 
+inline bool isSha256(std::string_view digest)
+{
+	if(digest.size() != 64)
+		return false;
+
+	for(char digit : digest)
+		if(hexDigit(digit) < 0)
+			return false;
+
+	return true;
+}
+
 inline bool sameSha256(std::string_view expected, std::string_view cached)
 {
-	// Reject names, versions, truncated checksums, and empty placeholders as cache keys.
-	if(expected.size() != 64 || cached.size() != 64)
+	if(!isSha256(expected) || !isSha256(cached))
 		return false;
 
 	for(std::size_t index = 0; index < 64; ++index)
-	{
-		const int left = hexDigit(expected[index]);
-		const int right = hexDigit(cached[index]);
-		if(left < 0 || right < 0 || left != right)
+		if(hexDigit(expected[index]) != hexDigit(cached[index]))
 			return false;
-	}
 
 	return true;
 }

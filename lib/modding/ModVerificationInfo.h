@@ -60,6 +60,7 @@ struct DLL_LINKAGE ModVerificationInfo
 	static ModCompatibilityInfo jsonDeserializeList(const JsonNode & input);
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
+	/// Missing or malformed host archive digests reject download planning.
 	static ModSyncPlan buildSyncPlan(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const ModArchiveHashes & verifiedCachedSha256);
 
 	template <typename Handler>

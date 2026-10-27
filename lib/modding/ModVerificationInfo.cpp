@@ -153,8 +153,10 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 			case ModVerificationStatus::VERSION_MISMATCH:
 			{
 				const auto expected = expectedSha256.find(rootId);
+				if(expected == expectedSha256.end() || !ModArchiveDigest::isSha256(expected->second))
+					throw std::runtime_error("LAN mod archive is missing a valid SHA-256: " + rootId);
 				const auto cached = verifiedCachedSha256.find(rootId);
-				if(expected != expectedSha256.end() && cached != verifiedCachedSha256.end()
+				if(cached != verifiedCachedSha256.end()
 					&& ModArchiveDigest::sameSha256(expected->second, cached->second))
 					plan.reuseCachedArchive.insert(rootId);
 				else

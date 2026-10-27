@@ -38,7 +38,7 @@ TEST(LanModSyncTest, PlansMissingDisabledAndExcessModsWithoutUninstall)
 		{"core", ModVerificationStatus::EXCESSIVE}
 	};
 
-	const auto plan = ModVerificationInfo::buildSyncPlan(states, {}, {});
+	const auto plan = ModVerificationInfo::buildSyncPlan(states, {{"hota", std::string(64, 'a')}}, {});
 
 	EXPECT_TRUE(plan.requiresChanges());
 	EXPECT_EQ(plan.downloadOrUpdate, std::set<TModID>({"hota"}));
@@ -103,11 +103,28 @@ TEST(LanModSyncTest, RejectsMalformedMatchingCachedArchiveDigests)
 	for(const auto & digest : invalidDigests)
 	{
 		EXPECT_FALSE(ModArchiveDigest::sameSha256(digest, digest));
-		const auto plan = ModVerificationInfo::buildSyncPlan(
-			states, {{"hota", digest}}, {{"hota", digest}});
-		EXPECT_EQ(plan.downloadOrUpdate, std::set<TModID>({"hota"}));
-		EXPECT_TRUE(plan.reuseCachedArchive.empty());
+		const ModArchiveHashes invalidManifest = {{"hota", digest}};
+		EXPECT_THROW(ModVerificationInfo::buildSyncPlan(states, invalidManifest, invalidManifest), std::runtime_error);
 	}
+}
+
+TEST(LanModSyncTest, RejectsMissingHostManifestDigestForRequiredArchive)
+{
+	const ModListVerificationStatus states = {{"hota.units", ModVerificationStatus::NOT_INSTALLED}};
+	const ModArchiveHashes unrelatedManifest = {{"other", std::string(64, 'a')}};
+
+	EXPECT_THROW(ModVerificationInfo::buildSyncPlan(states, {}, {}), std::runtime_error);
+	EXPECT_THROW(ModVerificationInfo::buildSyncPlan(states, unrelatedManifest, {}), std::runtime_error);
+}
+
+TEST(LanModSyncTest, CorruptCachedDigestRequiresVerifiedTransfer)
+{
+	const ModListVerificationStatus states = {{"hota", ModVerificationStatus::VERSION_MISMATCH}};
+	const auto plan = ModVerificationInfo::buildSyncPlan(
+		states, {{"hota", std::string(64, 'a')}}, {{"hota", std::string(64, 'g')}});
+
+	EXPECT_EQ(plan.downloadOrUpdate, std::set<TModID>({"hota"}));
+	EXPECT_TRUE(plan.reuseCachedArchive.empty());
 }
 
 TEST(LanModSyncTest, ReusesValidDigestRegardlessOfHexLetterCase)
