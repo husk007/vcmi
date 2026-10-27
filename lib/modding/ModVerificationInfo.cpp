@@ -110,15 +110,15 @@ ModListVerificationStatus ModVerificationInfo::verifyListAgainstLocalMods(const 
 		if (!modAffectsGameplay)
 			continue;
 
-		if (!vstd::contains(LIBRARY->modh->getActiveMods(), remoteModId))
-		{
-			result[remoteModId] = ModVerificationStatus::DISABLED;
-			continue;
-		}
-
 		if(remoteModInfo.version != localVersion)
 		{
 			result[remoteModId] = ModVerificationStatus::VERSION_MISMATCH;
+			continue;
+		}
+
+		if (!vstd::contains(LIBRARY->modh->getActiveMods(), remoteModId))
+		{
+			result[remoteModId] = ModVerificationStatus::DISABLED;
 			continue;
 		}
 
