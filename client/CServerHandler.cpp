@@ -268,6 +268,17 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 	{
 		// remote server refused connection - show error message
 		setState(EClientState::NONE);
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				LIBRARY->modh->restoreLanSession();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after failed server connection: %s", e.what());
+			}
+		}
 		CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.mainMenu.serverConnectionFailed"), {});
 	}
 }

@@ -396,6 +396,29 @@ TEST(LanModSyncTest, CancellingLobbyJoinBeforeRelaunchRestoresOriginalSubmods)
 	EXPECT_FALSE(LanModSessionState::restore(config));
 }
 
+TEST(LanModSyncTest, RepeatedFailedLanJoinsRestoreOriginalPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["mods"].Vector().emplace_back("hota");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	for(int attempt = 0; attempt < 2; ++attempt)
+	{
+		LanModSessionState::begin(config);
+		const auto & temporary = LanModSessionState::temporaryPresetName();
+		config["presets"][temporary]["mods"].Vector().emplace_back("host_mod");
+		config["presets"][temporary]["settings"]["hota"]["units"].Bool() = true;
+
+		EXPECT_TRUE(LanModSessionState::restore(config));
+		EXPECT_EQ(config.toCompactString(), original);
+	}
+	EXPECT_FALSE(LanModSessionState::restore(config));
+}
+
 TEST(LanModSyncTest, WrongRelaunchTokenRestoresOriginalPreset)
 {
 	JsonNode config;
