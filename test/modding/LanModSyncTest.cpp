@@ -789,7 +789,7 @@ TEST(LanModSyncTest, SuccessfulDesktopRelaunchPreservesMarkerForReplacement)
 
 	int status = 0;
 	ASSERT_EQ(::waitpid(static_cast<pid_t>(pid), &status, 0), static_cast<pid_t>(pid));
-	EXPECT_TRUE(WIFEXITED(status));
+	ASSERT_TRUE(WIFEXITED(status));
 	EXPECT_EQ(WEXITSTATUS(status), 0);
 	EXPECT_EQ(prepared, 1);
 	EXPECT_EQ(restored, 0);
