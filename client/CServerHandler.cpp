@@ -59,6 +59,7 @@
 #include "../lib/mapping/CMapInfo.h"
 #include "../lib/mapObjects/CGTownInstance.h"
 #include "../lib/mapObjects/MiscObjects.h"
+#include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModIncompatibility.h"
 #include "../lib/rmg/CMapGenOptions.h"
 #include "../lib/serializer/GameConnection.h"
@@ -1086,6 +1087,18 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		LobbyClientDisconnected lcd;
 		lcd.clientId = logicConnection->connectionID;
 		applyPackOnLobbyScreen(lcd);
+	}
+
+	if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			LIBRARY->modh->restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after server disconnection: %s", e.what());
+		}
 	}
 
 	networkConnection.reset();
