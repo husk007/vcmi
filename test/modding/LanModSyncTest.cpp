@@ -143,7 +143,11 @@ TEST(LanModSyncTest, RejectsUnsafeModIdsBeforePlanningTransfersOrPresetChanges)
 		"", ".hota", "hota.", "hota..units", "../hota",
 		"hota/units", "hota\\units", "C:payload",
 		"hota\nunits", "hota?units", "hota|units",
-		std::string("hota\0units", 10)
+		std::string("hota\0units", 10),
+		"CON", "prn", "Aux", "NUL", "com1", "COM9", "lpt1", "LPT9",
+		"conin$", "CONOUT$", "clock$",
+		"hota.CON.units", "hota.units.PrN", "hota.com4.elite",
+		"hota ", "hota.units ", "hota .units"
 	};
 	const std::vector<ModVerificationStatus> states = {
 		ModVerificationStatus::NOT_INSTALLED,
@@ -171,6 +175,20 @@ TEST(LanModSyncTest, RejectsUnsafeModIdsBeforePlanningTransfersOrPresetChanges)
 			}
 		}
 	}
+}
+
+TEST(LanModSyncTest, KeepsPortableNamesThatOnlyResembleWindowsDevices)
+{
+	const ModListVerificationStatus states = {
+		{"conquest", ModVerificationStatus::EXCESSIVE},
+		{"com10", ModVerificationStatus::EXCESSIVE},
+		{"hota.company", ModVerificationStatus::EXCESSIVE},
+		{"hota.lpt10", ModVerificationStatus::EXCESSIVE}
+	};
+	const auto plan = ModVerificationInfo::buildSyncPlan(states, {}, {});
+
+	EXPECT_EQ(plan.deactivate, (std::set<TModID>{"conquest", "com10", "hota.company", "hota.lpt10"}));
+	EXPECT_TRUE(plan.downloadOrUpdate.empty());
 }
 
 TEST(LanModSyncTest, CorruptCachedDigestRequiresVerifiedTransfer)
