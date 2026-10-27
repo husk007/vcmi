@@ -17,6 +17,7 @@
 
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanRelaunchToken.h"
+#include "../../lib/modding/LanRelaunchTokenFormat.h"
 #include "../../clientapp/LanRelaunchProcess.h"
 #include "../../lib/modding/ModArchiveDigest.h"
 
@@ -284,18 +285,18 @@ TEST(LanModSyncTest, ControlledRelaunchResumesOnlyOnce)
 
 	LanModSessionState::begin(config);
 	config["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector().emplace_back("hota");
-	LanModSessionState::prepareControlledRelaunch(config, "local-restart-token");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '1'));
 
 	const std::string serialized = config.toCompactString();
 	JsonNode nextProcess(serialized.data(), serialized.size(), "Controlled LAN relaunch test");
 
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(nextProcess, "local-restart-token"), LanSessionStartupAction::RESUMED);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(nextProcess, std::string(64, '1')), LanSessionStartupAction::RESUMED);
 	EXPECT_EQ(nextProcess["activePreset"].String(), LanModSessionState::temporaryPresetName());
 	EXPECT_TRUE(nextProcess["lanSession"]["relaunchToken"].isNull());
 	EXPECT_FALSE(nextProcess["lanSession"]["originalPreset"].isNull());
 
 	// If the resumed client crashes, the now-consumed token cannot bypass recovery again.
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(nextProcess, "local-restart-token"), LanSessionStartupAction::RESTORED);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(nextProcess, std::string(64, '1')), LanSessionStartupAction::RESTORED);
 	EXPECT_EQ(nextProcess.toCompactString(), original);
 }
 
@@ -315,11 +316,11 @@ TEST(LanModSyncTest, NormalDisconnectAfterControlledRelaunchRestoresExactPreset)
 	config["presets"][temporary]["mods"].Vector().emplace_back("hota");
 	config["presets"][temporary]["settings"]["maps"]["large"].Bool() = false;
 	config["presets"][temporary]["settings"]["maps"]["small"].Bool() = true;
-	LanModSessionState::prepareControlledRelaunch(config, "rejoin-once");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '2'));
 
 	const std::string onDisk = config.toCompactString();
 	JsonNode restarted(onDisk.data(), onDisk.size(), "Restarted LAN preset test");
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(restarted, "rejoin-once"), LanSessionStartupAction::RESUMED);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(restarted, std::string(64, '2')), LanSessionStartupAction::RESUMED);
 	EXPECT_EQ(restarted["activePreset"].String(), temporary);
 	EXPECT_TRUE(restarted["presets"][temporary]["settings"]["maps"]["small"].Bool());
 
@@ -337,8 +338,8 @@ TEST(LanModSyncTest, WrongRelaunchTokenRestoresOriginalPreset)
 	const std::string original = config.toCompactString();
 
 	LanModSessionState::begin(config);
-	LanModSessionState::prepareControlledRelaunch(config, "correct-token");
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "wrong-token"), LanSessionStartupAction::RESTORED);
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '3'));
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, std::string(64, '4')), LanSessionStartupAction::RESTORED);
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
@@ -350,10 +351,10 @@ TEST(LanModSyncTest, MissingRelaunchTokenRestoresInterruptedSession)
 	const std::string original = config.toCompactString();
 
 	LanModSessionState::begin(config);
-	LanModSessionState::prepareControlledRelaunch(config, "expected-token");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '5'));
 	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, ""), LanSessionStartupAction::RESTORED);
 	EXPECT_EQ(config.toCompactString(), original);
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "expected-token"), LanSessionStartupAction::NONE);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, std::string(64, '5')), LanSessionStartupAction::NONE);
 }
 
 TEST(LanModSyncTest, RejectsInvalidOrDuplicateRelaunchMarker)
@@ -362,14 +363,17 @@ TEST(LanModSyncTest, RejectsInvalidOrDuplicateRelaunchMarker)
 	config["activePreset"].String() = "personal";
 	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
 
-	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, "token"), std::runtime_error);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(64, '8')), std::runtime_error);
 	LanModSessionState::begin(config);
 	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, ""), std::invalid_argument);
 	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(129, 'x')), std::invalid_argument);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(63, 'a')), std::invalid_argument);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(64, 'A')), std::invalid_argument);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(63, 'a') + "\n"), std::invalid_argument);
 
-	LanModSessionState::prepareControlledRelaunch(config, "one-time-token");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '6'));
 	const std::string pending = config.toCompactString();
-	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, "another-token"), std::runtime_error);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(64, '7')), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), pending);
 }
 
@@ -379,14 +383,33 @@ TEST(LanModSyncTest, CorruptedRelaunchSnapshotIsNotDiscarded)
 	config["activePreset"].String() = "personal";
 	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
 	LanModSessionState::begin(config);
-	LanModSessionState::prepareControlledRelaunch(config, "token");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, '8'));
 	config["lanSession"]["originalPresetName"].String() = LanModSessionState::temporaryPresetName();
 	const std::string corrupted = config.toCompactString();
 
-	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, "token"), std::runtime_error);
+	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, std::string(64, '8')), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), corrupted);
-	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, "other-token"), std::runtime_error);
+	EXPECT_THROW(LanModSessionState::recoverOnStartup(config, std::string(64, '9')), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), corrupted);
+}
+
+
+TEST(LanModSyncTest, InvalidPersistedRelaunchMarkerCannotBypassRecovery)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["hota"]["units"].Bool() = true;
+	// An older or tampered journal must not keep the temporary preset active.
+	config["lanSession"]["relaunchToken"].String() = "legacy-unusable-marker";
+
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "legacy-unusable-marker"), LanSessionStartupAction::RESTORED);
+	EXPECT_EQ(config.toCompactString(), original);
 }
 
 TEST(LanModSyncTest, NoSessionRecoveryIsReadOnly)
@@ -396,9 +419,9 @@ TEST(LanModSyncTest, NoSessionRecoveryIsReadOnly)
 	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
 	const std::string original = config.toCompactString();
 
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "stale-token"), LanSessionStartupAction::NONE);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, std::string(64, 'a')), LanSessionStartupAction::NONE);
 	EXPECT_FALSE(LanModSessionState::restore(config));
-	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, "stale-token"), std::runtime_error);
+	EXPECT_THROW(LanModSessionState::prepareControlledRelaunch(config, std::string(64, 'a')), std::runtime_error);
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
@@ -419,11 +442,7 @@ TEST(LanModSyncTest, GeneratedRelaunchTokensAreUniqueAndCLICompatible)
 	for(int i = 0; i < 64; ++i)
 	{
 		const std::string token = LanRelaunchToken::generate();
-		EXPECT_EQ(token.size(), 64);
-		EXPECT_TRUE(std::all_of(token.begin(), token.end(), [](char byte)
-		{
-			return (byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f');
-		}));
+		EXPECT_TRUE(LanRelaunchTokenFormat::isValid(token));
 		EXPECT_TRUE(seen.insert(token).second);
 	}
 
@@ -473,12 +492,12 @@ TEST(LanModSyncTest, PendingRelaunchSkipsShutdownRollbackButConsumedMarkerAllows
 
 	LanModSessionState::begin(config);
 	config["presets"][LanModSessionState::temporaryPresetName()]["settings"]["hota"]["units"].Bool() = true;
-	LanModSessionState::prepareControlledRelaunch(config, "controlled-restart");
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, 'b'));
 	const std::string persisted = config.toCompactString();
 
 	EXPECT_FALSE(LanModSessionState::shouldRestoreOnShutdown(config));
 	EXPECT_EQ(config.toCompactString(), persisted);
-	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, "controlled-restart"), LanSessionStartupAction::RESUMED);
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, std::string(64, 'b')), LanSessionStartupAction::RESUMED);
 	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
 	EXPECT_TRUE(LanModSessionState::restore(config));
 	EXPECT_EQ(config.toCompactString(), original);

@@ -11,6 +11,7 @@
 #include "ModManager.h"
 #include "AtomicModSettings.h"
 #include "LanRelaunchToken.h"
+#include "LanRelaunchTokenFormat.h"
 
 #include "ModDescription.h"
 #include "ModScope.h"
@@ -168,8 +169,8 @@ void LanModSessionState::begin(JsonNode & config)
 
 void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken)
 {
-	if(relaunchToken.empty() || relaunchToken.size() > 128)
-		throw std::invalid_argument("Controlled LAN relaunch requires a nonempty token of at most 128 bytes");
+	if(!LanRelaunchTokenFormat::isValid(relaunchToken))
+		throw std::invalid_argument("Controlled LAN relaunch requires 64 lowercase hexadecimal characters");
 	const JsonNode & current = config;
 	if(current["lanSession"].isNull())
 		throw std::runtime_error("Cannot relaunch without a LAN mod session");
@@ -187,7 +188,7 @@ LanSessionStartupAction LanModSessionState::recoverOnStartup(JsonNode & config, 
 		return LanSessionStartupAction::NONE;
 
 	const JsonNode & session = current["lanSession"];
-	if(!relaunchToken.empty() && session["relaunchToken"].String() == relaunchToken)
+	if(LanRelaunchTokenFormat::isValid(relaunchToken) && session["relaunchToken"].String() == relaunchToken)
 	{
 		validateLanSessionSnapshot(config);
 		// Consume the marker on the first matching startup. Future crashes restore normally.
@@ -225,7 +226,7 @@ bool LanModSessionState::shouldRestoreOnShutdown(const JsonNode & config)
 
 	validateLanSessionSnapshot(config);
 	// A relaunch marker is consumed by the replacement client, not by the exiting process.
-	return config["lanSession"]["relaunchToken"].String().empty();
+	return !LanRelaunchTokenFormat::isValid(config["lanSession"]["relaunchToken"].String());
 }
 
 ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunchToken)

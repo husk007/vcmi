@@ -6,13 +6,14 @@
  */
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
+
+#include "../lib/modding/LanRelaunchTokenFormat.h"
 
 #if !defined(VCMI_MOBILE)
 #ifdef _WIN32
@@ -31,10 +32,7 @@ namespace LanRelaunchProcess
 {
 inline bool isValidToken(const std::string & token)
 {
-	return token.size() == 64 && std::all_of(token.begin(), token.end(), [](unsigned char value)
-	{
-		return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
-	});
+	return LanRelaunchTokenFormat::isValid(token);
 }
 
 #if !defined(VCMI_MOBILE)
