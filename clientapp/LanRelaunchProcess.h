@@ -78,5 +78,31 @@ inline std::uint64_t spawn(const std::filesystem::path & executable, const std::
 	return static_cast<std::uint64_t>(pid);
 #endif
 }
+
+/// Persist the one-shot marker before spawning; restore the player's preset if spawn fails.
+/// The caller must release gameplay resources before using this handoff.
+template<typename PersistMarker, typename RestorePreset>
+inline std::uint64_t spawnWithRollback(const std::filesystem::path & executable,
+	PersistMarker && persistMarker, RestorePreset && restorePreset)
+{
+	const std::string token = persistMarker();
+	try
+	{
+		return spawn(executable, token);
+	}
+	catch(const std::exception & launchError)
+	{
+		try
+		{
+			restorePreset();
+		}
+		catch(const std::exception & restoreError)
+		{
+			throw std::runtime_error(std::string("LAN client relaunch failed: ") + launchError.what()
+				+ "; original preset restoration also failed: " + restoreError.what());
+		}
+		throw;
+	}
+}
 #endif
 }
