@@ -45,6 +45,8 @@ class DLL_LINKAGE LanModSessionState
 public:
 	static const std::string & temporaryPresetName();
 	static void begin(JsonNode & config);
+	/// Refuse personal preset operations while the LAN recovery snapshot is active.
+	static void requirePersonalPresetUnlocked(const JsonNode & config);
 	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
 	static LanSessionStartupAction recoverOnStartup(JsonNode & config, const std::string & relaunchToken);
 	static bool restore(JsonNode & config);

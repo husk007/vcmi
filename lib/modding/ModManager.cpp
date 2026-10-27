@@ -147,6 +147,12 @@ static void validateLanSessionSnapshot(const JsonNode & config)
 		throw std::runtime_error("Cannot recover an invalid LAN mod session snapshot");
 }
 
+void LanModSessionState::requirePersonalPresetUnlocked(const JsonNode & config)
+{
+	if(!config["lanSession"].isNull())
+		throw std::runtime_error("Cannot change personal mod presets during a LAN session");
+}
+
 void LanModSessionState::begin(JsonNode & config)
 {
 	const JsonNode & current = config;
@@ -483,12 +489,14 @@ void ModsPresetState::saveConfigurationState() const
 
 void ModsPresetState::createNewPreset(const std::string & presetName)
 {
+	LanModSessionState::requirePersonalPresetUnlocked(modConfig);
 	if (modConfig["presets"][presetName].isNull())
 		modConfig["presets"][presetName]["mods"].Vector().emplace_back("vcmi");
 }
 
 void ModsPresetState::deletePreset(const std::string & presetName)
 {
+	LanModSessionState::requirePersonalPresetUnlocked(modConfig);
 	if (modConfig["presets"].Struct().size() < 2)
 		throw std::runtime_error("Unable to delete last preset!");
 
@@ -497,6 +505,8 @@ void ModsPresetState::deletePreset(const std::string & presetName)
 
 void ModsPresetState::activatePreset(const std::string & presetName)
 {
+	if(presetName != LanModSessionState::temporaryPresetName())
+		LanModSessionState::requirePersonalPresetUnlocked(modConfig);
 	if (modConfig["presets"].Struct().count(presetName) == 0)
 		throw std::runtime_error("Unable to activate non-exinsting preset!");
 
@@ -505,6 +515,7 @@ void ModsPresetState::activatePreset(const std::string & presetName)
 
 void ModsPresetState::renamePreset(const std::string & oldPresetName, const std::string & newPresetName)
 {
+	LanModSessionState::requirePersonalPresetUnlocked(modConfig);
 	if (oldPresetName == newPresetName)
 		throw std::runtime_error("Unable to rename preset to the same name!");
 
@@ -552,6 +563,7 @@ JsonNode ModsPresetState::exportCurrentPreset() const
 
 std::string ModsPresetState::importPreset(const JsonNode & newConfig)
 {
+	LanModSessionState::requirePersonalPresetUnlocked(modConfig);
 	std::string importedPresetName = newConfig["name"].String();
 
 	if (importedPresetName.empty())

@@ -142,6 +142,25 @@ TEST(LanModSyncTest, RestoresOriginalPresetAndSubmodSelections)
 	EXPECT_FALSE(LanModSessionState::restore(config));
 }
 
+TEST(LanModSyncTest, PersonalPresetsRemainLockedUntilLanSessionRestoration)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = config.toCompactString();
+
+	EXPECT_NO_THROW(LanModSessionState::requirePersonalPresetUnlocked(config));
+	LanModSessionState::begin(config);
+	const std::string pending = config.toCompactString();
+	EXPECT_THROW(LanModSessionState::requirePersonalPresetUnlocked(config), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), pending);
+
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_EQ(config.toCompactString(), original);
+	EXPECT_NO_THROW(LanModSessionState::requirePersonalPresetUnlocked(config));
+}
+
 TEST(LanModSyncTest, DoesNotOverwriteSnapshotForNestedSession)
 {
 	JsonNode config;
