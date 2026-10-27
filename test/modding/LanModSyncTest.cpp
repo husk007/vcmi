@@ -137,6 +137,42 @@ TEST(LanModSyncTest, RejectsMissingHostManifestDigestForRequiredArchive)
 	EXPECT_THROW(ModVerificationInfo::buildSyncPlan(states, unrelatedManifest, {}), std::runtime_error);
 }
 
+TEST(LanModSyncTest, RejectsUnsafeModIdsBeforePlanningTransfersOrPresetChanges)
+{
+	const std::vector<TModID> unsafeIds = {
+		"", ".hota", "hota.", "hota..units", "../hota",
+		"hota/units", "hota\\units", "C:payload",
+		"hota\nunits", "hota?units", "hota|units",
+		std::string("hota\0units", 10)
+	};
+	const std::vector<ModVerificationStatus> states = {
+		ModVerificationStatus::NOT_INSTALLED,
+		ModVerificationStatus::VERSION_MISMATCH,
+		ModVerificationStatus::DISABLED,
+		ModVerificationStatus::EXCESSIVE,
+		ModVerificationStatus::FULL_MATCH
+	};
+
+	for(const auto & modId : unsafeIds)
+	{
+		for(const auto status : states)
+		{
+			SCOPED_TRACE(modId);
+			const ModListVerificationStatus list = {{modId, status}};
+			const ModArchiveHashes manifest = {{modId, std::string(64, 'a')}};
+			try
+			{
+				ModVerificationInfo::buildSyncPlan(list, manifest, {});
+				FAIL() << "Unsafe LAN mod ID was accepted";
+			}
+			catch(const std::runtime_error & e)
+			{
+				EXPECT_STREQ(e.what(), "LAN mod compatibility list contains unsafe mod ID");
+			}
+		}
+	}
+}
+
 TEST(LanModSyncTest, CorruptCachedDigestRequiresVerifiedTransfer)
 {
 	const ModListVerificationStatus states = {{"hota", ModVerificationStatus::VERSION_MISMATCH}};
