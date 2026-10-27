@@ -80,6 +80,26 @@ TEST(LanModSyncTest, RequiredSubmodKeepsParentActiveWhenStatusListIsIncomplete)
 	EXPECT_EQ(plan.deactivate, (std::set<TModID>{"extra", "hota.sounds"}));
 }
 
+TEST(LanModSyncTest, NestedSubmodsKeepAllAncestorsAvailable)
+{
+	const std::string hash(64, 'b');
+	const ModListVerificationStatus states = {
+		{"hota", ModVerificationStatus::EXCESSIVE},
+		{"hota.units", ModVerificationStatus::EXCESSIVE},
+		{"hota.units.elite", ModVerificationStatus::VERSION_MISMATCH},
+		{"hota.music", ModVerificationStatus::EXCESSIVE},
+		{"hota.music.tracks", ModVerificationStatus::FULL_MATCH},
+		{"extra", ModVerificationStatus::EXCESSIVE}
+	};
+
+	const auto plan = ModVerificationInfo::buildSyncPlan(states, {{"hota", hash}}, {{"hota", hash}});
+
+	EXPECT_TRUE(plan.downloadOrUpdate.empty());
+	EXPECT_EQ(plan.reuseCachedArchive, std::set<TModID>({"hota"}));
+	EXPECT_EQ(plan.activate, (std::set<TModID>{"hota", "hota.units", "hota.units.elite"}));
+	EXPECT_EQ(plan.deactivate, std::set<TModID>({"extra"}));
+}
+
 TEST(LanModSyncTest, DownloadsChangedArchiveInsteadOfReusingStaleCache)
 {
 	const ModListVerificationStatus states = {{"hota", ModVerificationStatus::VERSION_MISMATCH}};
