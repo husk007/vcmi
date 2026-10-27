@@ -13,6 +13,47 @@ This file is updated by the scheduled task only when the outcome materially chan
 
 ## Latest known state
 
+- **2026-10-27 17:49 CET portable LAN mod-ID preflight:** The compatibility planner now rejects Windows-reserved device names in any nested mod component (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, `CONIN# VCMI Hourly Runner Status
+
+This file is updated by the scheduled task only when the outcome materially changes. It is an execution record, not evidence that a build or LAN test succeeded.
+
+## Configuration
+
+- Repository: `husk007/vcmi`
+- Branch: `feature/lan-mod-sync-and-web-roadmap`
+- Plan: [ROADMAP.md](ROADMAP.md)
+- Rules: [AGENTS.md](AGENTS.md), [RUNNER.md](RUNNER.md)
+- Scope: complete LAN milestones L0-L4 before WebAssembly W0-W4, except independent blocked work
+- Scheduled execution: ACTIVE in ChatGPT Tasks, once per hour (first planned trigger 2026-10-26 16:48 Europe/Warsaw). The repository file itself is not an executor.
+
+, `CONOUT# VCMI Hourly Runner Status
+
+This file is updated by the scheduled task only when the outcome materially changes. It is an execution record, not evidence that a build or LAN test succeeded.
+
+## Configuration
+
+- Repository: `husk007/vcmi`
+- Branch: `feature/lan-mod-sync-and-web-roadmap`
+- Plan: [ROADMAP.md](ROADMAP.md)
+- Rules: [AGENTS.md](AGENTS.md), [RUNNER.md](RUNNER.md)
+- Scope: complete LAN milestones L0-L4 before WebAssembly W0-W4, except independent blocked work
+- Scheduled execution: ACTIVE in ChatGPT Tasks, once per hour (first planned trigger 2026-10-26 16:48 Europe/Warsaw). The repository file itself is not an executor.
+
+, `CLOCK# VCMI Hourly Runner Status
+
+This file is updated by the scheduled task only when the outcome materially changes. It is an execution record, not evidence that a build or LAN test succeeded.
+
+## Configuration
+
+- Repository: `husk007/vcmi`
+- Branch: `feature/lan-mod-sync-and-web-roadmap`
+- Plan: [ROADMAP.md](ROADMAP.md)
+- Rules: [AGENTS.md](AGENTS.md), [RUNNER.md](RUNNER.md)
+- Scope: complete LAN milestones L0-L4 before WebAssembly W0-W4, except independent blocked work
+- Scheduled execution: ACTIVE in ChatGPT Tasks, once per hour (first planned trigger 2026-10-26 16:48 Europe/Warsaw). The repository file itself is not an executor.
+
+) regardless of ASCII case, plus trailing spaces on directory components. Existing path/traversal checks remain. One existing negative GoogleTest was expanded and a positive near-match test was added (**45 repository GoogleTests registered; new/expanded tests NOT RUN**). An isolated C++20 copy of the two exact updated validation functions compiled and ran **29 rejected + 10 permitted IDs PASS under GCC and Clang** (`-Wall -Wextra -Werror -pedantic`). Post-write GitHub file/diff/branch assertions **12/12 PASS**. Full VCMI checkout and `vcmitest` **NOT RUN**: container `git ls-remote` still cannot resolve `github.com`. Code [4f0eaca](https://github.com/husk007/vcmi/commit/4f0eacab5e7363a961d46b4443e0f42a181957cf), tests [d7c00a8](https://github.com/husk007/vcmi/commit/d7c00a8f9c568eca26f52aa01695875a2a0d8e4a). L0 **PARTIAL**; next: genuine Linux build/test when checkout works, then wire opt-in guest join/capability negotiation without touching private presets until the authenticated manifest is verified.
+
 - **2026-10-27 16:47 CET unsafe LAN mod ID preflight:** `ModVerificationInfo::buildSyncPlan` now rejects empty/malformed IDs, traversal-like dot segments, filesystem separators, Windows-invalid filename characters, and control/NUL bytes before planning any cache or preset action. Added a GoogleTest covering 12 bad IDs across all five compatibility statuses (**44 repository GoogleTests registered; new test NOT RUN**). Isolated C++20 reproduction of the modified planner: 60 invalid-ID/status cases and 3 existing valid plan/cache scenarios **PASS** with GCC and Clang (`-Wall -Wextra -Werror -pedantic`); post-commit GitHub source/branch assertions **9/9 PASS**. This is not a full VCMI build. `vcmitest`, live two-client LAN, Windows, and actual cache transfer **NOT RUN**. Container `git ls-remote` still fails with `Could not resolve host: github.com`. Commits [7f21be9](https://github.com/husk007/vcmi/commit/7f21be9acd5a7cdbfe6f376e1f404fb8ac668aa9), [e7c79f1](https://github.com/husk007/vcmi/commit/e7c79f191af4e08577e10b308e91d315e6c46f34). L0 remains **PARTIAL**; next step: full checkout/build and LAN lifecycle opt-in connection, with archive verification and persistently cached content still pending.
 
 - **2026-10-27 nested-submod planner preflight:** activation now retains every intermediate parent and respects FULL_MATCH descendants when statuses conflict. A matching verified SHA-256 still avoids planning a download. New regression GoogleTest registered (43 total) but **NOT RUN**; six isolated C++20 planner scenarios **PASS** with GCC and Clang, not a full VCMI build. Full checkout still blocked by container DNS for github.com; L0 remains **PARTIAL**.
@@ -81,3 +122,4 @@ Keep the most recent meaningful outcomes below. Each entry must use a real commi
 
 | 2026-10-27 15:46 CET | L0: preserve intermediate ancestors of nested required/matching submods in LAN compatibility plan | PARTIAL | [53e6580](https://github.com/husk007/vcmi/commit/53e6580be57fe0971d8dfa0c0b91f34d9ce11bf0), [012ebcf](https://github.com/husk007/vcmi/commit/012ebcf974af3a0ada9563da1b9709688feec11c) | Isolated C++20 reproduction of changed planner: 6 scenario groups PASS with GCC and Clang (-Wall -Wextra -Werror -pedantic); GitHub source/test/branch checks 12/12 PASS (commit parent separately verified). New GoogleTest added (43 total), NOT RUN; full build/vcmitest NOT RUN. `git ls-remote` fails DNS for github.com. | An EXCESSIVE ancestor can no longer deactivate a required nested submod or an already matching grandchild; matching SHA-256 still reuses archive without transfer. Full VCMI compile, persistent cache implementation, opt-in LAN join/rejoin, Windows and two-client tests remain outstanding. |
 | 2026-10-27 16:47 CET | L0: reject unsafe mod IDs before any LAN cache or preset plan | PARTIAL | [7f21be9](https://github.com/husk007/vcmi/commit/7f21be9acd5a7cdbfe6f376e1f404fb8ac668aa9), [e7c79f1](https://github.com/husk007/vcmi/commit/e7c79f191af4e08577e10b308e91d315e6c46f34) | Standalone C++20 planner reproduction: 60 reject cases + 3 positive plan/cache cases PASS GCC/Clang; 9/9 GitHub source assertions PASS; new repository GoogleTest NOT RUN, `vcmitest` NOT RUN | Container GitHub DNS still fails; full VCMI build and end-to-end LAN validation missing. Maintain no transfer for matching verified SHA-256 and exact journal restoration; next: actual opt-in join and real tests. |
+| 2026-10-27 17:49 CET | L0: prevent Windows-device and trailing-space mod paths in cross-platform LAN planner | PARTIAL | [4f0eaca](https://github.com/husk007/vcmi/commit/4f0eacab5e7363a961d46b4443e0f42a181957cf), [d7c00a8](https://github.com/husk007/vcmi/commit/d7c00a8f9c568eca26f52aa01695875a2a0d8e4a) | Isolated equivalent C++20 validator: 29 rejects + 10 accepts PASS GCC/Clang; 12/12 GitHub static checks PASS; new/expanded repo GoogleTests and `vcmitest` NOT RUN | GitHub DNS unavailable in container for full checkout (`Could not resolve host: github.com`). Planner hardening only; no authenticated manifest, verified persistent transfer, live guest join/rejoin or two-client game. |
