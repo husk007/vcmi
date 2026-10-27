@@ -46,6 +46,7 @@
 #include "../lib/VCMIDirs.h"
 #include "LanRelaunchProcess.h"
 
+#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/program_options.hpp>
 #include <vstd/StringUtils.h>
 
@@ -163,8 +164,8 @@ int main(int argc, char * argv[])
 #endif
 
 #if !defined(VCMI_MOBILE)
-	// Resolve the executable before changing cwd; the relaunch must use the same binary.
-	const std::filesystem::path lanRelaunchExecutable = std::filesystem::absolute(std::filesystem::path(argv[0]));
+	// argv[0] may be a PATH command or symlink; relaunch the actual running binary.
+	const std::filesystem::path lanRelaunchExecutable(boost::dll::program_location().native());
 	// Correct working dir executable folder (not bundle folder) so we can use executable relative paths
 	boost::filesystem::current_path(boost::filesystem::system_complete(argv[0]).parent_path());
 #endif

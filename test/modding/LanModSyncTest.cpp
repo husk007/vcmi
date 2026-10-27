@@ -7,6 +7,8 @@
 
 #include "StdInc.h"
 
+#include <boost/dll/runtime_symbol_info.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -861,6 +863,18 @@ TEST(LanModSyncTest, PendingRelaunchSkipsShutdownRollbackButConsumedMarkerAllows
 	EXPECT_TRUE(LanModSessionState::restore(config));
 	EXPECT_EQ(config.toCompactString(), original);
 }
+
+#ifndef VCMI_MOBILE
+TEST(LanModSyncTest, DesktopRelaunchResolvesActualExecutablePath)
+{
+	const std::filesystem::path executable(boost::dll::program_location().native());
+	ASSERT_TRUE(executable.is_absolute());
+	ASSERT_TRUE(std::filesystem::is_regular_file(executable));
+#ifdef __linux__
+	EXPECT_TRUE(std::filesystem::equivalent(executable, std::filesystem::path("/proc/self/exe")));
+#endif
+}
+#endif
 
 TEST(LanModSyncTest, DesktopRelaunchRejectsInvalidTokensBeforeCreatingProcesses)
 {
