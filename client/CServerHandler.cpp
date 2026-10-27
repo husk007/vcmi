@@ -819,6 +819,18 @@ void CServerHandler::endGameplay()
 	client->endGame();
 	client.reset();
 
+	if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			LIBRARY->modh->restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after multiplayer game: %s", e.what());
+		}
+	}
+
 	if (GAME->mainmenu())
 	{
 		GAME->mainmenu()->enable();
