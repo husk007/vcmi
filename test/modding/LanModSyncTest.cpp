@@ -488,9 +488,13 @@ TEST(LanModSyncTest, DesktopRelaunchRejectsInvalidTokensBeforeCreatingProcesses)
 {
 	const std::string validToken(64, 'a');
 	EXPECT_TRUE(LanRelaunchProcess::isValidToken(validToken));
+	EXPECT_TRUE(LanRelaunchProcess::isValidToken(std::string(64, '0')));
 	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a')));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(65, 'a')));
 	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(64, 'A')));
 	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a') + "z"));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a') + "\n"));
+	EXPECT_FALSE(LanRelaunchProcess::isValidToken(std::string(63, 'a') + std::string(1, '\0')));
 
 #if !defined(VCMI_MOBILE)
 	EXPECT_THROW(LanRelaunchProcess::spawn({}, validToken), std::invalid_argument);
