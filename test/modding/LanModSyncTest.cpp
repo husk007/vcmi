@@ -528,6 +528,45 @@ TEST(LanModSyncTest, ExistingIndependentLanRecoveryBackupCannotBeClobbered)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, RecoveryBackupReaderRejectsNonRegularFilesAndOversize)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-read-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+	const std::string original = R"({"activePreset":"personal","presets":{"personal":{"mods":["vcmi"]}}})";
+
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+	EXPECT_EQ(LanModRecoveryJournal::load(settings), original);
+	ASSERT_TRUE(fs::remove(backup));
+	{
+		std::ofstream empty(backup, std::ios::binary);
+		ASSERT_TRUE(empty.good());
+	}
+	EXPECT_THROW(LanModRecoveryJournal::load(settings), std::exception);
+	ASSERT_TRUE(fs::remove(backup));
+	{
+		std::ofstream oversized(backup, std::ios::binary);
+		ASSERT_TRUE(oversized.good());
+		oversized.seekp(16 * 1024 * 1024);
+		oversized.put('x');
+		ASSERT_TRUE(oversized.good());
+	}
+	EXPECT_THROW(LanModRecoveryJournal::load(settings), std::exception);
+	ASSERT_TRUE(fs::remove(backup));
+
+#ifndef _WIN32
+	fs::create_symlink("missing-target", backup);
+	EXPECT_THROW(LanModRecoveryJournal::load(settings), std::exception);
+	ASSERT_TRUE(fs::remove(backup));
+	fs::create_directory(backup);
+	EXPECT_THROW(LanModRecoveryJournal::load(settings), std::exception);
+#endif
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, DamagedMainSettingsRestoreFullIndependentPresetAndSubmods)
 {
 	namespace fs = std::filesystem;
