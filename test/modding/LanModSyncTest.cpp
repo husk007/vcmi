@@ -1217,3 +1217,63 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
     std::error_code cleanupError;
     fs::remove_all(directory, cleanupError);
 }
+
+
+TEST(LanModSyncTest, PersistentLanArchivePublishNeverReplacesRacingWriter)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-publish-" + LanRelaunchToken::generate());
+    fs::create_directories(directory);
+    const fs::path first = directory / "first.part";
+    const fs::path second = directory / "second.part";
+    const fs::path destination = directory / "archive.zip";
+    {
+        std::ofstream out(first, std::ios::binary);
+        out << "original";
+    }
+    {
+        std::ofstream out(second, std::ios::binary);
+        out << "replacement";
+    }
+
+    // Emulate another writer publishing after the initial destination-exists check.
+    ASSERT_TRUE(LanModArchiveCache::detail::publishWithoutReplacing(first, destination));
+    EXPECT_FALSE(LanModArchiveCache::detail::publishWithoutReplacing(second, destination));
+    {
+        std::ifstream in(destination, std::ios::binary);
+        std::string saved;
+        std::getline(in, saved);
+        EXPECT_EQ(saved, "original");
+    }
+    EXPECT_TRUE(fs::exists(second));
+
+    // When multiple verified writers finish together, precisely one archive wins.
+    constexpr int writers = 8;
+    std::atomic<int> published{0};
+    std::atomic<bool> start{false};
+    std::vector<std::thread> workers;
+    const fs::path sharedDestination = directory / "raced.zip";
+    for(int index = 0; index < writers; ++index)
+    {
+        const fs::path part = directory / ("racer-" + std::to_string(index) + ".part");
+        {
+            std::ofstream out(part, std::ios::binary);
+            out << index;
+        }
+        workers.emplace_back([&, part]
+        {
+            while(!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            if(LanModArchiveCache::detail::publishWithoutReplacing(part, sharedDestination))
+                published.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    start.store(true, std::memory_order_release);
+    for(auto & worker : workers)
+        worker.join();
+    EXPECT_EQ(published.load(), 1);
+    EXPECT_TRUE(fs::is_regular_file(sharedDestination));
+
+    std::error_code cleanupError;
+    fs::remove_all(directory, cleanupError);
+}
