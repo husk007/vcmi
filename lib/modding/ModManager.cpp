@@ -307,6 +307,19 @@ static std::filesystem::path modSettingsStoragePath(const JsonPath & path)
 	return std::filesystem::path(destination->native());
 }
 
+static void discardLanRecoveryIfMatching(const std::filesystem::path & settings, const JsonNode & restored)
+{
+	try
+	{
+		if(!LanModRecoveryJournal::discardIfMatches(settings, restored.toCompactString()))
+			logGlobal->warn("Retaining LAN recovery backup: restored settings differ from the original");
+	}
+	catch(const std::exception & error)
+	{
+		logGlobal->warn("Cannot verify LAN recovery backup after restoration; retaining it: %s", error.what());
+	}
+}
+
 ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunchToken)
 	: settingsPath(JsonPath::builtin(useTestPreset ? "config/testModSettings.json" : "config/modSettings.json"))
 {
@@ -372,9 +385,8 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 		if(!saveConfigurationState(recovered))
 			throw std::runtime_error("LAN session startup recovery could not sync the mod settings directory");
 		modConfig = std::move(recovered);
-		if(action == LanSessionStartupAction::RESTORED
-			&& !LanModRecoveryJournal::discard(modSettingsStoragePath(settingsPath)))
-			logGlobal->warn("Could not remove the independent LAN recovery backup after startup restoration");
+		if(action == LanSessionStartupAction::RESTORED)
+			discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), restored);
 		if(action == LanSessionStartupAction::RESUMED)
 			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
 		else
@@ -426,8 +438,7 @@ void ModsPresetState::restoreLanSession()
 		if(!saveConfigurationState(restored))
 			throw std::runtime_error("LAN session restoration could not sync the mod settings directory");
 		modConfig = std::move(restored);
-		if(!LanModRecoveryJournal::discard(modSettingsStoragePath(settingsPath)))
-			logGlobal->warn("Could not remove the independent LAN recovery backup after restoration");
+		discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), restored);
 	}
 }
 
