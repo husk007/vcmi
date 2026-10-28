@@ -1047,3 +1047,69 @@ TEST(LanModSyncTest, SuccessfulDesktopRelaunchPreservesMarkerForReplacement)
 	EXPECT_EQ(config["activePreset"].String(), LanModSessionState::temporaryPresetName());
 }
 #endif
+
+
+TEST(LanModSyncTest, ComputesActualArchiveSHA256AcrossBlockBoundaries)
+{
+    EXPECT_EQ(ModArchiveDigest::Sha256{}.finish(),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+
+    ModArchiveDigest::Sha256 small;
+    const std::string abc = "abc";
+    small.update(abc.data(), abc.size());
+    EXPECT_EQ(small.finish(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+
+    ModArchiveDigest::Sha256 many;
+    const std::string data(1000000, 'a');
+    for(std::size_t pos = 0; pos < data.size(); pos += 17)
+        many.update(data.data() + pos, std::min<std::size_t>(17, data.size() - pos));
+    EXPECT_EQ(many.finish(), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
+TEST(LanModSyncTest, VerifiesCachedArchiveFileBeforeReusingAndDetectsTampering)
+{
+    namespace fs = std::filesystem;
+    const fs::path cacheFolder = fs::temp_directory_path() / ("vcmi-lan-hash-" + LanRelaunchToken::generate());
+    fs::create_directories(cacheFolder);
+    const fs::path archive = cacheFolder / "hota.zip";
+    const std::string expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    {
+        std::ofstream output(archive, std::ios::binary);
+        output << "abc";
+    }
+    const auto digest = ModArchiveDigest::sha256File(archive);
+    EXPECT_TRUE(digest.has_value());
+    EXPECT_TRUE(ModArchiveDigest::matchesFileSha256(archive, expected));
+    if(digest)
+    {
+        const auto reusable = ModVerificationInfo::buildSyncPlan(
+            {{"hota", ModVerificationStatus::NOT_INSTALLED}}, {{"hota", expected}}, {{"hota", *digest}});
+        EXPECT_EQ(reusable.reuseCachedArchive, std::set<TModID>({"hota"}));
+        EXPECT_TRUE(reusable.downloadOrUpdate.empty());
+    }
+
+    {
+        std::ofstream output(archive, std::ios::binary | std::ios::trunc);
+        output << "abd";
+    }
+    const auto changed = ModArchiveDigest::sha256File(archive);
+    EXPECT_TRUE(changed.has_value());
+    EXPECT_FALSE(ModArchiveDigest::matchesFileSha256(archive, expected));
+    if(changed)
+    {
+        const auto transfer = ModVerificationInfo::buildSyncPlan(
+            {{"hota", ModVerificationStatus::NOT_INSTALLED}}, {{"hota", expected}}, {{"hota", *changed}});
+        EXPECT_EQ(transfer.downloadOrUpdate, std::set<TModID>({"hota"}));
+        EXPECT_TRUE(transfer.reuseCachedArchive.empty());
+    }
+
+    EXPECT_FALSE(ModArchiveDigest::matchesFileSha256(archive, "not-a-sha256"));
+    EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder));
+    EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder / "missing.zip"));
+    std::error_code error;
+    fs::create_symlink(archive, cacheFolder / "linked.zip", error);
+    if(!error)
+        EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder / "linked.zip"));
+    fs::remove_all(cacheFolder, error);
+}
