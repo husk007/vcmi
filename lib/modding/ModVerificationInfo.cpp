@@ -155,7 +155,7 @@ static bool isValidLanModId(const TModID & modId)
 		return false;
 
 	if(std::any_of(modId.begin(), modId.end(), [](unsigned char ch){
-		return ch < 0x20 || ch == 0x7f;
+		return ch < 0x20 || ch == 0x7f || (ch >= 'A' && ch <= 'Z');
 	}))
 		return false;
 
@@ -217,6 +217,8 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 				break;
 			case ModVerificationStatus::FULL_MATCH:
 				break;
+			default:
+				throw std::runtime_error("LAN mod compatibility list contains unknown mod status");
 		}
 	}
 

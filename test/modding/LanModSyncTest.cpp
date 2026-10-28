@@ -181,7 +181,8 @@ TEST(LanModSyncTest, RejectsUnsafeModIdsBeforePlanningTransfersOrPresetChanges)
 		"CON", "prn", "Aux", "NUL", "com1", "COM9", "lpt1", "LPT9",
 		"conin$", "CONOUT$", "clock$",
 		"hota.CON.units", "hota.units.PrN", "hota.com4.elite",
-		"hota ", "hota.units ", "hota .units"
+		"hota ", "hota.units ", "hota .units",
+		"HotA", "hota.Units", "hota.ABC"
 	};
 	const std::vector<ModVerificationStatus> states = {
 		ModVerificationStatus::NOT_INSTALLED,
@@ -208,6 +209,20 @@ TEST(LanModSyncTest, RejectsUnsafeModIdsBeforePlanningTransfersOrPresetChanges)
 				EXPECT_STREQ(e.what(), "LAN mod compatibility list contains unsafe mod ID");
 			}
 		}
+	}
+}
+
+TEST(LanModSyncTest, RejectsUnknownCompatibilityStatusInsteadOfSilentlyTreatingItAsCompatible)
+{
+	const ModListVerificationStatus statuses = {{"hota", static_cast<ModVerificationStatus>(999)}};
+	try
+	{
+		ModVerificationInfo::buildSyncPlan(statuses, {}, {});
+		FAIL() << "An unknown LAN compatibility status must fail closed";
+	}
+	catch(const std::runtime_error & e)
+	{
+		EXPECT_STREQ(e.what(), "LAN mod compatibility list contains unknown mod status");
 	}
 }
 
