@@ -10,6 +10,7 @@
 #include "StdInc.h"
 #include "ModVerificationInfo.h"
 #include "ModArchiveDigest.h"
+#include "LanModArchiveCache.h"
 
 #include "CModHandler.h"
 #include "ModDescription.h"
@@ -246,4 +247,22 @@ ModSyncPlan ModVerificationInfo::buildSyncPlan(
 		plan.deactivate.erase(modId);
 
 	return plan;
+}
+
+ModSyncPlan ModVerificationInfo::buildSyncPlanFromPersistentCache(
+	const ModListVerificationStatus & statuses,
+	const ModArchiveHashes & expectedSha256,
+	const std::filesystem::path & userDataPath)
+{
+	// Validate the manifest and identify missing packages before accessing disk.
+	const auto missing = buildSyncPlan(statuses, expectedSha256, {});
+	if(missing.downloadOrUpdate.empty())
+		return missing;
+
+	ModArchiveHashes neededDigests;
+	for(const auto & rootId : missing.downloadOrUpdate)
+		neededDigests.emplace(rootId, expectedSha256.at(rootId));
+
+	return buildSyncPlan(statuses, expectedSha256,
+		LanModArchiveCache::verifiedArchiveDigests(userDataPath, neededDigests));
 }

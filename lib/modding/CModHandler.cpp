@@ -17,6 +17,7 @@
 #include "ModScope.h"
 
 #include "../CConfigHandler.h"
+#include "../VCMIDirs.h"
 #include "../CCreatureHandler.h"
 #include "../GameSettings.h"
 #include "../GameLibrary.h"
@@ -36,6 +37,13 @@ CModHandler::CModHandler(bool useTestPreset, const std::string & lanRelaunchToke
 }
 
 CModHandler::~CModHandler() = default;
+
+ModSyncPlan CModHandler::planLanModSync(
+	const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256) const
+{
+	const std::filesystem::path userDataPath(VCMIDirs::get().userDataPath().native());
+	return ModVerificationInfo::buildSyncPlanFromPersistentCache(statuses, expectedSha256, userDataPath);
+}
 
 void CModHandler::beginLanSession()
 {

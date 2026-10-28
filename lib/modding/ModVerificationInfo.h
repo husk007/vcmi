@@ -11,6 +11,8 @@
 
 #include "CModVersion.h"
 
+#include <filesystem>
+
 class JsonNode;
 struct ModVerificationInfo;
 using ModCompatibilityInfo = std::map<std::string, ModVerificationInfo>;
@@ -62,6 +64,8 @@ struct DLL_LINKAGE ModVerificationInfo
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
 	/// Missing or malformed host archive digests reject download planning.
 	static ModSyncPlan buildSyncPlan(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const ModArchiveHashes & verifiedCachedSha256);
+	/// Rehash only needed persistent archives before deciding whether a download is required.
+	static ModSyncPlan buildSyncPlanFromPersistentCache(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const std::filesystem::path & userDataPath);
 
 	template <typename Handler>
 	void serialize(Handler & h)

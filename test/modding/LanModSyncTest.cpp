@@ -1150,6 +1150,50 @@ TEST(LanModSyncTest, PosixArchiveDigestPinsFileBeforePathReplacement)
 }
 #endif
 
+TEST(LanModSyncTest, PersistentGuestPreflightReusesOnlyRehashedArchiveBytes)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-preflight-" + LanRelaunchToken::generate());
+	const fs::path userData = directory / "user-data";
+	const fs::path staged = directory / "staged.zip";
+	const std::string digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+	fs::create_directories(directory);
+	{
+		std::ofstream file(staged, std::ios::binary);
+		file << "abc";
+	}
+
+	const ModListVerificationStatus statuses = {{"hota", ModVerificationStatus::NOT_INSTALLED}};
+	const ModArchiveHashes manifest = {{"hota", digest}};
+	const auto missing = ModVerificationInfo::buildSyncPlanFromPersistentCache(statuses, manifest, userData);
+	EXPECT_EQ(missing.downloadOrUpdate, std::set<TModID>({"hota"}));
+	EXPECT_TRUE(missing.reuseCachedArchive.empty());
+
+	const auto published = LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged);
+	ASSERT_TRUE(published);
+	const auto repeated = ModVerificationInfo::buildSyncPlanFromPersistentCache(statuses, manifest, userData);
+	EXPECT_TRUE(repeated.downloadOrUpdate.empty());
+	EXPECT_EQ(repeated.reuseCachedArchive, std::set<TModID>({"hota"}));
+
+	// A matching installed but disabled mod needs activation only, not archive I/O.
+	const auto installed = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+		{{"hota", ModVerificationStatus::DISABLED}}, {}, userData);
+	EXPECT_TRUE(installed.downloadOrUpdate.empty());
+	EXPECT_TRUE(installed.reuseCachedArchive.empty());
+	EXPECT_EQ(installed.activate, std::set<TModID>({"hota"}));
+
+	{
+		std::ofstream file(*published, std::ios::binary | std::ios::trunc);
+		file << "abd";
+	}
+	const auto tampered = ModVerificationInfo::buildSyncPlanFromPersistentCache(statuses, manifest, userData);
+	EXPECT_EQ(tampered.downloadOrUpdate, std::set<TModID>({"hota"}));
+	EXPECT_TRUE(tampered.reuseCachedArchive.empty());
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, PersistentLanArchiveCacheReusesOnlyVerifiedContent)
 {
     namespace fs = std::filesystem;
