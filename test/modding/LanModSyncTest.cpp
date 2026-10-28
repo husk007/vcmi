@@ -27,6 +27,7 @@
 #include "../../lib/modding/LanRelaunchTokenFormat.h"
 #include "../../clientapp/LanRelaunchProcess.h"
 #include "../../lib/modding/ModArchiveDigest.h"
+#include "../../lib/modding/LanModArchiveCache.h"
 
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
@@ -1112,4 +1113,81 @@ TEST(LanModSyncTest, VerifiesCachedArchiveFileBeforeReusingAndDetectsTampering)
     if(!error)
         EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder / "linked.zip"));
     fs::remove_all(cacheFolder, error);
+}
+
+TEST(LanModSyncTest, PersistentLanArchiveCacheReusesOnlyVerifiedContent)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-cache-" + LanRelaunchToken::generate());
+    const fs::path userData = directory / "user-data";
+    const fs::path staged = directory / "staged.zip";
+    const std::string digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    fs::create_directories(directory);
+    {
+        std::ofstream file(staged, std::ios::binary);
+        file << "abc";
+    }
+
+    EXPECT_FALSE(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest));
+    const auto published = LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged);
+    ASSERT_TRUE(published);
+    EXPECT_EQ(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest), published);
+    const auto verified = LanModArchiveCache::verifiedArchiveDigests(userData, {{"hota", digest}});
+    const auto plan = ModVerificationInfo::buildSyncPlan(
+        {{"hota", ModVerificationStatus::NOT_INSTALLED}}, {{"hota", digest}}, verified);
+    EXPECT_TRUE(plan.downloadOrUpdate.empty());
+    EXPECT_EQ(plan.reuseCachedArchive, std::set<TModID>({"hota"}));
+    EXPECT_EQ(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged), published);
+    EXPECT_NE(LanModArchiveCache::archivePath(userData, "anothermod", digest), published);
+    EXPECT_EQ(LanModArchiveCache::archivePath(userData, "hota", "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"), published);
+    EXPECT_FALSE(LanModArchiveCache::archivePath(userData, "hota.maps", digest));
+    EXPECT_FALSE(LanModArchiveCache::archivePath(userData, "../unsafe", "invalid-digest"));
+
+    // A changed staged file cannot replace the matching cached archive.
+    {
+        std::ofstream file(staged, std::ios::binary | std::ios::trunc);
+        file << "abd";
+    }
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
+    EXPECT_EQ(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest), published);
+
+    // Tampering with cached bytes invalidates the hit even when the name is unchanged.
+    {
+        std::ofstream file(*published, std::ios::binary | std::ios::trunc);
+        file << "abd";
+    }
+    EXPECT_FALSE(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest));
+    {
+        std::ofstream file(staged, std::ios::binary | std::ios::trunc);
+        file << "abc";
+    }
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
+    EXPECT_TRUE(LanModArchiveCache::verifiedArchiveDigests(userData, {{"hota", digest}}).empty());
+
+    std::error_code cleanupError;
+    fs::remove_all(directory, cleanupError);
+}
+
+TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-link-" + LanRelaunchToken::generate());
+    const fs::path userData = directory / "user-data";
+    const fs::path staged = directory / "staged.zip";
+    const fs::path redirected = directory / "outside";
+    const std::string digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    fs::create_directories(userData);
+    fs::create_directories(redirected);
+    {
+        std::ofstream file(staged, std::ios::binary);
+        file << "abc";
+    }
+    std::error_code error;
+    fs::create_directory_symlink(redirected, userData / "lan-mod-archives", error);
+    if(!error)
+    {
+        EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
+        EXPECT_TRUE(fs::is_empty(redirected));
+    }
+    fs::remove_all(directory, error);
 }
