@@ -11,6 +11,8 @@
 #include "AtomicModSettings.h"
 
 #include <algorithm>
+#include <array>
+#include <cerrno>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -99,6 +101,68 @@ inline std::map<std::string, std::string> verifiedArchiveDigests(const std::file
 namespace detail
 {
 #ifndef _WIN32
+/// Copy a staged archive without following a replaced source symlink or writing beyond the limit.
+inline bool copyStagedArchiveBounded(const std::filesystem::path & source,
+    const std::filesystem::path & destination, std::uintmax_t maximumBytes)
+{
+    const int sourceFd = ModArchiveDigest::detail::openRegularArchiveNoFollow(source);
+    if(sourceFd < 0)
+        return false;
+
+    int flags = O_WRONLY | O_CREAT | O_EXCL;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const int destinationFd = ::open(destination.c_str(), flags, 0600);
+    if(destinationFd < 0)
+    {
+        ::close(sourceFd);
+        return false;
+    }
+
+    std::array<char, 64 * 1024> buffer{};
+    std::uintmax_t copiedBytes = 0;
+    bool success = true;
+    while(success)
+    {
+        const auto count = ::read(sourceFd, buffer.data(), buffer.size());
+        if(count < 0 && errno == EINTR)
+            continue;
+        if(count < 0)
+        {
+            success = false;
+            break;
+        }
+        if(count == 0)
+            break;
+        if(static_cast<std::uintmax_t>(count) > maximumBytes - copiedBytes)
+        {
+            success = false;
+            break;
+        }
+        copiedBytes += static_cast<std::uintmax_t>(count);
+        std::size_t written = 0;
+        while(written < static_cast<std::size_t>(count))
+        {
+            const auto result = ::write(destinationFd, buffer.data() + written,
+                static_cast<std::size_t>(count) - written);
+            if(result < 0 && errno == EINTR)
+                continue;
+            if(result <= 0)
+            {
+                success = false;
+                break;
+            }
+            written += static_cast<std::size_t>(result);
+        }
+    }
+    if(::close(sourceFd) != 0)
+        success = false;
+    if(::close(destinationFd) != 0)
+        success = false;
+    return success;
+}
+
 /// Sync staged archive bytes and cache directory entries before reporting durable publication.
 inline bool syncCacheEntry(const std::filesystem::path & target, bool directory)
 {
@@ -182,7 +246,12 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     std::filesystem::path temporary = *destination;
     temporary += "." + LanRelaunchToken::generate() + ".part";
     error.clear();
-    if(!std::filesystem::copy_file(stagedArchive, temporary, std::filesystem::copy_options::none, error))
+#ifdef _WIN32
+    const bool copied = std::filesystem::copy_file(stagedArchive, temporary, std::filesystem::copy_options::none, error);
+#else
+    const bool copied = detail::copyStagedArchiveBounded(stagedArchive, temporary, maxArchiveBytes);
+#endif
+    if(!copied)
     {
         std::error_code cleanupError;
         std::filesystem::remove(temporary, cleanupError);

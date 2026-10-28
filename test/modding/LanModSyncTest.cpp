@@ -1351,6 +1351,57 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
 }
 
 
+#ifndef _WIN32
+TEST(LanModSyncTest, PersistentLanArchiveStagingCopyRejectsGrowthAndSymlinkRaces)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-bounded-copy-" + LanRelaunchToken::generate());
+    ASSERT_TRUE(fs::create_directories(directory));
+    const fs::path staged = directory / "stage.zip";
+    const fs::path accepted = directory / "accepted.zip";
+    const fs::path rejected = directory / "rejected.zip";
+    const fs::path existing = directory / "existing.zip";
+    const std::string payload(64 * 1024 + 1, 'a');
+    {
+        std::ofstream out(staged, std::ios::binary);
+        out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    }
+
+    EXPECT_TRUE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, accepted, payload.size()));
+    EXPECT_EQ(ModArchiveDigest::sha256File(accepted), ModArchiveDigest::sha256File(staged));
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, rejected, payload.size() - 1));
+    EXPECT_LE(fs::file_size(rejected), payload.size() - 1);
+
+    {
+        std::ofstream out(existing, std::ios::binary);
+        out << "private";
+    }
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, existing, payload.size()));
+    EXPECT_EQ(fs::file_size(existing), 7U);
+
+    const fs::path linkedSource = directory / "linked-source.zip";
+    fs::create_symlink(staged, linkedSource);
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(
+        linkedSource, directory / "linked-copy.zip", payload.size()));
+    EXPECT_FALSE(fs::exists(directory / "linked-copy.zip"));
+
+    const fs::path linkedDestination = directory / "linked-destination.zip";
+    const fs::path outside = directory / "outside.zip";
+    fs::create_symlink(outside, linkedDestination);
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, linkedDestination, payload.size()));
+    EXPECT_FALSE(fs::exists(outside));
+
+    const fs::path fifo = directory / "pipe.zip";
+    ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(
+        fifo, directory / "pipe-copy.zip", payload.size()));
+    EXPECT_FALSE(fs::exists(directory / "pipe-copy.zip"));
+
+    std::error_code error;
+    fs::remove_all(directory, error);
+}
+#endif
+
 TEST(LanModSyncTest, PersistentLanArchivePublishNeverReplacesRacingWriter)
 {
     namespace fs = std::filesystem;
