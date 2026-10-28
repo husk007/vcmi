@@ -74,6 +74,19 @@ inline std::map<std::string, std::string> verifiedArchiveDigests(const std::file
     return verified;
 }
 
+namespace detail
+{
+/// POSIX rename may overwrite a file created after an earlier existence check.
+/// A hard link creates the destination atomically only if it is still absent.
+/// The staged file resides alongside the destination, on the same filesystem.
+inline bool publishWithoutReplacing(const std::filesystem::path & temporary, const std::filesystem::path & destination)
+{
+    std::error_code error;
+    std::filesystem::create_hard_link(temporary, destination, error);
+    return !error;
+}
+}
+
 /// Publish a complete staged archive atomically; never install it into the player's personal mods.
 inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::filesystem::path & userDataPath,
     std::string_view rootModId, std::string_view expectedSha256, const std::filesystem::path & stagedArchive)
@@ -122,14 +135,16 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
         return std::nullopt;
     }
 
-    error.clear();
-    std::filesystem::rename(temporary, *destination, error);
-    if(error)
+    // An earlier lookup cannot prevent a concurrent process from creating this destination.
+    // Never replace that entry, even if it is corrupt; a verified competing writer may be reused.
+    if(!detail::publishWithoutReplacing(temporary, *destination))
     {
         std::error_code cleanupError;
         std::filesystem::remove(temporary, cleanupError);
         return findVerifiedArchive(userDataPath, rootModId, expectedSha256);
     }
+    std::error_code cleanupError;
+    std::filesystem::remove(temporary, cleanupError);
     return findVerifiedArchive(userDataPath, rootModId, expectedSha256);
 }
 }
