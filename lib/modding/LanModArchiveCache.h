@@ -78,7 +78,8 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
 
     std::error_code error;
     const auto cacheRoot = userDataPath / "lan-mod-archives";
-    std::filesystem::create_directories(destination->parent_path(), error);
+    // Reject linked cache roots before creating the mod-specific directory.
+    std::filesystem::create_directories(cacheRoot, error);
     if(error)
         return std::nullopt;
 
@@ -87,7 +88,11 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
         std::error_code statusError;
         return std::filesystem::is_directory(std::filesystem::symlink_status(path, statusError)) && !statusError;
     };
-    if(!safeDirectory(cacheRoot) || !safeDirectory(destination->parent_path()))
+    if(!safeDirectory(cacheRoot))
+        return std::nullopt;
+    error.clear();
+    std::filesystem::create_directories(destination->parent_path(), error);
+    if(error || !safeDirectory(destination->parent_path()))
         return std::nullopt;
 
     // Never silently replace an existing cache entry that failed integrity verification.
