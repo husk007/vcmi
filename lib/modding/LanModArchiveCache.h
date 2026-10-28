@@ -11,6 +11,7 @@
 #include "AtomicModSettings.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -26,6 +27,19 @@
 
 namespace LanModArchiveCache
 {
+/// Maximum size of one received LAN mod archive before extraction.
+constexpr std::uintmax_t maxArchiveBytes = 2ULL * 1024 * 1024 * 1024;
+
+/// Do not hash, publish, or reuse oversized archives or non-regular files.
+inline bool isAllowedArchiveSize(const std::filesystem::path & archive)
+{
+    std::error_code error;
+    if(!std::filesystem::is_regular_file(std::filesystem::symlink_status(archive, error)) || error)
+        return false;
+    const std::uintmax_t size = std::filesystem::file_size(archive, error);
+    return !error && size <= maxArchiveBytes;
+}
+
 /// Cache path for a canonical root mod ID and archive digest, below the persistent user data directory.
 inline std::optional<std::filesystem::path> archivePath(const std::filesystem::path & userDataPath,
     std::string_view rootModId, std::string_view expectedSha256)
@@ -65,6 +79,7 @@ inline std::optional<std::filesystem::path> findVerifiedArchive(const std::files
     const auto candidate = archivePath(userDataPath, rootModId, expectedSha256);
     if(!candidate || !isTrustedCacheDirectory(userDataPath / "lan-mod-archives")
         || !isTrustedCacheDirectory(candidate->parent_path())
+        || !isAllowedArchiveSize(*candidate)
         || !ModArchiveDigest::matchesFileSha256(*candidate, expectedSha256))
         return std::nullopt;
     return candidate;
@@ -130,7 +145,8 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     std::string_view rootModId, std::string_view expectedSha256, const std::filesystem::path & stagedArchive)
 {
     const auto destination = archivePath(userDataPath, rootModId, expectedSha256);
-    if(!destination || !ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256))
+    if(!destination || !isAllowedArchiveSize(stagedArchive)
+        || !ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256))
         return std::nullopt;
 
     if(const auto existing = findVerifiedArchive(userDataPath, rootModId, expectedSha256))
@@ -173,7 +189,8 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
         return std::nullopt;
     }
 
-    if(!ModArchiveDigest::matchesFileSha256(temporary, expectedSha256))
+    if(!isAllowedArchiveSize(temporary)
+        || !ModArchiveDigest::matchesFileSha256(temporary, expectedSha256))
     {
         std::filesystem::remove(temporary, error);
         return std::nullopt;

@@ -1168,6 +1168,38 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheReusesOnlyVerifiedContent)
     fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsOversizedAndNonRegularPackages)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-size-" + LanRelaunchToken::generate());
+    fs::create_directories(directory);
+    const fs::path small = directory / "small.zip";
+    {
+        std::ofstream file(small, std::ios::binary);
+        file << "abc";
+    }
+    EXPECT_TRUE(LanModArchiveCache::isAllowedArchiveSize(small));
+    EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(directory));
+    EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(directory / "missing.zip"));
+
+#ifndef _WIN32
+    // A sparse file tests the limit without writing gigabytes of content.
+    const fs::path oversized = directory / "oversized.zip";
+    {
+        std::ofstream file(oversized, std::ios::binary);
+        file.seekp(static_cast<std::streamoff>(LanModArchiveCache::maxArchiveBytes));
+        file.put('\0');
+        ASSERT_TRUE(file.good());
+    }
+    EXPECT_EQ(fs::file_size(oversized), LanModArchiveCache::maxArchiveBytes + 1);
+    EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(oversized));
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(directory / "user-data", "hota",
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", oversized));
+#endif
+    std::error_code cleanupError;
+    fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
 {
     namespace fs = std::filesystem;
