@@ -23,6 +23,9 @@
 #include <string_view>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -139,7 +142,7 @@ public:
         const auto * input = static_cast<const std::uint8_t *>(bytes);
         while(size)
         {
-            const std::size_t take = std::min(size, pending.size() - pendingSize);
+            const std::size_t take = (std::min)(size, pending.size() - pendingSize);
             std::memcpy(pending.data() + pendingSize, input, take);
             pendingSize += take;
             input += take;
