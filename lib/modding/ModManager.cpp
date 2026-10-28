@@ -386,7 +386,7 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 			throw std::runtime_error("LAN session startup recovery could not sync the mod settings directory");
 		modConfig = std::move(recovered);
 		if(action == LanSessionStartupAction::RESTORED)
-			discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), restored);
+			discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), modConfig);
 		if(action == LanSessionStartupAction::RESUMED)
 			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
 		else
@@ -438,7 +438,7 @@ void ModsPresetState::restoreLanSession()
 		if(!saveConfigurationState(restored))
 			throw std::runtime_error("LAN session restoration could not sync the mod settings directory");
 		modConfig = std::move(restored);
-		discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), restored);
+		discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), modConfig);
 	}
 }
 
