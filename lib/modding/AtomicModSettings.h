@@ -41,9 +41,10 @@ inline bool syncDescriptorWithRetry(int descriptor, Sync && sync)
 }
 #endif
 
-/// Replaces an existing settings file after flushing the new contents to storage.
-/// Returns false if the replacement succeeded but syncing its parent directory failed.
-inline bool replace(const std::filesystem::path & destination, const std::string & serializedConfig)
+namespace detail
+{
+/// Write and sync a staged file before publishing it with the selected replacement policy.
+inline bool writeAtomic(const std::filesystem::path & destination, const std::string & serializedConfig, bool replaceExisting)
 {
 	std::filesystem::path temporary = destination;
 	temporary += ".pending.";
@@ -110,10 +111,29 @@ inline bool replace(const std::filesystem::path & destination, const std::string
 			throw std::system_error(errno ? errno : EIO, std::generic_category(), "Unable to close temporary mod settings file");
 
 #ifdef _WIN32
-		if(!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-			throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Unable to replace mod settings file");
+		const DWORD moveFlags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0);
+		if(!MoveFileExW(temporary.c_str(), destination.c_str(), moveFlags))
+		{
+			const DWORD error = GetLastError();
+			if(!replaceExisting)
+			{
+				std::error_code statusError;
+				const auto status = std::filesystem::symlink_status(destination, statusError);
+				if(!statusError && status.type() != std::filesystem::file_type::not_found)
+					throw std::filesystem::filesystem_error("Existing LAN recovery backup", destination,
+						std::make_error_code(std::errc::file_exists));
+			}
+			throw std::system_error(static_cast<int>(error), std::system_category(), "Unable to publish mod settings file");
+		}
 #else
-		std::filesystem::rename(temporary, destination);
+		if(replaceExisting)
+			std::filesystem::rename(temporary, destination);
+		else
+		{
+			// A hard link cannot replace a concurrent writer's existing journal.
+			std::filesystem::create_hard_link(temporary, destination);
+			std::filesystem::remove(temporary);
+		}
 #endif
 	}
 	catch(const std::exception &)
@@ -144,6 +164,18 @@ inline bool replace(const std::filesystem::path & destination, const std::string
 #else
 	return true;
 #endif
+}
+}
+
+inline bool replace(const std::filesystem::path & destination, const std::string & serializedConfig)
+{
+	return detail::writeAtomic(destination, serializedConfig, true);
+}
+
+/// Atomically publish a new recovery journal, refusing to overwrite an existing path.
+inline bool createNew(const std::filesystem::path & destination, const std::string & serializedConfig)
+{
+	return detail::writeAtomic(destination, serializedConfig, false);
 }
 
 }

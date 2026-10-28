@@ -528,6 +528,62 @@ TEST(LanModSyncTest, ExistingIndependentLanRecoveryBackupCannotBeClobbered)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, ConcurrentIndependentLanBackupPublicationIsExclusive)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-race-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+
+	std::atomic<int> published{0};
+	std::atomic<int> conflicts{0};
+	std::atomic<int> unexpected{0};
+	std::vector<std::string> snapshots;
+	for(int i = 0; i < 12; ++i)
+		snapshots.emplace_back(4096, static_cast<char>('A' + i));
+
+	std::vector<std::thread> writers;
+	for(int i = 0; i < 12; ++i)
+	{
+		writers.emplace_back([&, i]()
+		{
+			try
+			{
+				if(LanModRecoveryJournal::persist(settings, snapshots[i]))
+					++published;
+				else
+					++unexpected;
+			}
+			catch(const fs::filesystem_error & error)
+			{
+				if(error.code() == std::make_error_code(std::errc::file_exists))
+					++conflicts;
+				else
+					++unexpected;
+			}
+			catch(const std::exception &)
+			{
+				++unexpected;
+			}
+		});
+	}
+	for(auto & writer : writers)
+		writer.join();
+
+	EXPECT_EQ(published.load(), 1);
+	EXPECT_EQ(conflicts.load(), 11);
+	EXPECT_EQ(unexpected.load(), 0);
+	std::ifstream input(backup, std::ios::binary);
+	const std::string saved((std::istreambuf_iterator<char>(input)), {});
+	EXPECT_TRUE(std::find(snapshots.begin(), snapshots.end(), saved) != snapshots.end());
+	for(const auto & entry : fs::directory_iterator(directory))
+		EXPECT_EQ(entry.path().filename().string().find(".pending."), std::string::npos);
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 #ifndef _WIN32
 TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
 {
