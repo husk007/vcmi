@@ -41,7 +41,7 @@ inline bool isAllowedArchiveSize(const std::filesystem::path & archive)
     if(!std::filesystem::is_regular_file(std::filesystem::symlink_status(archive, error)) || error)
         return false;
     const std::uintmax_t size = std::filesystem::file_size(archive, error);
-    return !error && size <= maxArchiveBytes;
+    return !error && size > 0 && size <= maxArchiveBytes;
 }
 
 /// Cache path for a canonical root mod ID and archive digest, below the persistent user data directory.

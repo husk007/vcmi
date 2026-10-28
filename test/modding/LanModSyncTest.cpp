@@ -1700,6 +1700,18 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsOversizedAndNonRegularPacka
     EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(directory));
     EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(directory / "missing.zip"));
 
+    // An empty file has a valid SHA-256 but is not a usable mod archive.
+    const fs::path empty = directory / "empty.zip";
+    {
+        std::ofstream file(empty, std::ios::binary);
+        ASSERT_TRUE(file.good());
+    }
+    EXPECT_EQ(fs::file_size(empty), 0U);
+    EXPECT_FALSE(LanModArchiveCache::isAllowedArchiveSize(empty));
+    const std::string emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(directory / "user-data", "hota", emptyDigest, empty));
+    EXPECT_FALSE(LanModArchiveCache::findVerifiedArchive(directory / "user-data", "hota", emptyDigest));
+
 #ifndef _WIN32
     // A sparse file tests the limit without writing gigabytes of content.
     const fs::path oversized = directory / "oversized.zip";
