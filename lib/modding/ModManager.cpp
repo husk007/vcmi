@@ -281,9 +281,8 @@ bool LanModSessionState::shouldRestoreOnShutdown(const JsonNode & config)
 		|| !marker.isString() || !LanRelaunchTokenFormat::isValid(marker.String());
 }
 
-JsonNode LanModSessionState::restoreDamagedSettings(const std::filesystem::path & settings)
+static JsonNode validatedLanRecoveryBackup(const std::filesystem::path & settings, const std::string & original)
 {
-	const std::string original = LanModRecoveryJournal::load(settings);
 	JsonParsingSettings parsing;
 	parsing.strict = true;
 	parsing.mode = JsonParsingSettings::JsonFormatMode::JSON;
@@ -291,12 +290,45 @@ JsonNode LanModSessionState::restoreDamagedSettings(const std::filesystem::path 
 	JsonNode recovered(original.data(), original.size(), parsing, backupPath.string());
 
 	JsonNode validation = recovered;
-	begin(validation);
+	LanModSessionState::begin(validation);
+	return recovered;
+}
+
+JsonNode LanModSessionState::restoreDamagedSettings(const std::filesystem::path & settings)
+{
+	const std::string original = LanModRecoveryJournal::load(settings);
+	JsonNode recovered = validatedLanRecoveryBackup(settings, original);
 	if(!AtomicModSettings::replace(settings, original))
 		throw std::runtime_error("LAN backup restoration could not sync the mod settings directory");
 	if(!LanModRecoveryJournal::discard(settings))
 		logGlobal->warn("Could not remove independent LAN backup after recovering damaged settings");
 	return recovered;
+}
+
+bool LanModSessionState::restoreCompleteBackupIfPresent(JsonNode & restored, const JsonNode & sessionConfig,
+	const std::filesystem::path & settings)
+{
+	const auto backupPath = LanModRecoveryJournal::pathForSettings(settings);
+	std::error_code lookupError;
+	const auto backupStatus = std::filesystem::symlink_status(backupPath, lookupError);
+	if(lookupError == std::errc::no_such_file_or_directory
+		|| backupStatus.type() == std::filesystem::file_type::not_found)
+		return false;
+	if(lookupError)
+		throw std::filesystem::filesystem_error("Cannot inspect LAN recovery backup", backupPath, lookupError);
+
+	validateLanSessionSnapshot(sessionConfig);
+	const std::string original = LanModRecoveryJournal::load(settings);
+	JsonNode complete = validatedLanRecoveryBackup(settings, original);
+	const std::string & originalPreset = sessionConfig["lanSession"]["originalPresetName"].String();
+	const JsonNode & checked = complete;
+	if(checked["activePreset"].String() != originalPreset
+		|| checked["presets"][originalPreset].toCompactString()
+			!= sessionConfig["lanSession"]["originalPreset"].toCompactString())
+		throw std::runtime_error("LAN recovery backup does not match the active session snapshot");
+
+	restored = std::move(complete);
+	return true;
 }
 
 static std::filesystem::path modSettingsStoragePath(const JsonPath & path)
@@ -382,6 +414,8 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 	{
 		JsonNode recovered = modConfig;
 		const auto action = LanModSessionState::recoverOnStartup(recovered, relaunchToken);
+		if(action == LanSessionStartupAction::RESTORED)
+			LanModSessionState::restoreCompleteBackupIfPresent(recovered, modConfig, modSettingsStoragePath(settingsPath));
 		if(!saveConfigurationState(recovered))
 			throw std::runtime_error("LAN session startup recovery could not sync the mod settings directory");
 		modConfig = std::move(recovered);
@@ -435,6 +469,7 @@ void ModsPresetState::restoreLanSession()
 	JsonNode restored = modConfig;
 	if(LanModSessionState::restore(restored))
 	{
+		LanModSessionState::restoreCompleteBackupIfPresent(restored, modConfig, modSettingsStoragePath(settingsPath));
 		if(!saveConfigurationState(restored))
 			throw std::runtime_error("LAN session restoration could not sync the mod settings directory");
 		modConfig = std::move(restored);

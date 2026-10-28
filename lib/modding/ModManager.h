@@ -48,6 +48,9 @@ public:
 	static const std::string & temporaryPresetName();
 	/// Restore validated original settings when the primary JSON is damaged.
 	static JsonNode restoreDamagedSettings(const std::filesystem::path & settings);
+	/// Use the complete independent snapshot when it belongs to the current LAN session.
+	static bool restoreCompleteBackupIfPresent(JsonNode & restored, const JsonNode & sessionConfig,
+		const std::filesystem::path & settings);
 	static void begin(JsonNode & config);
 	/// Refuse personal preset operations while the LAN recovery snapshot is active.
 	static void requirePersonalPresetUnlocked(const JsonNode & config);
