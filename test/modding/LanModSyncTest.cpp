@@ -23,6 +23,7 @@
 #endif
 
 #include "../../lib/modding/AtomicModSettings.h"
+#include "../../lib/modding/LanModRecoveryJournal.h"
 #include "../../lib/modding/LanRelaunchToken.h"
 #include "../../lib/modding/LanRelaunchTokenFormat.h"
 #include "../../clientapp/LanRelaunchProcess.h"
@@ -443,6 +444,52 @@ TEST(LanModSyncTest, AtomicWritePreservesSettingsWhenReplacementFails)
 	}
 
 	std::filesystem::remove_all(testDirectory);
+}
+
+TEST(LanModSyncTest, IndependentLanRecoveryBackupSurvivesTemporaryPresetChanges)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+
+	JsonNode personal;
+	personal["activePreset"].String() = "personal";
+	personal["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	personal["presets"]["personal"]["settings"]["hota"]["music"].Bool() = true;
+	personal["presets"]["another"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = personal.toCompactString();
+	ASSERT_TRUE(AtomicModSettings::replace(settings, original));
+
+	// A journal write failure must leave the original settings intact.
+	ASSERT_TRUE(fs::create_directory(backup));
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, original), std::system_error);
+	{
+		std::ifstream input(settings, std::ios::binary);
+		EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), original);
+	}
+	ASSERT_TRUE(fs::remove(backup));
+
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+	LanModSessionState::begin(personal);
+	ASSERT_TRUE(AtomicModSettings::replace(settings, personal.toCompactString()));
+	personal["presets"][LanModSessionState::temporaryPresetName()]["settings"]["hota"]["units"].Bool() = true;
+	ASSERT_TRUE(AtomicModSettings::replace(settings, personal.toCompactString()));
+	{
+		std::ifstream input(backup, std::ios::binary);
+		EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), original);
+	}
+
+	ASSERT_TRUE(LanModSessionState::restore(personal));
+	ASSERT_TRUE(AtomicModSettings::replace(settings, personal.toCompactString()));
+	EXPECT_TRUE(LanModRecoveryJournal::discard(settings));
+	EXPECT_FALSE(fs::exists(backup));
+	EXPECT_EQ(personal.toCompactString(), original);
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
 }
 
 #ifndef _WIN32

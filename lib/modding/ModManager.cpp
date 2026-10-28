@@ -10,6 +10,7 @@
 #include "StdInc.h"
 #include "ModManager.h"
 #include "AtomicModSettings.h"
+#include "LanModRecoveryJournal.h"
 #include "LanRelaunchToken.h"
 #include "LanRelaunchTokenFormat.h"
 
@@ -280,6 +281,14 @@ bool LanModSessionState::shouldRestoreOnShutdown(const JsonNode & config)
 		|| !marker.isString() || !LanRelaunchTokenFormat::isValid(marker.String());
 }
 
+static std::filesystem::path modSettingsStoragePath(const JsonPath & path)
+{
+	const auto destination = CResourceHandler::get()->getResourceName(ResourcePath(path));
+	if(!destination)
+		throw std::runtime_error("Cannot locate the mod settings file");
+	return std::filesystem::path(destination->native());
+}
+
 ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunchToken)
 	: settingsPath(JsonPath::builtin(useTestPreset ? "config/testModSettings.json" : "config/modSettings.json"))
 {
@@ -301,6 +310,9 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 		if(!saveConfigurationState(recovered))
 			throw std::runtime_error("LAN session startup recovery could not sync the mod settings directory");
 		modConfig = std::move(recovered);
+		if(action == LanSessionStartupAction::RESTORED
+			&& !LanModRecoveryJournal::discard(modSettingsStoragePath(settingsPath)))
+			logGlobal->warn("Could not remove the independent LAN recovery backup after startup restoration");
 		if(action == LanSessionStartupAction::RESUMED)
 			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
 		else
@@ -327,6 +339,9 @@ void ModsPresetState::beginLanSession()
 {
 	JsonNode pending = modConfig;
 	LanModSessionState::begin(pending);
+	// Persist independent recovery bytes before switching the active preset on disk.
+	if(!LanModRecoveryJournal::persist(modSettingsStoragePath(settingsPath), modConfig.toCompactString()))
+		throw std::runtime_error("LAN recovery backup could not sync the mod settings directory");
 	if(!saveConfigurationState(pending))
 		throw std::runtime_error("LAN session snapshot could not sync the mod settings directory");
 	modConfig = std::move(pending);
@@ -349,6 +364,8 @@ void ModsPresetState::restoreLanSession()
 		if(!saveConfigurationState(restored))
 			throw std::runtime_error("LAN session restoration could not sync the mod settings directory");
 		modConfig = std::move(restored);
+		if(!LanModRecoveryJournal::discard(modSettingsStoragePath(settingsPath)))
+			logGlobal->warn("Could not remove the independent LAN recovery backup after restoration");
 	}
 }
 
@@ -523,11 +540,7 @@ void ModsPresetState::setValidatedChecksum(const TModID & modName, std::optional
 
 bool ModsPresetState::saveConfigurationState(const JsonNode & state) const
 {
-	const auto destination = CResourceHandler::get()->getResourceName(ResourcePath(settingsPath));
-	if(!destination)
-		throw std::runtime_error("Cannot locate the mod settings file");
-
-	const bool directorySynced = AtomicModSettings::replace(std::filesystem::path(destination->native()), state.toCompactString());
+	const bool directorySynced = AtomicModSettings::replace(modSettingsStoragePath(settingsPath), state.toCompactString());
 	if(!directorySynced)
 		logGlobal->warn("Mod settings replaced but parent directory sync failed; power-loss durability is not guaranteed");
 	return directorySynced;
