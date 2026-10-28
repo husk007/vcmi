@@ -29,6 +29,8 @@
 
 namespace LanModRecoveryJournal
 {
+inline constexpr std::uintmax_t maxBackupBytes = 16 * 1024 * 1024;
+
 /// Keep an independent copy of the original settings until the restored preset is durable.
 inline std::filesystem::path pathForSettings(const std::filesystem::path & settings)
 {
@@ -40,13 +42,15 @@ inline std::filesystem::path pathForSettings(const std::filesystem::path & setti
 /// A failed durability acknowledgement must prevent starting a temporary LAN preset.
 inline bool persist(const std::filesystem::path & settings, const std::string & original)
 {
+	if(original.empty() || original.size() > maxBackupBytes)
+		throw std::runtime_error("LAN recovery backup has an invalid size");
 	return AtomicModSettings::createNew(pathForSettings(settings), original);
 }
 
 /// Read a bounded recovery backup through a pinned regular-file handle.
 inline std::string load(const std::filesystem::path & settings)
 {
-	constexpr std::uintmax_t maxBackupSize = 16 * 1024 * 1024;
+
 	const auto backup = pathForSettings(settings);
 	std::uintmax_t size = 0;
 	int descriptor = -1;
@@ -64,7 +68,7 @@ inline std::string load(const std::filesystem::path & settings)
 		throw std::runtime_error("LAN recovery backup is not a regular file");
 	}
 	size = (static_cast<std::uintmax_t>(metadata.nFileSizeHigh) << 32) | metadata.nFileSizeLow;
-	if(size == 0 || size > maxBackupSize)
+	if(size == 0 || size > maxBackupBytes)
 	{
 		CloseHandle(handle);
 		throw std::runtime_error("LAN recovery backup has an invalid size");
@@ -89,7 +93,7 @@ inline std::string load(const std::filesystem::path & settings)
 
 	struct stat metadata{};
 	if(::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)
-		|| metadata.st_size <= 0 || static_cast<std::uintmax_t>(metadata.st_size) > maxBackupSize)
+		|| metadata.st_size <= 0 || static_cast<std::uintmax_t>(metadata.st_size) > maxBackupBytes)
 	{
 		::close(descriptor);
 		throw std::runtime_error("LAN recovery backup has an invalid type or size");

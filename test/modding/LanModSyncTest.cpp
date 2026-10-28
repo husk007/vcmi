@@ -654,6 +654,29 @@ TEST(LanModSyncTest, StaleLanRecoveryBackupClearsOnlyAfterExactRestoration)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, RejectsUnreadableLanRecoveryBackupSizeBeforeWriting)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-size-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+	const std::string oversized(static_cast<std::size_t>(LanModRecoveryJournal::maxBackupBytes) + 1, 'x');
+
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, ""), std::runtime_error);
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, oversized), std::runtime_error);
+	EXPECT_FALSE(fs::exists(backup));
+
+	const std::string original = R"({"activePreset":"personal","presets":{"personal":{"mods":["vcmi"]}}})";
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+	EXPECT_EQ(LanModRecoveryJournal::load(settings), original);
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, oversized), std::runtime_error);
+	EXPECT_EQ(LanModRecoveryJournal::load(settings), original);
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, RecoveryBackupReaderRejectsNonRegularFilesAndOversize)
 {
 	namespace fs = std::filesystem;
