@@ -1351,6 +1351,50 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
 }
 
 
+#ifdef _WIN32
+TEST(LanModSyncTest, WindowsArchiveStagingCopyRejectsGrowthAndReparsePoints)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-windows-copy-" + LanRelaunchToken::generate());
+    ASSERT_TRUE(fs::create_directories(directory));
+    const fs::path staged = directory / "stage.zip";
+    const fs::path accepted = directory / "accepted.zip";
+    const fs::path tooSmall = directory / "too-small.zip";
+    const fs::path existing = directory / "existing.zip";
+    const std::string payload(64 * 1024 + 1, 'a');
+    {
+        std::ofstream output(staged, std::ios::binary);
+        output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    }
+
+    EXPECT_TRUE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, accepted, payload.size()));
+    EXPECT_EQ(ModArchiveDigest::sha256File(accepted), ModArchiveDigest::sha256File(staged));
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, tooSmall, payload.size() - 1));
+    EXPECT_LE(fs::file_size(tooSmall), payload.size() - 1);
+
+    {
+        std::ofstream output(existing, std::ios::binary);
+        output << "private";
+    }
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(staged, existing, payload.size()));
+    EXPECT_EQ(fs::file_size(existing), 7U);
+    EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(
+        directory, directory / "directory-copy.zip", payload.size()));
+
+    std::error_code error;
+    const fs::path linkedSource = directory / "linked-stage.zip";
+    fs::create_symlink(staged, linkedSource, error);
+    if(!error)
+    {
+        EXPECT_FALSE(LanModArchiveCache::detail::copyStagedArchiveBounded(
+            linkedSource, directory / "linked-copy.zip", payload.size()));
+        EXPECT_FALSE(fs::exists(directory / "linked-copy.zip"));
+    }
+
+    fs::remove_all(directory, error);
+}
+#endif
+
 #ifndef _WIN32
 TEST(LanModSyncTest, PersistentLanArchiveStagingCopyRejectsGrowthAndSymlinkRaces)
 {

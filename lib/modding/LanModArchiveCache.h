@@ -21,7 +21,9 @@
 #include <string_view>
 #include <system_error>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -100,7 +102,73 @@ inline std::map<std::string, std::string> verifiedArchiveDigests(const std::file
 
 namespace detail
 {
-#ifndef _WIN32
+#ifdef _WIN32
+/// Use a pinned regular-file handle and exclusive destination when staging on Windows.
+inline bool copyStagedArchiveBounded(const std::filesystem::path & source,
+    const std::filesystem::path & destination, std::uintmax_t maximumBytes)
+{
+    const HANDLE sourceHandle = CreateFileW(source.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if(sourceHandle == INVALID_HANDLE_VALUE)
+        return false;
+
+    BY_HANDLE_FILE_INFORMATION info{};
+    const bool regularSource = GetFileType(sourceHandle) == FILE_TYPE_DISK
+        && GetFileInformationByHandle(sourceHandle, &info)
+        && !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
+    if(!regularSource)
+    {
+        CloseHandle(sourceHandle);
+        return false;
+    }
+
+    const HANDLE destinationHandle = CreateFileW(destination.c_str(), GENERIC_WRITE,
+        0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if(destinationHandle == INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(sourceHandle);
+        return false;
+    }
+
+    std::array<char, 64 * 1024> buffer{};
+    std::uintmax_t copiedBytes = 0;
+    bool success = true;
+    while(success)
+    {
+        DWORD count = 0;
+        if(!ReadFile(sourceHandle, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr))
+        {
+            success = false;
+            break;
+        }
+        if(count == 0)
+            break;
+        if(static_cast<std::uintmax_t>(count) > maximumBytes - copiedBytes)
+        {
+            success = false;
+            break;
+        }
+        copiedBytes += static_cast<std::uintmax_t>(count);
+        DWORD written = 0;
+        while(written < count)
+        {
+            DWORD next = 0;
+            if(!WriteFile(destinationHandle, buffer.data() + written, count - written, &next, nullptr)
+                || next == 0)
+            {
+                success = false;
+                break;
+            }
+            written += next;
+        }
+    }
+    if(success && !FlushFileBuffers(destinationHandle))
+        success = false;
+    const bool destinationClosed = CloseHandle(destinationHandle) != 0;
+    const bool sourceClosed = CloseHandle(sourceHandle) != 0;
+    return success && destinationClosed && sourceClosed;
+}
+#else
 /// Copy a staged archive without following a replaced source symlink or writing beyond the limit.
 inline bool copyStagedArchiveBounded(const std::filesystem::path & source,
     const std::filesystem::path & destination, std::uintmax_t maximumBytes)
@@ -246,11 +314,7 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     std::filesystem::path temporary = *destination;
     temporary += "." + LanRelaunchToken::generate() + ".part";
     error.clear();
-#ifdef _WIN32
-    const bool copied = std::filesystem::copy_file(stagedArchive, temporary, std::filesystem::copy_options::none, error);
-#else
     const bool copied = detail::copyStagedArchiveBounded(stagedArchive, temporary, maxArchiveBytes);
-#endif
     if(!copied)
     {
         std::error_code cleanupError;
