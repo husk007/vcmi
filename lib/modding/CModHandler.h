@@ -81,9 +81,9 @@ public:
 	void load();
 	void afterLoad();
 
-	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
 	/// Read-only guest preflight using verified archives in the persistent user-data directory.
 	ModSyncPlan planLanModSync(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256) const;
+	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
 	void beginLanSession();
 	/// Restore the saved personal preset when a LAN join or session is cancelled.
 	void restoreLanSession();
