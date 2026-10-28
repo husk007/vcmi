@@ -492,6 +492,42 @@ TEST(LanModSyncTest, IndependentLanRecoveryBackupSurvivesTemporaryPresetChanges)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, ExistingIndependentLanRecoveryBackupCannotBeClobbered)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-retain-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+
+	JsonNode personal;
+	personal["activePreset"].String() = "personal";
+	personal["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	const std::string original = personal.toCompactString();
+
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = true;
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, personal.toCompactString()), fs::filesystem_error);
+	{
+		std::ifstream input(backup, std::ios::binary);
+		EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), original);
+	}
+	ASSERT_TRUE(LanModRecoveryJournal::discard(settings));
+	EXPECT_TRUE(LanModRecoveryJournal::persist(settings, personal.toCompactString()));
+	ASSERT_TRUE(LanModRecoveryJournal::discard(settings));
+
+#ifndef _WIN32
+	fs::create_symlink("missing-target", backup);
+	EXPECT_THROW(LanModRecoveryJournal::persist(settings, original), fs::filesystem_error);
+	EXPECT_TRUE(fs::is_symlink(fs::symlink_status(backup)));
+	EXPECT_FALSE(fs::exists(directory / "missing-target"));
+#endif
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 #ifndef _WIN32
 TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
 {

@@ -25,7 +25,12 @@ inline std::filesystem::path pathForSettings(const std::filesystem::path & setti
 /// A failed durability acknowledgement must prevent starting a temporary LAN preset.
 inline bool persist(const std::filesystem::path & settings, const std::string & original)
 {
-	return AtomicModSettings::replace(pathForSettings(settings), original);
+	const auto backup = pathForSettings(settings);
+	// Keep an unresolved recovery snapshot, including a dangling symlink, intact.
+	if(std::filesystem::symlink_status(backup).type() != std::filesystem::file_type::not_found)
+		throw std::filesystem::filesystem_error("Unresolved LAN recovery backup already exists", backup,
+			std::make_error_code(std::errc::file_exists));
+	return AtomicModSettings::replace(backup, original);
 }
 
 /// Remove the backup only after the normal settings have been restored and synced.
