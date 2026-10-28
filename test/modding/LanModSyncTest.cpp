@@ -545,7 +545,7 @@ TEST(LanModSyncTest, DamagedMainSettingsRestoreFullIndependentPresetAndSubmods)
 	const std::string original = personal.toCompactString();
 
 	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
-	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\\\"activePreset\\\":"));
+	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\"activePreset\":"));
 	const JsonNode restored = LanModSessionState::restoreDamagedSettings(settings);
 	EXPECT_EQ(restored.toCompactString(), original);
 	std::ifstream input(settings, std::ios::binary);
@@ -563,9 +563,9 @@ TEST(LanModSyncTest, InvalidIndependentBackupCannotReplaceDamagedMainSettings)
 	ASSERT_TRUE(fs::create_directories(directory));
 	const fs::path settings = directory / "modSettings.json";
 	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
-	const std::string damaged = "{\\\"activePreset\\\":";
+	const std::string damaged = "{\"activePreset\":";
 	ASSERT_TRUE(AtomicModSettings::replace(settings, damaged));
-	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, "{\\\"activePreset\\\":\\\"missing\\\",\\\"presets\\\":{}}"));
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, "{\"activePreset\":\"missing\",\"presets\":{}}"));
 
 	EXPECT_THROW(LanModSessionState::restoreDamagedSettings(settings), std::exception);
 	std::ifstream input(settings, std::ios::binary);
