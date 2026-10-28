@@ -11,6 +11,8 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
+#include <memory>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -19,6 +21,12 @@
 #include <string>
 #include <cstddef>
 #include <string_view>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 /// Comparison of canonical SHA-256 archive digests supplied by the LAN manifest and verified cache.
 namespace ModArchiveDigest
@@ -168,6 +176,45 @@ public:
     }
 };
 
+#ifndef _WIN32
+namespace detail
+{
+/// Anchor hashing to a regular file descriptor, never a symlink swapped into the pathname.
+inline int openRegularArchiveNoFollow(const std::filesystem::path & archive)
+{
+#ifndef O_NOFOLLOW
+    (void)archive;
+    return -1;
+#else
+    int flags = O_RDONLY | O_NONBLOCK | O_NOFOLLOW;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    const int descriptor = ::open(archive.c_str(), flags);
+    if(descriptor < 0)
+        return -1;
+
+    struct stat metadata{};
+    if(::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode))
+    {
+        ::close(descriptor);
+        return -1;
+    }
+    return descriptor;
+#endif
+}
+
+struct FileCloser
+{
+    void operator()(std::FILE * file) const
+    {
+        if(file)
+            std::fclose(file);
+    }
+};
+}
+#endif
+
 /// Returns no digest on unreadable or non-regular files. Symlinks are not trusted cache archives.
 inline std::optional<std::string> sha256File(const std::filesystem::path & archive)
 {
@@ -175,12 +222,26 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
     if(!std::filesystem::is_regular_file(std::filesystem::symlink_status(archive, error)) || error)
         return std::nullopt;
 
+#ifdef _WIN32
     std::ifstream input(archive, std::ios::binary);
     if(!input)
         return std::nullopt;
+#else
+    const int descriptor = detail::openRegularArchiveNoFollow(archive);
+    if(descriptor < 0)
+        return std::nullopt;
+    std::FILE * raw = ::fdopen(descriptor, "rb");
+    if(!raw)
+    {
+        ::close(descriptor);
+        return std::nullopt;
+    }
+    std::unique_ptr<std::FILE, detail::FileCloser> input(raw);
+#endif
 
     Sha256 hasher;
     std::array<char, 64 * 1024> buffer{};
+#ifdef _WIN32
     do
     {
         input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
@@ -191,6 +252,20 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
     while(input);
     if(!input.eof())
         return std::nullopt;
+#else
+    while(true)
+    {
+        const std::size_t count = std::fread(buffer.data(), 1, buffer.size(), input.get());
+        if(count > 0)
+            hasher.update(buffer.data(), count);
+        if(count < buffer.size())
+        {
+            if(std::ferror(input.get()))
+                return std::nullopt;
+            break;
+        }
+    }
+#endif
 
     return hasher.finish();
 }

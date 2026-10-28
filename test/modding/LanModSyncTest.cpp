@@ -1115,6 +1115,41 @@ TEST(LanModSyncTest, VerifiesCachedArchiveFileBeforeReusingAndDetectsTampering)
     fs::remove_all(cacheFolder, error);
 }
 
+#ifndef _WIN32
+TEST(LanModSyncTest, PosixArchiveDigestPinsFileBeforePathReplacement)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-descriptor-" + LanRelaunchToken::generate());
+    fs::create_directories(directory);
+    const fs::path original = directory / "archive.zip";
+    const fs::path moved = directory / "moved.zip";
+    {
+        std::ofstream output(original, std::ios::binary);
+        output << "abc";
+    }
+
+    const int descriptor = ModArchiveDigest::detail::openRegularArchiveNoFollow(original);
+    ASSERT_GE(descriptor, 0);
+    fs::rename(original, moved);
+    fs::create_symlink(moved, original);
+
+    EXPECT_LT(ModArchiveDigest::detail::openRegularArchiveNoFollow(original), 0);
+    EXPECT_FALSE(ModArchiveDigest::sha256File(original));
+    char payload[3]{};
+    EXPECT_EQ(::read(descriptor, payload, sizeof(payload)), static_cast<ssize_t>(sizeof(payload)));
+    EXPECT_EQ(std::string(payload, sizeof(payload)), "abc");
+    EXPECT_EQ(::close(descriptor), 0);
+    EXPECT_EQ(ModArchiveDigest::sha256File(moved),
+        std::optional<std::string>("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+
+    const fs::path fifo = directory / "pipe.zip";
+    ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+    EXPECT_LT(ModArchiveDigest::detail::openRegularArchiveNoFollow(fifo), 0);
+    std::error_code error;
+    fs::remove_all(directory, error);
+}
+#endif
+
 TEST(LanModSyncTest, PersistentLanArchiveCacheReusesOnlyVerifiedContent)
 {
     namespace fs = std::filesystem;
