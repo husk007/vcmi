@@ -1546,6 +1546,49 @@ TEST(LanModSyncTest, PosixArchiveDigestPinsFileBeforePathReplacement)
 }
 #endif
 
+#ifdef _WIN32
+TEST(LanModSyncTest, WindowsArchiveDigestPinsHandleAcrossPathReplacement)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-win-digest-" + LanRelaunchToken::generate());
+    fs::create_directories(directory);
+    const fs::path original = directory / "archive.zip";
+    const fs::path moved = directory / "moved.zip";
+    {
+        std::ofstream output(original, std::ios::binary);
+        output << "abc";
+    }
+
+    const HANDLE handle = ModArchiveDigest::detail::openRegularArchiveNoFollow(original);
+    ASSERT_NE(handle, INVALID_HANDLE_VALUE);
+    std::error_code error;
+    fs::rename(original, moved, error);
+    if(error)
+    {
+        CloseHandle(handle);
+        fs::remove_all(directory);
+        FAIL() << "Cannot rename archive with pinned Windows read handle: " << error.message();
+        return;
+    }
+    {
+        std::ofstream output(original, std::ios::binary);
+        output << "abd";
+    }
+
+    char payload[3]{};
+    DWORD read = 0;
+    EXPECT_TRUE(ReadFile(handle, payload, static_cast<DWORD>(sizeof(payload)), &read, nullptr));
+    EXPECT_EQ(read, static_cast<DWORD>(sizeof(payload)));
+    EXPECT_EQ(std::string(payload, sizeof(payload)), "abc");
+    EXPECT_TRUE(CloseHandle(handle));
+    EXPECT_EQ(ModArchiveDigest::sha256File(moved),
+        std::optional<std::string>("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    EXPECT_FALSE(ModArchiveDigest::matchesFileSha256(original,
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    fs::remove_all(directory, error);
+}
+#endif
+
 TEST(LanModSyncTest, PersistentGuestPreflightReusesOnlyRehashedArchiveBytes)
 {
 	namespace fs = std::filesystem;

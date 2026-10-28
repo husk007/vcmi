@@ -22,7 +22,9 @@
 #include <cstddef>
 #include <string_view>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -176,9 +178,37 @@ public:
     }
 };
 
-#ifndef _WIN32
 namespace detail
 {
+#ifdef _WIN32
+/// Open a pinned archive handle and refuse Windows reparse points after opening.
+inline HANDLE openRegularArchiveNoFollow(const std::filesystem::path & archive)
+{
+    const HANDLE handle = CreateFileW(archive.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if(handle == INVALID_HANDLE_VALUE)
+        return INVALID_HANDLE_VALUE;
+
+    BY_HANDLE_FILE_INFORMATION metadata{};
+    if(GetFileType(handle) != FILE_TYPE_DISK || !GetFileInformationByHandle(handle, &metadata)
+        || (metadata.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
+    {
+        CloseHandle(handle);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
+}
+
+struct FileCloser
+{
+    void operator()(HANDLE handle) const
+    {
+        if(handle != INVALID_HANDLE_VALUE)
+            CloseHandle(handle);
+    }
+};
+#else
 /// Anchor hashing to a regular file descriptor, never a symlink swapped into the pathname.
 inline int openRegularArchiveNoFollow(const std::filesystem::path & archive)
 {
@@ -212,8 +242,8 @@ struct FileCloser
             std::fclose(file);
     }
 };
-}
 #endif
+}
 
 /// Returns no digest on unreadable or non-regular files. Symlinks are not trusted cache archives.
 inline std::optional<std::string> sha256File(const std::filesystem::path & archive,
@@ -224,9 +254,10 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
         return std::nullopt;
 
 #ifdef _WIN32
-    std::ifstream input(archive, std::ios::binary);
-    if(!input)
+    const HANDLE handle = detail::openRegularArchiveNoFollow(archive);
+    if(handle == INVALID_HANDLE_VALUE)
         return std::nullopt;
+    std::unique_ptr<void, detail::FileCloser> input(handle);
 #else
     const int descriptor = detail::openRegularArchiveNoFollow(archive);
     if(descriptor < 0)
@@ -244,21 +275,18 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
     std::array<char, 64 * 1024> buffer{};
     std::uintmax_t bytesRead = 0;
 #ifdef _WIN32
-    do
+    while(true)
     {
-        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const auto count = input.gcount();
-        if(count > 0)
-        {
-            if(static_cast<std::uintmax_t>(count) > maximumBytes - bytesRead)
-                return std::nullopt;
-            bytesRead += static_cast<std::uintmax_t>(count);
-            hasher.update(buffer.data(), static_cast<std::size_t>(count));
-        }
+        DWORD count = 0;
+        if(!ReadFile(input.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr))
+            return std::nullopt;
+        if(count == 0)
+            break;
+        if(static_cast<std::uintmax_t>(count) > maximumBytes - bytesRead)
+            return std::nullopt;
+        bytesRead += static_cast<std::uintmax_t>(count);
+        hasher.update(buffer.data(), static_cast<std::size_t>(count));
     }
-    while(input);
-    if(!input.eof())
-        return std::nullopt;
 #else
     while(true)
     {
