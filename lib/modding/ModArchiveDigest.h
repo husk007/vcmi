@@ -216,7 +216,8 @@ struct FileCloser
 #endif
 
 /// Returns no digest on unreadable or non-regular files. Symlinks are not trusted cache archives.
-inline std::optional<std::string> sha256File(const std::filesystem::path & archive)
+inline std::optional<std::string> sha256File(const std::filesystem::path & archive,
+    std::uintmax_t maximumBytes = std::numeric_limits<std::uintmax_t>::max())
 {
     std::error_code error;
     if(!std::filesystem::is_regular_file(std::filesystem::symlink_status(archive, error)) || error)
@@ -241,13 +242,19 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
 
     Sha256 hasher;
     std::array<char, 64 * 1024> buffer{};
+    std::uintmax_t bytesRead = 0;
 #ifdef _WIN32
     do
     {
         input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         const auto count = input.gcount();
         if(count > 0)
+        {
+            if(static_cast<std::uintmax_t>(count) > maximumBytes - bytesRead)
+                return std::nullopt;
+            bytesRead += static_cast<std::uintmax_t>(count);
             hasher.update(buffer.data(), static_cast<std::size_t>(count));
+        }
     }
     while(input);
     if(!input.eof())
@@ -257,7 +264,12 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
     {
         const std::size_t count = std::fread(buffer.data(), 1, buffer.size(), input.get());
         if(count > 0)
+        {
+            if(static_cast<std::uintmax_t>(count) > maximumBytes - bytesRead)
+                return std::nullopt;
+            bytesRead += static_cast<std::uintmax_t>(count);
             hasher.update(buffer.data(), count);
+        }
         if(count < buffer.size())
         {
             if(std::ferror(input.get()))
@@ -270,11 +282,12 @@ inline std::optional<std::string> sha256File(const std::filesystem::path & archi
     return hasher.finish();
 }
 
-inline bool matchesFileSha256(const std::filesystem::path & archive, std::string_view expected)
+inline bool matchesFileSha256(const std::filesystem::path & archive, std::string_view expected,
+    std::uintmax_t maximumBytes = std::numeric_limits<std::uintmax_t>::max())
 {
     if(!isSha256(expected))
         return false;
-    const auto calculated = sha256File(archive);
+    const auto calculated = sha256File(archive, maximumBytes);
     return calculated && sameSha256(expected, *calculated);
 }
 }

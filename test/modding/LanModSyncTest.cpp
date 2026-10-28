@@ -1050,6 +1050,27 @@ TEST(LanModSyncTest, SuccessfulDesktopRelaunchPreservesMarkerForReplacement)
 #endif
 
 
+TEST(LanModSyncTest, ArchiveDigestRejectsBytesBeyondDeclaredLimit)
+{
+	const auto archive = std::filesystem::temp_directory_path() /
+		("vcmi-lan-hash-bound-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".zip");
+	const std::string payload(64 * 1024 + 1, 'x');
+	{
+		std::ofstream output(archive, std::ios::binary);
+		output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+	}
+
+	const auto expected = ModArchiveDigest::sha256File(archive);
+	ASSERT_TRUE(expected.has_value());
+	EXPECT_EQ(ModArchiveDigest::sha256File(archive, payload.size()), expected);
+	EXPECT_FALSE(ModArchiveDigest::sha256File(archive, payload.size() - 1));
+	EXPECT_FALSE(ModArchiveDigest::sha256File(archive, 0));
+	EXPECT_TRUE(ModArchiveDigest::matchesFileSha256(archive, *expected, payload.size()));
+	EXPECT_FALSE(ModArchiveDigest::matchesFileSha256(archive, *expected, payload.size() - 1));
+
+	std::filesystem::remove(archive);
+}
+
 TEST(LanModSyncTest, ComputesActualArchiveSHA256AcrossBlockBoundaries)
 {
     EXPECT_EQ(ModArchiveDigest::Sha256{}.finish(),

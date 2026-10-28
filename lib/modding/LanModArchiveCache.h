@@ -80,7 +80,7 @@ inline std::optional<std::filesystem::path> findVerifiedArchive(const std::files
     if(!candidate || !isTrustedCacheDirectory(userDataPath / "lan-mod-archives")
         || !isTrustedCacheDirectory(candidate->parent_path())
         || !isAllowedArchiveSize(*candidate)
-        || !ModArchiveDigest::matchesFileSha256(*candidate, expectedSha256))
+        || !ModArchiveDigest::matchesFileSha256(*candidate, expectedSha256, maxArchiveBytes))
         return std::nullopt;
     return candidate;
 }
@@ -146,7 +146,7 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
 {
     const auto destination = archivePath(userDataPath, rootModId, expectedSha256);
     if(!destination || !isAllowedArchiveSize(stagedArchive)
-        || !ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256))
+        || !ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256, maxArchiveBytes))
         return std::nullopt;
 
     if(const auto existing = findVerifiedArchive(userDataPath, rootModId, expectedSha256))
@@ -190,7 +190,7 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     }
 
     if(!isAllowedArchiveSize(temporary)
-        || !ModArchiveDigest::matchesFileSha256(temporary, expectedSha256))
+        || !ModArchiveDigest::matchesFileSha256(temporary, expectedSha256, maxArchiveBytes))
     {
         std::filesystem::remove(temporary, error);
         return std::nullopt;
