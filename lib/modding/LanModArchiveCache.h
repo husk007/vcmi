@@ -8,6 +8,7 @@
 
 #include "ModArchiveDigest.h"
 #include "LanRelaunchToken.h"
+#include "AtomicModSettings.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -16,6 +17,12 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace LanModArchiveCache
 {
@@ -76,6 +83,37 @@ inline std::map<std::string, std::string> verifiedArchiveDigests(const std::file
 
 namespace detail
 {
+#ifndef _WIN32
+/// Sync staged archive bytes and cache directory entries before reporting durable publication.
+inline bool syncCacheEntry(const std::filesystem::path & target, bool directory)
+{
+    int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#else
+    std::error_code error;
+    if(std::filesystem::is_symlink(std::filesystem::symlink_status(target, error)) || error)
+        return false;
+#endif
+#ifdef O_DIRECTORY
+    if(directory)
+        flags |= O_DIRECTORY;
+#endif
+    const int fd = ::open(target.c_str(), flags);
+    if(fd < 0)
+        return false;
+    struct stat metadata{};
+    const bool expectedType = ::fstat(fd, &metadata) == 0
+        && (directory ? S_ISDIR(metadata.st_mode) : S_ISREG(metadata.st_mode));
+    const bool synced = expectedType && AtomicModSettings::syncDescriptorWithRetry(fd, ::fsync);
+    const bool closed = ::close(fd) == 0;
+    return synced && closed;
+}
+#endif
+
 /// POSIX rename may overwrite a file created after an earlier existence check.
 /// A hard link creates the destination atomically only if it is still absent.
 /// The staged file resides alongside the destination, on the same filesystem.
@@ -113,6 +151,12 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     if(error || !isTrustedCacheDirectory(destination->parent_path()))
         return std::nullopt;
 
+#ifndef _WIN32
+    // Flush directory names created for this cache entry before publishing its contents.
+    if(!detail::syncCacheEntry(userDataPath, true) || !detail::syncCacheEntry(cacheRoot, true))
+        return std::nullopt;
+#endif
+
     // Never silently replace an existing cache entry that failed integrity verification.
     if(std::filesystem::exists(std::filesystem::symlink_status(*destination, error)))
         return std::nullopt;
@@ -135,6 +179,14 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
         return std::nullopt;
     }
 
+#ifndef _WIN32
+    if(!detail::syncCacheEntry(temporary, false))
+    {
+        std::filesystem::remove(temporary, error);
+        return std::nullopt;
+    }
+#endif
+
     // An earlier lookup cannot prevent a concurrent process from creating this destination.
     // Never replace that entry, even if it is corrupt; a verified competing writer may be reused.
     if(!detail::publishWithoutReplacing(temporary, *destination))
@@ -145,6 +197,10 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     }
     std::error_code cleanupError;
     std::filesystem::remove(temporary, cleanupError);
+#ifndef _WIN32
+    if(!detail::syncCacheEntry(destination->parent_path(), true))
+        return std::nullopt;
+#endif
     return findVerifiedArchive(userDataPath, rootModId, expectedSha256);
 }
 }

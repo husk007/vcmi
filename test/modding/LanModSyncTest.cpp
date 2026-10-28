@@ -1277,3 +1277,30 @@ TEST(LanModSyncTest, PersistentLanArchivePublishNeverReplacesRacingWriter)
     std::error_code cleanupError;
     fs::remove_all(directory, cleanupError);
 }
+
+#ifndef _WIN32
+TEST(LanModSyncTest, PersistentLanArchiveSyncRejectsInvalidEntries)
+{
+    namespace fs = std::filesystem;
+    const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-sync-" + LanRelaunchToken::generate());
+    fs::create_directories(directory);
+    const fs::path archive = directory / "staged.zip";
+    {
+        std::ofstream out(archive, std::ios::binary);
+        out << "abc";
+    }
+
+    EXPECT_TRUE(LanModArchiveCache::detail::syncCacheEntry(archive, false));
+    EXPECT_TRUE(LanModArchiveCache::detail::syncCacheEntry(directory, true));
+    EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(archive, true));
+    EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(directory, false));
+    EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(directory / "missing.zip", false));
+
+    std::error_code error;
+    fs::create_symlink(archive, directory / "linked.zip", error);
+    if(!error)
+        EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(directory / "linked.zip", false));
+
+    fs::remove_all(directory, error);
+}
+#endif
