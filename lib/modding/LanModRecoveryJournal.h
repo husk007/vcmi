@@ -128,4 +128,12 @@ inline bool discard(const std::filesystem::path & settings)
 	std::filesystem::remove(pathForSettings(settings), error);
 	return !error;
 }
+
+/// A completed rollback may leave a backup behind if the process exits before cleanup.
+inline bool discardIfMatches(const std::filesystem::path & settings, const std::string & restored)
+{
+	if(load(settings) != restored)
+		return false;
+	return discard(settings);
+}
 }

@@ -338,6 +338,18 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 				}
 				else if(!isValidLanPreset(current["presets"][current["activePreset"].String()]))
 					throw std::runtime_error("Invalid active mod preset with pending LAN recovery backup");
+				else
+				{
+					try
+					{
+						if(!LanModRecoveryJournal::discardIfMatches(primary, current.toCompactString()))
+							logGlobal->warn("Retaining unresolved LAN recovery backup; another LAN session cannot start");
+					}
+					catch(const std::exception & error)
+					{
+						logGlobal->warn("Retaining unreadable LAN recovery backup: %s", error.what());
+					}
+				}
 			}
 			catch(const std::exception & error)
 			{

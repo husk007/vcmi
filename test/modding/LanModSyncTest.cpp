@@ -528,6 +528,37 @@ TEST(LanModSyncTest, ExistingIndependentLanRecoveryBackupCannotBeClobbered)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, StaleLanRecoveryBackupClearsOnlyAfterExactRestoration)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-stale-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+
+	JsonNode personal;
+	personal["activePreset"].String() = "personal";
+	personal["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	personal["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = personal.toCompactString();
+
+	ASSERT_TRUE(AtomicModSettings::replace(settings, original));
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = true;
+	ASSERT_TRUE(AtomicModSettings::replace(settings, personal.toCompactString()));
+	EXPECT_FALSE(LanModRecoveryJournal::discardIfMatches(settings, personal.toCompactString()));
+	EXPECT_EQ(LanModRecoveryJournal::load(settings), original);
+
+	ASSERT_TRUE(AtomicModSettings::replace(settings, original));
+	EXPECT_TRUE(LanModRecoveryJournal::discardIfMatches(settings, original));
+	EXPECT_FALSE(fs::exists(backup));
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, RecoveryBackupReaderRejectsNonRegularFilesAndOversize)
 {
 	namespace fs = std::filesystem;
