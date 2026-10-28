@@ -281,6 +281,24 @@ bool LanModSessionState::shouldRestoreOnShutdown(const JsonNode & config)
 		|| !marker.isString() || !LanRelaunchTokenFormat::isValid(marker.String());
 }
 
+JsonNode LanModSessionState::restoreDamagedSettings(const std::filesystem::path & settings)
+{
+	const std::string original = LanModRecoveryJournal::load(settings);
+	JsonParsingSettings parsing;
+	parsing.strict = true;
+	parsing.mode = JsonParsingSettings::JsonFormatMode::JSON;
+	const auto backupPath = LanModRecoveryJournal::pathForSettings(settings);
+	JsonNode recovered(original.data(), original.size(), parsing, backupPath.string());
+
+	JsonNode validation = recovered;
+	begin(validation);
+	if(!AtomicModSettings::replace(settings, original))
+		throw std::runtime_error("LAN backup restoration could not sync the mod settings directory");
+	if(!LanModRecoveryJournal::discard(settings))
+		logGlobal->warn("Could not remove independent LAN backup after recovering damaged settings");
+	return recovered;
+}
+
 static std::filesystem::path modSettingsStoragePath(const JsonPath & path)
 {
 	const auto destination = CResourceHandler::get()->getResourceName(ResourcePath(path));
@@ -294,7 +312,39 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 {
 	if(CResourceHandler::get("local")->existsResource(ResourcePath(settingsPath)))
 	{
-		modConfig = JsonNode(settingsPath);
+		const auto primary = modSettingsStoragePath(settingsPath);
+		const auto backup = LanModRecoveryJournal::pathForSettings(primary);
+		std::error_code lookupError;
+		const auto backupStatus = std::filesystem::symlink_status(backup, lookupError);
+		if(lookupError && lookupError != std::errc::no_such_file_or_directory)
+			throw std::filesystem::filesystem_error("Cannot inspect LAN mod recovery backup", backup, lookupError);
+
+		if(backupStatus.type() == std::filesystem::file_type::not_found)
+			modConfig = JsonNode(settingsPath);
+		else
+		{
+			try
+			{
+				JsonParsingSettings parsing;
+				parsing.strict = true;
+				modConfig = JsonNode(settingsPath, parsing);
+				const JsonNode & current = modConfig;
+				if(!current.isStruct() || !current["activePreset"].isString() || !current["presets"].isStruct())
+					throw std::runtime_error("Invalid LAN mod settings structure");
+				if(!current["lanSession"].isNull())
+				{
+					JsonNode checked = current;
+					LanModSessionState::recoverOnStartup(checked, relaunchToken);
+				}
+				else if(!isValidLanPreset(current["presets"][current["activePreset"].String()]))
+					throw std::runtime_error("Invalid active mod preset with pending LAN recovery backup");
+			}
+			catch(const std::exception & error)
+			{
+				logGlobal->warn("Damaged mod settings with LAN recovery backup: %s", error.what());
+				modConfig = LanModSessionState::restoreDamagedSettings(primary);
+			}
+		}
 	}
 	else
 	{

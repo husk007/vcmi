@@ -528,6 +528,54 @@ TEST(LanModSyncTest, ExistingIndependentLanRecoveryBackupCannotBeClobbered)
 	fs::remove_all(directory, cleanupError);
 }
 
+TEST(LanModSyncTest, DamagedMainSettingsRestoreFullIndependentPresetAndSubmods)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-recover-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+
+	JsonNode personal;
+	personal["activePreset"].String() = "personal";
+	personal["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	personal["presets"]["personal"]["settings"]["hota"]["units"].Bool() = false;
+	personal["presets"]["personal"]["settings"]["hota"]["music"].Bool() = true;
+	personal["presets"]["another"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = personal.toCompactString();
+
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, original));
+	ASSERT_TRUE(AtomicModSettings::replace(settings, "{\\\"activePreset\\\":"));
+	const JsonNode restored = LanModSessionState::restoreDamagedSettings(settings);
+	EXPECT_EQ(restored.toCompactString(), original);
+	std::ifstream input(settings, std::ios::binary);
+	EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), original);
+	EXPECT_FALSE(fs::exists(backup));
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
+TEST(LanModSyncTest, InvalidIndependentBackupCannotReplaceDamagedMainSettings)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-backup-invalid-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(directory));
+	const fs::path settings = directory / "modSettings.json";
+	const fs::path backup = LanModRecoveryJournal::pathForSettings(settings);
+	const std::string damaged = "{\\\"activePreset\\\":";
+	ASSERT_TRUE(AtomicModSettings::replace(settings, damaged));
+	ASSERT_TRUE(LanModRecoveryJournal::persist(settings, "{\\\"activePreset\\\":\\\"missing\\\",\\\"presets\\\":{}}"));
+
+	EXPECT_THROW(LanModSessionState::restoreDamagedSettings(settings), std::exception);
+	std::ifstream input(settings, std::ios::binary);
+	EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), damaged);
+	EXPECT_TRUE(fs::exists(backup));
+
+	std::error_code cleanupError;
+	fs::remove_all(directory, cleanupError);
+}
+
 TEST(LanModSyncTest, ConcurrentIndependentLanBackupPublicationIsExclusive)
 {
 	namespace fs = std::filesystem;
