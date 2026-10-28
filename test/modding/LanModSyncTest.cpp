@@ -1176,18 +1176,44 @@ TEST(LanModSyncTest, PersistentLanArchiveCacheRejectsLinkedCacheDirectory)
     const fs::path staged = directory / "staged.zip";
     const fs::path redirected = directory / "outside";
     const std::string digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    const auto expectedArchive = LanModArchiveCache::archivePath(userData, "hota", digest);
+    ASSERT_TRUE(expectedArchive);
+    const auto modDirectoryName = expectedArchive->parent_path().filename();
+    const auto redirectedArchive = redirected / modDirectoryName / expectedArchive->filename();
     fs::create_directories(userData);
-    fs::create_directories(redirected);
+    fs::create_directories(redirectedArchive.parent_path());
     {
         std::ofstream file(staged, std::ios::binary);
         file << "abc";
     }
-    std::error_code error;
-    fs::create_directory_symlink(redirected, userData / "lan-mod-archives", error);
-    if(!error)
     {
-        EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
-        EXPECT_TRUE(fs::is_empty(redirected));
+        std::ofstream file(redirectedArchive, std::ios::binary);
+        file << "abc";
     }
-    fs::remove_all(directory, error);
+
+    // A matching archive outside userData must never count as a cache hit.
+    std::error_code error;
+    const fs::path cacheRoot = userData / "lan-mod-archives";
+    fs::create_directory_symlink(redirected, cacheRoot, error);
+    if(error)
+    {
+        fs::remove_all(directory, error);
+        GTEST_SKIP() << "Directory symlinks unavailable on this filesystem";
+    }
+    EXPECT_FALSE(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest));
+    EXPECT_TRUE(LanModArchiveCache::verifiedArchiveDigests(userData, {{"hota", digest}}).empty());
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
+    EXPECT_EQ(fs::file_size(redirectedArchive), 3U);
+
+    fs::remove(cacheRoot, error);
+    ASSERT_FALSE(error);
+    fs::create_directories(cacheRoot);
+    fs::create_directory_symlink(redirectedArchive.parent_path(), cacheRoot / modDirectoryName, error);
+    ASSERT_FALSE(error);
+    EXPECT_FALSE(LanModArchiveCache::findVerifiedArchive(userData, "hota", digest));
+    EXPECT_TRUE(LanModArchiveCache::verifiedArchiveDigests(userData, {{"hota", digest}}).empty());
+    EXPECT_FALSE(LanModArchiveCache::publishVerifiedArchive(userData, "hota", digest, staged));
+
+    std::error_code cleanupError;
+    fs::remove_all(directory, cleanupError);
 }

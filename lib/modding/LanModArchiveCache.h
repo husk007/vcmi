@@ -44,12 +44,21 @@ inline std::optional<std::filesystem::path> archivePath(const std::filesystem::p
     return userDataPath / "lan-mod-archives" / identity.finish() / archiveName;
 }
 
+/// Cache metadata must not follow symlinks outside the user's persistent archive store.
+inline bool isTrustedCacheDirectory(const std::filesystem::path & path)
+{
+    std::error_code error;
+    return std::filesystem::is_directory(std::filesystem::symlink_status(path, error)) && !error;
+}
+
 /// A cached archive is reusable only after hashing its bytes against the host's expected digest.
 inline std::optional<std::filesystem::path> findVerifiedArchive(const std::filesystem::path & userDataPath,
     std::string_view rootModId, std::string_view expectedSha256)
 {
     const auto candidate = archivePath(userDataPath, rootModId, expectedSha256);
-    if(!candidate || !ModArchiveDigest::matchesFileSha256(*candidate, expectedSha256))
+    if(!candidate || !isTrustedCacheDirectory(userDataPath / "lan-mod-archives")
+        || !isTrustedCacheDirectory(candidate->parent_path())
+        || !ModArchiveDigest::matchesFileSha256(*candidate, expectedSha256))
         return std::nullopt;
     return candidate;
 }
@@ -84,15 +93,11 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
         return std::nullopt;
 
     // A link in the cache path could redirect received content outside the user data directory.
-    const auto safeDirectory = [](const std::filesystem::path & path){
-        std::error_code statusError;
-        return std::filesystem::is_directory(std::filesystem::symlink_status(path, statusError)) && !statusError;
-    };
-    if(!safeDirectory(cacheRoot))
+    if(!isTrustedCacheDirectory(cacheRoot))
         return std::nullopt;
     error.clear();
     std::filesystem::create_directories(destination->parent_path(), error);
-    if(error || !safeDirectory(destination->parent_path()))
+    if(error || !isTrustedCacheDirectory(destination->parent_path()))
         return std::nullopt;
 
     // Never silently replace an existing cache entry that failed integrity verification.
