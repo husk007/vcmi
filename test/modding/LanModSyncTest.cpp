@@ -359,6 +359,25 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	EXPECT_NE(std::find(staged.begin(), staged.end(), JsonNode("hostmod")), staged.end());
 	EXPECT_EQ(std::find(staged.begin(), staged.end(), JsonNode("personalmod")), staged.end());
 	EXPECT_TRUE(plan->matchesResolvedHostMods(optInPreview->mods, {"vcmi", "hostmod"}));
+
+	// The restarted client must establish a second real TCP connection to the saved host.
+	// Closing the original query connection also exercises the host's disconnect path.
+	upgraded.connection->close();
+	Guest resumedGuest(true);
+	network->getContext().restart();
+	network->connectToRemote(resumedGuest, rejoin->hostname, rejoin->port);
+	network->getContext().run_for(std::chrono::milliseconds(1500));
+
+	EXPECT_TRUE(resumedGuest.failure.empty()) << resumedGuest.failure;
+	EXPECT_EQ(host.optInQueries, 2);
+	const auto * freshPreview = dynamic_cast<LobbyModSyncPreview *>(resumedGuest.response.get());
+	ASSERT_NE(freshPreview, nullptr);
+	ASSERT_EQ(freshPreview->mods.size(), 1);
+	EXPECT_EQ(freshPreview->mods.at("hostmod").version, CModVersion(1, 2, 3));
+	ASSERT_EQ(freshPreview->archives.size(), 1);
+	EXPECT_EQ(freshPreview->archives.at("hostmod").sha256, optInPreview->archives.at("hostmod").sha256);
+	EXPECT_TRUE(plan->matchesResolvedHostMods(freshPreview->mods, {"vcmi", "hostmod"}));
+
 	EXPECT_TRUE(LanModSessionState::restore(guestPreset));
 	EXPECT_EQ(guestPreset.toCompactString(), originalPreset);
 

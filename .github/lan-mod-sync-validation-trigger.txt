@@ -1,3 +1,1 @@
-M1/M2 capability refresh before rejoining a LAN host: an advertised host may become legacy during guest mod-preset relaunch.
-Verify direct-IP UDP downgrade on the same host:port, legacy TCP packet fallback, TCP mod preview/preset regression, full vcmiclient and LanModSyncTest.*.
-Checkpoint includes prior M2 error-handling and TCP-to-preset changes at 4dcaa1074ddd85dc086128d66b994abc7cee7109.
+M2 checkpoint: verify full client build and LanModSyncTest.* after preserving guest player names/load-game mode (4cabc9f8), and exercising a second real VCMI TCP connection to the saved LAN host after a controlled installed-mod preset relaunch.
