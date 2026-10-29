@@ -1,55 +1,60 @@
-# Hourly VCMI Roadmap Runner
+# VCMI — Hourly Implementation Runner
 
-This file is the execution contract for the scheduled ChatGPT task working on this fork. The schedule is configured in ChatGPT Tasks, **not** GitHub Actions. Keeping this file in GitHub ensures that every new run reads the same rules even after the chat context changes.
+This is the execution contract for the scheduled ChatGPT task. The actual schedule is managed in ChatGPT Tasks. GitHub Actions is used only for real build/test evidence, not for driving the hourly agent.
 
-## Target
+## Fixed scope
 
-- Repository: `husk007/vcmi` — https://github.com/husk007/vcmi
-- Working branch: `feature/lan-mod-sync-and-web-roadmap`
-- Base branch: `develop` (read-only for the runner)
-- Authoritative plan: `ROADMAP.md`
-- Coding policy: `AGENTS.md` and `CONTRIBUTING.md`
-- Technical background: `docs/developers/Lan_Mod_Synchronization.md` and `docs/developers/WebAssembly_Port.md`
-- Execution status: `RUNNER_STATUS.md`
-- Frequency: once every hour, configured externally in ChatGPT Tasks.
+- Repo: `husk007/vcmi`; branch: `feature/lan-mod-sync-and-web-roadmap`; base `develop` stays unchanged.
+- Read fresh at the start: `AGENTS.md`, `ROADMAP.md`, `RUNNER.md`, **the top summary** of `RUNNER_STATUS.md`, relevant source files, and the latest GitHub commits.
+- Follow the **M0–M5 critical path** at the top of `ROADMAP.md` (existing L0–L4 are detailed requirements; W0–W4 only after LAN MVP).
+- No upstream PRs/issues, GitHub comments, force-push, merge, or changes to `develop`. Never alter another contributor's commit.
 
-## Per-run algorithm
+## Each hourly run: real feature progress
 
-1. Fetch fresh files and HEAD for the working branch from GitHub. Read `AGENTS.md`, this file, `ROADMAP.md`, and `RUNNER_STATUS.md`. Never rely on a previous run's in-memory state.
-2. Review the current diff against `develop`; do not overwrite another contributor's updates. If HEAD changes during an edit, re-fetch and reconcile instead of force-pushing.
-3. Select the **earliest actionable unchecked acceptance criterion** in L0-L4. Break a large checkbox into one independently verifiable subtask. Do not move to W0-W4 until LAN work is complete or genuinely blocked; record the reason when choosing another independent item.
-4. Inspect the actual code and dependencies. Prefer the existing mod verification, `LobbyModsCheck`, `ModManager`, and launcher extraction code. Avoid parallel implementations.
-5. Implement a focused code or test change on the working branch. Include coverage for visible new behavior. Do not merely paraphrase the plan or repeatedly generate another plan.
-6. Validate what can actually be validated: compile/unit tests if an execution environment and dependencies are available; otherwise perform source/API inspection and record **not run**. Never invent successful CI or runtime testing.
-7. Commit successful, coherent changes directly to the working branch using GitHub write tools. Do not use a PR as the only persistence mechanism. Do not create/merge PRs, create issues, post GitHub comments, update `develop`, or write to the upstream `vcmi/vcmi` repository.
-8. Update `ROADMAP.md` only for genuinely completed and checked criteria. If implementation is committed but tests/integration are pending, keep the checkbox open and describe the verified progress in `RUNNER_STATUS.md`.
-9. Record the newest meaningful result in `RUNNER_STATUS.md`, linking the exact commit. Report in Polish: selected criterion, files/commit, tests performed and results, still-missing work, blockers, and next criterion.
-10. If blocked, do not loop forever on the same failed attempt. Record a precise blocker and try another independent task in the **same milestone**. Re-check blockers on future runs when conditions change. Do not label unfinished work as DONE.
+1. Read the latest branch HEAD and the M0–M5 milestone state; check GitHub Actions for a real run on this branch.
+2. If a validation run exists, inspect it. A **real compile error** in changed code is the top-priority fix. If there is no run, check GitHub Actions availability at most once per **changed** status and continue with M1 after recording the blocker. Do not repeatedly run `git ls-remote` after a known DNS failure.
+3. Select one focused, **user-visible vertical-slice** subtask from the earliest incomplete M1–M4 milestone. Examples: host manifest in existing `LobbyModsCheck`, capability handshake, guest preview, enabling an already installed mod, relaunch/rejoin, transfer of one trusted archive, local cache hit. Preserve the existing network protocol's fallback for older clients.
+4. Inspect exact surrounding code, types, serialization boundaries, and earlier commits. Reuse code already added in `lib/modding/` and `client/`. Do not create a second cache or second LAN session manager.
+5. Implement the smallest coherent patch plus its meaningful regression/fixture test. Prefer completing a call chain through host → guest preview → action over adding another isolated helper.
+6. Run the actual test/build where available. Otherwise run bounded static verification against exact repository files and report **CODE_ONLY / TESTS_NOT_RUN**. A test double, algorithm copied into a standalone file, or a GitHub blob comparison is not an integrated VCMI build.
+7. Save the code/test patch as a real commit on the feature branch, using fresh file SHAs. No redundant status-only commits.
+8. After a meaningful feature slice or real compiler fix, request **one** validation run by updating `.github/lan-mod-sync-validation-trigger.txt` with the commit SHA and reason (or use `workflow_dispatch` when available). The workflow only runs when this trigger or its YAML changes. Do not trigger a full build on every small commit.
+9. Update `ROADMAP.md` only when its precise acceptance criteria have been proven. Update the compact `RUNNER_STATUS.md` only when the milestone, evidence, blocker, or next step actually changes.
+10. Report in Polish: M milestone, functional change and linked commit (or NO COMMIT), real test/CI URL and result (or NOT RUN), blocker, and next **different** executable action.
 
-## Definition of done
+## Priority and anti-loop policy
 
-A roadmap checkbox may be marked `[x]` only when:
+- **Priority 1:** Obtain a real repository compilation and `LanModSyncTest.*` result (M0), and fix actual build failures. The scoped workflow is `.github/workflows/lan-mod-sync-validation.yml`.
+- **Priority 2:** If CI is unavailable after one check, implement M1 (host capability + manifest + preview). Never keep extending L0 just because `vcmitest` cannot run in the current chat container.
+- **Priority 3:** M2 working join with already-installed mods and restoration; then M3 persistent local reuse; then M4 host transfer; then M5 real LAN acceptance; finally browser W0–W4.
+- A cache checksum or journal security fix is high priority **only if** there is a demonstrated issue blocking the current slice, a concrete test failure, or a documented security vulnerability. A speculative rare edge case does not outrank M1/M2.
+- **Two-strikes rule:** after two runs with the same inaccessible build/checkout dependency, record it and work on a different M1/M2 code task. Do not retry DNS or install the same missing tool hourly.
+- **Progress rule:** if three consecutive commits do not complete or substantially advance an M1–M5 call path, next run must attempt a functional integration step rather than more helper hardening. If impossible, report the **exact dependency** and move to another independent functional step.
+- Do not split a simple feature into many micro-commits to manufacture hourly activity. If nothing safe is actionable, report NO COMMIT and the precise user action needed.
+- Keep `RUNNER_STATUS.md` under ~6,000 characters. Store only one current summary, the most recent 4 meaningful milestones, and one known blocker per unique cause. Historical reports are in Git commit history; do not accumulate one large paragraph per hour.
 
-- Implementation is saved in the repository and the changed code has been checked for correctness.
-- Applicable automated tests have passed. If execution is unavailable, prefer `PARTIAL` with tests `NOT RUN`, unless the task explicitly concerns only documentation.
-- For user-facing functionality, the relevant integration or real-world test is complete (e.g., an actual two-client LAN session).
-- Existing non-opt-in clients and original player configuration remain safe.
+## Acceptance/evidence labels
 
-`PARTIAL` means concrete, committed progress but some acceptance criteria remain open. `BLOCKED` means an actionable external restriction, not a reason to rewrite unrelated code. `DONE` must not be used for an unbuilt feature.
+- `CODE_ONLY`: committed source/test, but not built in the real project.
+- `BUILD_PASS`: actual project builds on a named environment with the run/commit reference.
+- `TEST_PASS`: committed tests run inside actual VCMI and pass, with evidence.
+- `LAN_PASS`: a genuine host and guest completed the stated workflow; device details and steps recorded.
+- `BLOCKED`: missing external capability (e.g., GitHub Actions disabled) with a single exact workaround.
 
-## Hard feature requirements
+Only check ROADMAP items when the relevant evidence exists. Code-only snippets cannot meet runtime or real-build gates. Do not claim a fully functional auto-sync or WebAssembly build before end-to-end verification.
 
-- Joiner's active preset, disabled submods, selected original preset, and privately installed mod versions survive a LAN match and restore exactly on disconnect, host failure, cancellation, or crash recovery.
-- Persist the rollback journal before any modification. Do not mark session restoration complete until recovery has been validated.
-- Host mod archives persist in a local content-addressed cache. Compare SHA-256 against an authenticated host manifest. Matching cached packages must NOT be retransferred; existing matching installed mods require activation only. Changed packages transfer selectively.
-- Host content is untrusted. Require first-use trust, verify integrity, constrain extraction, forbid arbitrary paths, and transmit only legally redistributable mods. Never transfer the commercial Heroes III data.
-- Keep the feature behind capability negotiation; do not break unmodified VCMI clients. Do not start multiplayer until mod sets match.
-- The WebAssembly port must not bundle copyrighted game files. Prefer a browser client with a native authoritative server bridged through WebSocket, and preserve desktop builds.
+## Safety requirements that cannot be dropped
 
-## Output and failure behavior
+- Snapshot the guest's entire personal mod preset, selected preset name, and disabled submod flags **durably before** changing mods. Restore after disconnect, cancellation, crash, and failed join; do not overwrite personal mod versions.
+- Persist redistributable host packages in a verified content-addressed cache, keyed by canonical mod identity and SHA-256. A second join with unchanged host contents must transfer **0 bytes**, reusing cached archives or only activating already installed mods.
+- Validate host permissions/trust, manifest integrity, extraction paths/size, compatibility, and content hashes; never transfer original commercial Heroes III assets.
+- Gate protocol extensions by explicit feature negotiation to avoid breaking clients without LAN sync.
+- A browser client later needs a WebSocket gateway to the authoritative native server; it must not distribute proprietary game data.
 
-At the end of each run, communicate one compact Polish status with links to the branch and exact commit if any. If no commit was made, say so explicitly and why. Do not silently imply progress.
+## CI notes
 
-If GitHub write permissions, tools, build dependencies, or credential access are unavailable, do not fabricate work. Record the precise limitation when possible, and deliver a bounded patch or analysis in the current run. Do not attempt to use unapproved tokens or ask for secrets in code.
+The upstream-style workflow `.github/workflows/github.yml` does not run on this feature branch. Use the new scoped `lan-mod-sync-validation.yml` for an actual source checkout, CMake compilation and `LanModSyncTest.*`; initial creation should cause a **single** run if Actions is enabled for this fork. It supports manual dispatch and checkpoint-triggered reruns. A successful GitHub write does **not** prove GitHub Actions executed. Check the run list and logs before marking a build PASS. If quota/permissions disable Actions, surface that limitation once and proceed with source-level M1 work until the owner enables CI.
 
-Do not edit this execution policy as a workaround for failed tests or to claim a stage complete.
+## Final checkpoint
+
+Before advancing to WebAssembly, finish the M0–M5 LAN gates: host manifest, installed-mod join, cache reuse without retransmission, secure transfer, exact post-game restoration, compatibility fallback, and real two-client LAN game.
