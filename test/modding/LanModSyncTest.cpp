@@ -153,6 +153,8 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 
 TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopback)
 {
+	// Keep the io_context alive until both TCP peers and their sockets are destroyed.
+	auto network = INetworkHandler::createHandler();
 	struct Host final : INetworkServerListener
 	{
 		std::map<NetworkConnectionPtr, std::unique_ptr<GameConnection>> connections;
@@ -232,7 +234,6 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	} legacy(false), upgraded(true);
 
 	// Use VCMI's actual framed TCP transport and GameConnection packet serializer.
-	auto network = INetworkHandler::createHandler();
 	auto server = network->createServerTCP(host);
 	const auto port = server->start(0);
 	ASSERT_NE(port, 0);
