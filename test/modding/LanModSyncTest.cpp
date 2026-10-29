@@ -152,7 +152,7 @@ TEST(LanModSyncTest, LanRejoinRejectsInvalidHostOrPortWithoutModifyingSession)
 	LanModSessionState::begin(config);
 	const auto snapshot = config.toCompactString();
 
-	EXPECT_THROW(LanModSessionState::setRejoinTarget(config, {"host\\nother", 3030, true}), std::invalid_argument);
+	EXPECT_THROW(LanModSessionState::setRejoinTarget(config, {"host\nother", 3030, true}), std::invalid_argument);
 	EXPECT_THROW(LanModSessionState::setRejoinTarget(config, {"192.168.1.42", 0, true}), std::invalid_argument);
 	EXPECT_EQ(config.toCompactString(), snapshot);
 	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());

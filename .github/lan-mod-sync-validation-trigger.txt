@@ -1,3 +1,4 @@
 M2 checkpoint: persist selected LAN endpoint through controlled relaunch and reopen host lobby
+Feature commit: 92865cd6e88a8c4f028f26f2698818364ff9c62a
+Test correction: validate newline escape in hostname fixture
 Verify: real vcmitest LanModSyncTest.*, vcmiclientcommon and vcmiservercommon Linux builds
-Previous CI: #40838909050 (79/79 PASS on cad4eaa)
