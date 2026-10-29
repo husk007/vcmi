@@ -51,7 +51,6 @@
 #include "../lib/StartInfo.h"
 #include "../lib/TurnTimerInfo.h"
 #include "../lib/VCMIDirs.h"
-#include "../lib/ExceptionsCommon.h"
 #include "../lib/campaign/CampaignState.h"
 #include "../lib/gameState/CGameState.h"
 #include "../lib/gameState/HighScore.h"

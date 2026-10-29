@@ -180,14 +180,16 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
-		// Show a concrete local-only preparation plan, but keep Join disabled
-		// until the M2 temporary-preset and relaunch path is connected.
+		// A locally installed mod can now be staged in the recoverable LAN preset.
+		// Mobile builds keep Join disabled until a restart mechanism is available.
 		const auto localPlan = lanPreview && errorMessage == "vcmi.lobby.preview.error.mods"
 			? ModVerificationInfo::buildInstalledOnlyPlan(modStatuses)
 			: std::nullopt;
 		if(localPlan && localPlan->requiresChanges())
 		{
+			#if !defined(VCMI_MOBILE)
 			allowInstalledOnlyPreparation = true;
+			#endif
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
 			joinStatusText.appendRawString("\n+" + std::to_string(localPlan->activate.size())
 				+ " / -" + std::to_string(localPlan->deactivate.size()));
