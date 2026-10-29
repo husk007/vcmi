@@ -70,6 +70,7 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 	{
 		LobbyModSyncPreview preview;
 		static_cast<LobbyModsCheck &>(preview) = std::move(lms);
+		preview.acceptingPlayers = srv.getState() == EServerState::LOBBY;
 		preview.archives = ModVerificationInfo::buildHostArchiveManifest(
 			preview.mods, std::filesystem::path(VCMIDirs::get().userDataPath().native()));
 		connection->sendPack(preview);

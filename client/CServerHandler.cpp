@@ -1321,7 +1321,7 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 
 	GlobalLobbyRoom roomDescription;
 	roomDescription.gameVersion = pack.vcmiVersion;
-	roomDescription.statusID = "open";
+	roomDescription.statusID = canPreviewLocalPreparation && !extendedPreview->acceptingPlayers ? "busy" : "open";
 	roomDescription.playerLimit = 8;
 	roomDescription.modList = pack.mods;
 	roomDescription.hostAccountDisplayName = pack.hostAccountDisplayName;

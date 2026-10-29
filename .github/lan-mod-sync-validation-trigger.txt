@@ -1,1 +1,1 @@
-M2 checkpoint: verify full client build and LanModSyncTest.* after preserving guest player names/load-game mode (4cabc9f8), and exercising a second real VCMI TCP connection to the saved LAN host after a controlled installed-mod preset relaunch.
+M1/M2 checkpoint: opt-in host lobby preview now carries whether the actual server still accepts new players. Verify a rejoining guest sees a busy host over real TCP and legacy preview packets remain unchanged; compile full desktop client and run LanModSyncTest.*.

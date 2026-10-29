@@ -192,6 +192,7 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 
 	LobbyModSyncPreview optInResponse;
 	static_cast<LobbyModsCheck &>(optInResponse) = legacyResponse;
+	optInResponse.acceptingPlayers = false;
 	optInResponse.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 42});
 	// The 2 GiB archive limit must also survive VCMI signed-varint serialization.
 	optInResponse.archives.emplace("largehostmod", ModArchiveManifestEntry{std::string(64, 'b'), static_cast<std::int64_t>(LanModArchiveCache::maxArchiveBytes)});
@@ -206,6 +207,7 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	EXPECT_EQ(decoded->vcmiVersion, legacyResponse.vcmiVersion);
 	EXPECT_EQ(decoded->hostAccountDisplayName, "Host");
 	EXPECT_EQ(decoded->participantNames, legacyResponse.participantNames);
+	EXPECT_FALSE(decoded->acceptingPlayers);
 	ASSERT_EQ(decoded->mods.size(), 1);
 	EXPECT_EQ(decoded->mods.at("hostmod").name, mod.name);
 	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
@@ -225,6 +227,7 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 		std::map<NetworkConnectionPtr, std::unique_ptr<GameConnection>> connections;
 		int legacyQueries = 0;
 		int optInQueries = 0;
+		bool acceptingPlayers = true;
 
 		void onNewConnection(const NetworkConnectionPtr & connection) override
 		{
@@ -254,6 +257,7 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 				++optInQueries;
 				LobbyModSyncPreview extended;
 				static_cast<LobbyModsCheck &>(extended) = response;
+				extended.acceptingPlayers = acceptingPlayers;
 				extended.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 3});
 				peer.sendPack(extended);
 			}
@@ -323,6 +327,7 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	ASSERT_EQ(optInPreview->archives.size(), 1);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").bytes, 3);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").sha256, std::string(64, 'a'));
+	EXPECT_TRUE(optInPreview->acceptingPlayers);
 
 	// Exercise the guest's recoverable installed-only preset with mods received over actual TCP.
 	JsonNode guestPreset;
@@ -363,6 +368,8 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	// The restarted client must establish a second real TCP connection to the saved host.
 	// Closing the original query connection also exercises the host's disconnect path.
 	upgraded.connection->close();
+	// A host that starts gameplay while the guest relaunches must refuse a fresh join.
+	host.acceptingPlayers = false;
 	Guest resumedGuest(true);
 	network->getContext().restart();
 	network->connectToRemote(resumedGuest, rejoin->hostname, rejoin->port);
@@ -376,6 +383,7 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	EXPECT_EQ(freshPreview->mods.at("hostmod").version, CModVersion(1, 2, 3));
 	ASSERT_EQ(freshPreview->archives.size(), 1);
 	EXPECT_EQ(freshPreview->archives.at("hostmod").sha256, optInPreview->archives.at("hostmod").sha256);
+	EXPECT_FALSE(freshPreview->acceptingPlayers);
 	EXPECT_TRUE(plan->matchesResolvedHostMods(freshPreview->mods, {"vcmi", "hostmod"}));
 
 	EXPECT_TRUE(LanModSessionState::restore(guestPreset));
