@@ -51,6 +51,7 @@
 #include "../lib/StartInfo.h"
 #include "../lib/TurnTimerInfo.h"
 #include "../lib/VCMIDirs.h"
+#include "../lib/ExceptionsCommon.h"
 #include "../lib/campaign/CampaignState.h"
 #include "../lib/gameState/CGameState.h"
 #include "../lib/gameState/HighScore.h"
@@ -1291,10 +1292,23 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		roomDescription.participants.push_back(account);
 	}
 
+	const ModCompatibilityInfo hostMods = pack.mods;
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
-		[this]()
+		[this, hostMods, canPreviewLocalPreparation]()
 		{
+			if(canPreviewLocalPreparation)
+			{
+				const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+				const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+				if(!plan)
+					return;
+				if(plan->requiresChanges())
+				{
+					LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods);
+					throw GameShutdownException();
+				}
+			}
 			ENGINE->windows().popWindows(1);
 			if(onLobbyPreviewJoin)
 				onLobbyPreviewJoin();

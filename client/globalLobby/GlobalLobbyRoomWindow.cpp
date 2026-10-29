@@ -176,6 +176,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	MetaString joinStatusText;
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
+	bool allowInstalledOnlyPreparation = false;
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
@@ -186,6 +187,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 			: std::nullopt;
 		if(localPlan && localPlan->requiresChanges())
 		{
+			allowInstalledOnlyPreparation = true;
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
 			joinStatusText.appendRawString("\n+" + std::to_string(localPlan->activate.size())
 				+ " / -" + std::to_string(localPlan->deactivate.size()));
@@ -226,7 +228,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 
-	buttonJoin->block(!errorMessage.empty());
+	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation);
 	filledBackground->setPlayerColor(PlayerColor(1));
 	center();
 }
