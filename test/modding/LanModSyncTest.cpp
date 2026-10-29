@@ -118,10 +118,25 @@ TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 	EXPECT_EQ(offered.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 	EXPECT_EQ(offered.bytes, 3);
 	const ModListVerificationStatus missing = {{"hostmod", ModVerificationStatus::NOT_INSTALLED}};
+	const ModListVerificationStatus previewStatuses = {
+		{"hostmod", ModVerificationStatus::NOT_INSTALLED},
+		{"hostmod.units", ModVerificationStatus::NOT_INSTALLED},
+		{"unknown", ModVerificationStatus::NOT_INSTALLED},
+		{"disabled", ModVerificationStatus::DISABLED}
+	};
+	const auto availabilityBefore = ModVerificationInfo::inspectHostArchiveAvailability(previewStatuses, manifest, guestData);
+	ASSERT_EQ(availabilityBefore.size(), 2); // root and submod share one package
+	EXPECT_EQ(availabilityBefore.at("hostmod"), LanArchivePreviewState::OFFERED_BY_HOST);
+	EXPECT_EQ(availabilityBefore.at("unknown"), LanArchivePreviewState::UNAVAILABLE);
+	EXPECT_FALSE(availabilityBefore.contains("disabled"));
+
 	const ModArchiveHashes hashes = {{"hostmod", offered.sha256}};
 	const auto before = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
 	EXPECT_TRUE(before.downloadOrUpdate.contains("hostmod"));
 	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(guestData, "hostmod", offered.sha256, shared / "hostmod.zip").has_value());
+	const auto availabilityAfter = ModVerificationInfo::inspectHostArchiveAvailability(previewStatuses, manifest, guestData);
+	EXPECT_EQ(availabilityAfter.at("hostmod"), LanArchivePreviewState::VERIFIED_IN_CACHE);
+	EXPECT_EQ(availabilityAfter.at("unknown"), LanArchivePreviewState::UNAVAILABLE);
 	const auto after = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
 	EXPECT_TRUE(after.downloadOrUpdate.empty());
 	EXPECT_EQ(after.reuseCachedArchive, std::set<TModID>({"hostmod"}));

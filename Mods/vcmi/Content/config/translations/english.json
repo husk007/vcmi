@@ -922,6 +922,8 @@
 	"vcmi.lobby.noUnderground": "no underground",
 	"vcmi.lobby.preview.allowed": "Join the game room?",
 	"vcmi.lobby.preview.lanArchiveAvailability": "Host packages / verified cache:",
+	"vcmi.lobby.preview.lanArchiveCached": "cached",
+	"vcmi.lobby.preview.lanArchiveOffered": "on host",
 	"vcmi.lobby.preview.lanLocalPlan": "Local mod changes needed (+ enable / - disable). Restart required.",
 	"vcmi.lobby.preview.error.busy": "The room no longer accepts new players.",
 	"vcmi.lobby.preview.error.full": "The room is already full.",

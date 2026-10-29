@@ -220,6 +220,35 @@ ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
 	return manifest;
 }
 
+LanArchivePreview ModVerificationInfo::inspectHostArchiveAvailability(
+	const ModListVerificationStatus & statuses, const ModArchiveManifest & hostArchives,
+	const std::filesystem::path & userDataPath)
+{
+	LanArchivePreview availability;
+	for(const auto & [modId, status] : statuses)
+	{
+		if((status != ModVerificationStatus::NOT_INSTALLED && status != ModVerificationStatus::VERSION_MISMATCH)
+			|| !isValidLanModId(modId))
+			continue;
+		const auto rootId = modId.substr(0, modId.find('.'));
+		availability.emplace(rootId, LanArchivePreviewState::UNAVAILABLE);
+	}
+
+	for(auto & [rootId, state] : availability)
+	{
+		const auto offered = hostArchives.find(rootId);
+		if(offered == hostArchives.end() || !ModArchiveDigest::isSha256(offered->second.sha256)
+			|| offered->second.bytes <= 0
+			|| static_cast<std::uintmax_t>(offered->second.bytes) > LanModArchiveCache::maxArchiveBytes)
+			continue;
+
+		state = LanArchivePreviewState::OFFERED_BY_HOST;
+		if(LanModArchiveCache::findVerifiedArchive(userDataPath, rootId, offered->second.sha256))
+			state = LanArchivePreviewState::VERIFIED_IN_CACHE;
+	}
+	return availability;
+}
+
 std::optional<ModSyncPlan> ModVerificationInfo::buildInstalledOnlyPlan(const ModListVerificationStatus & statuses)
 {
 	ModSyncPlan plan;

@@ -67,7 +67,10 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 		statusColor = ColorRGBA(128, 128, 128);
 	else if(modInfo.status == ModVerificationStatus::DISABLED || modInfo.status == ModVerificationStatus::EXCESSIVE)
 		statusColor = Colors::YELLOW;
-	labelStatus = std::make_shared<CLabel>(5, 43, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status)));
+	std::string statusText = LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status));
+	if(!modInfo.archiveStatusTextId.empty())
+		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.archiveStatusTextId);
+	labelStatus = std::make_shared<CLabel>(5, 43, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, statusText);
 }
 
 static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescription, const std::vector<GlobalLobbyRoomModInfo> & modVerificationList)
@@ -131,11 +134,28 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	pos.h = 400;
 
 	const auto modStatuses = ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList);
+	// Rehash each required root at most once, even when several missing submods
+	// refer to the same host package. Reuse this result for cards and totals.
+	const LanArchivePreview archiveAvailability = lanPreview && !hostArchives.empty()
+		? ModVerificationInfo::inspectHostArchiveAvailability(modStatuses, hostArchives,
+			std::filesystem::path(VCMIDirs::get().userDataPath().native()))
+		: LanArchivePreview{};
 	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
 		modInfo.modId = modEntry.first;
 		modInfo.status = modEntry.second;
+		if(modEntry.second == ModVerificationStatus::NOT_INSTALLED || modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
+		{
+			const auto rootId = modEntry.first.substr(0, modEntry.first.find('.'));
+			if(const auto found = archiveAvailability.find(rootId); found != archiveAvailability.end())
+			{
+				if(found->second == LanArchivePreviewState::VERIFIED_IN_CACHE)
+					modInfo.archiveStatusTextId = "vcmi.lobby.preview.lanArchiveCached";
+				else if(found->second == LanArchivePreviewState::OFFERED_BY_HOST)
+					modInfo.archiveStatusTextId = "vcmi.lobby.preview.lanArchiveOffered";
+			}
+		}
 		if (modEntry.second == ModVerificationStatus::EXCESSIVE)
 			modInfo.version = LIBRARY->modh->getModInfo(modEntry.first).getVersion().toString();
 		else
@@ -208,24 +228,15 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	else
 		joinStatusText.appendTextID("vcmi.lobby.preview.allowed");
 
-	if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && !hostArchives.empty())
+	if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods")
 	{
-		std::set<TModID> requiredRoots;
-		for(const auto & [modId, status] : modStatuses)
-			if(status == ModVerificationStatus::NOT_INSTALLED || status == ModVerificationStatus::VERSION_MISMATCH)
-				requiredRoots.insert(modId.substr(0, modId.find('.')));
-
 		std::size_t offered = 0;
 		std::size_t cached = 0;
-		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
-		for(const auto & rootId : requiredRoots)
+		for(const auto & [rootId, state] : archiveAvailability)
 		{
-			const auto archive = hostArchives.find(rootId);
-			if(archive == hostArchives.end() || !ModArchiveDigest::isSha256(archive->second.sha256)
-				|| archive->second.bytes <= 0 || static_cast<std::uintmax_t>(archive->second.bytes) > LanModArchiveCache::maxArchiveBytes)
-				continue;
-			++offered;
-			if(LanModArchiveCache::findVerifiedArchive(userData, rootId, archive->second.sha256))
+			if(state != LanArchivePreviewState::UNAVAILABLE)
+				++offered;
+			if(state == LanArchivePreviewState::VERIFIED_IN_CACHE)
 				++cached;
 		}
 		if(offered)

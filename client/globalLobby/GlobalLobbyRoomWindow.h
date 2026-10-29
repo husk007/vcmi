@@ -32,6 +32,7 @@ struct GlobalLobbyRoomModInfo
 	std::string modId;
 	std::string version;
 	ModVerificationStatus status;
+	std::string archiveStatusTextId; // LAN-only host offer or verified cache badge
 };
 
 class GlobalLobbyRoomAccountCard : public CIntObject

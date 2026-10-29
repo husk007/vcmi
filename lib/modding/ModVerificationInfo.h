@@ -48,6 +48,16 @@ struct DLL_LINKAGE ModArchiveManifestEntry
 
 using ModArchiveManifest = std::map<TModID, ModArchiveManifestEntry>;
 
+/// Read-only package availability for incompatible mods in the existing LAN room preview.
+/// A cache hit does not mean the mod is installed or safe to activate.
+enum class LanArchivePreviewState
+{
+	UNAVAILABLE,
+	OFFERED_BY_HOST,
+	VERIFIED_IN_CACHE
+};
+using LanArchivePreview = std::map<TModID, LanArchivePreviewState>;
+
 /// Operations required to match the host's mod set without changing the player's normal preset.
 struct DLL_LINKAGE ModSyncPlan
 {
@@ -83,6 +93,10 @@ struct DLL_LINKAGE ModVerificationInfo
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
 	/// Advertise only active root mods with archives deliberately placed in userData/lan-mod-shares.
 	static ModArchiveManifest buildHostArchiveManifest(const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath);
+	/// Classify each missing/mismatched root once, using the negotiated host manifest
+	/// and existing persistent SHA-256 verification. Does not install or trust archives.
+	static LanArchivePreview inspectHostArchiveAvailability(const ModListVerificationStatus & statuses,
+		const ModArchiveManifest & hostArchives, const std::filesystem::path & userDataPath);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
 	/// Missing or malformed host archive digests reject download planning.
 	/// Read-only preview of changes possible using locally installed matching-version mods.

@@ -14,10 +14,10 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #40885953945](https://github.com/husk007/vcmi/actions/runs/40885953945) built `vcmitest`, `vcmiclientcommon` and `vcmiservercommon`; **84/84 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
+| M0 real vcmitest + LAN GoogleTests | [CI #40896125797](https://github.com/husk007/vcmi/actions/runs/40896125797) built `vcmitest`, `vcmiclientcommon`, `vcmiservercommon` and linked `vcmiclient` (`--help` PASS); **85/85 `LanModSyncTest.*` PASS** (2026-10-29). This is not a two-client LAN game. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | UDP/TCP opt-in, legacy fallback and installed-only preview compiled. SHA-256/size host manifest, legacy fallback and guest cache preview compile and roundtrip in [CI #40885953945](https://github.com/husk007/vcmi/actions/runs/40885953945) (**84/84**). Network transfer is still absent; legacy packets unchanged. | CODE_ONLY (host archive manifest) |
-| M2 guest join with installed disabled mods | Installed-only staging passed **79/79** tests in CI #40838909050 (2026-10-29). One-shot rejoin built and 81/81 tests passed in CI #40846276198. Failed-preview cleanup compiled and passed **82/82** in [CI #40860763346](https://github.com/husk007/vcmi/actions/runs/40860763346). Installed-only stage checks actual dependency resolution before restart and rolls back on unresolved host mods; **83/83** tests passed in [CI #40868852556](https://github.com/husk007/vcmi/actions/runs/40868852556). New one-shot auto-continue after restart joins only when the fresh lobby preview reports no incompatibilities; full client link and test pending. Two-client validation remains pending. | CODE_ONLY (auto-continue); TEST_PASS (existing unit) |
+| M1 host preview / capability negotiation | UDP/TCP opt-in, legacy fallback and host SHA-256 manifest passed in [CI #40896125797](https://github.com/husk007/vcmi/actions/runs/40896125797) (**85/85**); full `vcmiclient` linked. New per-mod cache/host offer labels share one verified root preflight; awaiting next CI. No network transfer; legacy packets unchanged. | CODE_ONLY (new UI); TEST_PASS (existing) |
+| M2 guest join with installed disabled mods | Installed-only staging passed **79/79** tests in CI #40838909050 (2026-10-29). One-shot rejoin built and 81/81 tests passed in CI #40846276198. Failed-preview cleanup compiled and passed **82/82** in [CI #40860763346](https://github.com/husk007/vcmi/actions/runs/40860763346). Installed-only stage checks actual dependency resolution before restart and rolls back on unresolved host mods; **83/83** tests passed in [CI #40868852556](https://github.com/husk007/vcmi/actions/runs/40868852556). One-shot auto-continue after restart compiled and passed in CI #40896125797; joins only after a fresh compatible lobby preview. Two-client gameplay and restoration remain untested. | CODE_ONLY (auto-continue); TEST_PASS (existing unit) |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Verify full `vcmiclient` link/smoke and LAN unit test in the next scoped CI checkpoint; then test two clients.
+1. Confirm the per-mod host/verified-cache badges in the next scoped CI checkpoint; then test two real clients.
 2. Exercise an installed-but-disabled mod through restart, rejoin and exact restoration with two actual LAN clients.
 3. Add explicit first-use trust and license checks before any host archive transfer; keep proprietary game assets excluded.
 4. Bind M3 cache reuse and M4 host transfer after host package identity/version validation.
