@@ -343,7 +343,7 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 
 	LanModSessionState::begin(guestPreset);
 	LanModSessionState::applyInstalledOnlyPlan(guestPreset, *plan);
-	LanModSessionState::setRejoinTarget(guestPreset, {"127.0.0.1", port, true});
+	LanModSessionState::setRejoinTarget(guestPreset, {"127.0.0.1", port, true, {"Guest Alice"}, false});
 	const std::string relaunchToken(64, 'c');
 	LanModSessionState::prepareControlledRelaunch(guestPreset, relaunchToken);
 	ASSERT_EQ(LanModSessionState::recoverOnStartup(guestPreset, relaunchToken), LanSessionStartupAction::RESUMED);
@@ -353,6 +353,8 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	EXPECT_EQ(rejoin->hostname, "127.0.0.1");
 	EXPECT_EQ(rejoin->port, port);
 	EXPECT_TRUE(rejoin->previewCapability);
+	EXPECT_EQ(rejoin->playerNames, std::vector<std::string>({"Guest Alice"}));
+	EXPECT_FALSE(rejoin->loadGame);
 	const auto & staged = guestPreset["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector();
 	EXPECT_NE(std::find(staged.begin(), staged.end(), JsonNode("hostmod")), staged.end());
 	EXPECT_EQ(std::find(staged.begin(), staged.end(), JsonNode("personalmod")), staged.end());
@@ -466,7 +468,7 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	const auto original = config.toCompactString();
 
 	LanModSessionState::begin(config);
-	const LanRejoinTarget selected{"192.168.1.42", 3030, true};
+	const LanRejoinTarget selected{"192.168.1.42", 3030, true, {"Alice", "Bob"}, true};
 	LanModSessionState::setRejoinTarget(config, selected);
 	const std::string token(64, 'a');
 	LanModSessionState::prepareControlledRelaunch(config, token);
@@ -477,6 +479,17 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	EXPECT_EQ(resumed->hostname, selected.hostname);
 	EXPECT_EQ(resumed->port, selected.port);
 	EXPECT_TRUE(resumed->previewCapability);
+	EXPECT_EQ(resumed->playerNames, selected.playerNames);
+	EXPECT_TRUE(resumed->loadGame);
+
+	// Sessions saved by earlier clients contain only the host endpoint and capability.
+	JsonNode legacy = config;
+	legacy["lanSession"]["rejoin"].Struct().erase("playerNames");
+	legacy["lanSession"]["rejoin"].Struct().erase("loadGame");
+	const auto oldTarget = LanModSessionState::getRejoinTarget(legacy);
+	ASSERT_TRUE(oldTarget.has_value());
+	EXPECT_TRUE(oldTarget->playerNames.empty());
+	EXPECT_FALSE(oldTarget->loadGame);
 	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
 
 	EXPECT_TRUE(LanModSessionState::restore(config));

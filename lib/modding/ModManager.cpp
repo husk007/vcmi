@@ -264,6 +264,11 @@ void LanModSessionState::setRejoinTarget(JsonNode & config, const LanRejoinTarge
 	config["lanSession"]["rejoin"]["hostname"].String() = target.hostname;
 	config["lanSession"]["rejoin"]["port"].Integer() = target.port;
 	config["lanSession"]["rejoin"]["previewCapability"].Bool() = target.previewCapability;
+	config["lanSession"]["rejoin"]["loadGame"].Bool() = target.loadGame;
+	auto & playerNames = config["lanSession"]["rejoin"]["playerNames"].Vector();
+	playerNames.clear();
+	for(const auto & name : target.playerNames)
+		playerNames.emplace_back(name);
 }
 
 std::optional<LanRejoinTarget> LanModSessionState::getRejoinTarget(const JsonNode & config)
@@ -280,6 +285,25 @@ std::optional<LanRejoinTarget> LanModSessionState::getRejoinTarget(const JsonNod
 		return std::nullopt;
 	LanRejoinTarget target{rejoin["hostname"].String(), static_cast<std::uint16_t>(port),
 		rejoin["previewCapability"].Bool()};
+	const JsonNode & playerNames = rejoin["playerNames"];
+	if(!playerNames.isNull())
+	{
+		if(!playerNames.isVector())
+			return std::nullopt;
+		for(const auto & name : playerNames.Vector())
+		{
+			if(!name.isString())
+				return std::nullopt;
+			target.playerNames.push_back(name.String());
+		}
+	}
+	const JsonNode & loadGame = rejoin["loadGame"];
+	if(!loadGame.isNull())
+	{
+		if(!loadGame.isBool())
+			return std::nullopt;
+		target.loadGame = loadGame.Bool();
+	}
 	return validLanRejoinTarget(target) ? std::optional<LanRejoinTarget>{target} : std::nullopt;
 }
 

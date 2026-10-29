@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 /// User-selected LAN host preserved in the recovery journal for a controlled client relaunch.
 struct LanRejoinTarget
@@ -15,4 +16,6 @@ struct LanRejoinTarget
 	std::string hostname;
 	std::uint16_t port = 0;
 	bool previewCapability = false;
+	std::vector<std::string> playerNames;
+	bool loadGame = false;
 };

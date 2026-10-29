@@ -1335,7 +1335,8 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	}
 
 	const ModCompatibilityInfo hostMods = pack.mods;
-	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation};
+	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation,
+		localPlayerNames, screenType == ESelectionScreen::loadGame};
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
 		[this, hostMods, canPreviewLocalPreparation, selectedHost]()
