@@ -2,11 +2,55 @@
 
 This roadmap describes opt-in features developed on `husk007/vcmi`. It does not change upstream VCMI behavior unless the feature is explicitly enabled. Work in small, reviewable changes and verify each milestone before marking it complete.
 
-## Hourly execution order
+## Execution strategy — deliver a usable LAN vertical slice
 
-The scheduled ChatGPT task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUNNER_STATUS.md](RUNNER_STATUS.md). It works on `feature/lan-mod-sync-and-web-roadmap`, not `develop`. Each run must deliver a focused committed change if feasible and report verification honestly; marking a checkbox complete requires its real acceptance criteria.
+The hourly task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUNNER_STATUS.md](RUNNER_STATUS.md). Work only on `feature/lan-mod-sync-and-web-roadmap`. The original L0–L4/W0–W4 sections below define **feature scope**, not a rule to keep patching L0 indefinitely. Follow the concrete milestones M0–M5 below in order; leave any unverified test gate open but continue implementing independently testable functionality.
 
-Current next step: **L0: compile the foundation and run `vcmitest`**. If the scheduled runtime lacks the Linux build toolchain, keep it open as PARTIAL/BLOCKED with exact evidence and implement the next independent L0 prerequisite (not a redundant plan). Once L0 is validated, proceed L1 → L2 → L3 → L4; only then prioritize W0 → W4. A genuinely blocked stage may be bypassed for an independent, safe step, but must remain unchecked and tracked.
+**Audit 2026-10-29:** 182 commits existed on the feature branch relative to `develop`, with zero GitHub Actions runs and no verified full VCMI compile, `vcmitest`, two-client LAN exchange, or automatic mod transfer. Many changes improve cache/backup integrity, but the host manifest and network integration are still missing. Source-only checks and isolated reproductions are **not** proof that VCMI builds.
+
+**Current focus:** get the real VCMI compile/test result, then implement the **host manifest + capability negotiation and client preview**. Do not add another cache-hardening edge case unless the next vertical slice demonstrably fails without it.
+
+### M0 — Real build and regression evidence (highest-priority parallel gate)
+
+- [x] Add a narrowly triggered GitHub Actions workflow for a real Linux VCMI build and committed LAN tests: `.github/workflows/lan-mod-sync-validation.yml`.
+- [ ] Obtain an actual workflow result on this branch, correct real compile/test failures, and run `LanModSyncTest.*`. On success, record the run URL and commit SHA. On failure, link the exact job and failing diagnostic.
+- [ ] If GitHub Actions is disabled or quota-blocked on this fork, record the blocker once and ask for the **specific** enablement action; do not replay the same failed DNS probe every hour. Continue M1–M3 with source-level validation and explicitly keep M0 open.
+- [ ] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup.
+
+GitHub Actions is intentionally **not** triggered by every hourly code commit. It runs when its workflow file or `.github/lan-mod-sync-validation-trigger.txt` changes, or when launched via `workflow_dispatch`. Change the trigger file only after a meaningful code milestone or a fix for a proven CI failure; do not generate empty reruns. GitHub Actions availability is unverified until a run appears.
+
+### M1 — Host compatibility preview and opt-in negotiation (first functional slice)
+
+- [ ] Review `LobbyQueryState` → `LobbyModsCheck` → `CServerHandler::onLobbyPreviewResponse` and document exact fields that already work. Reuse them; do not create a parallel protocol.
+- [ ] Advertise `lanModSync` as an optional capability using a backward-compatible/version-gated protocol path. A client lacking the capability must retain the existing room preview without disconnecting.
+- [ ] Display a read-only host/guest comparison in the LAN join preview: mod ID, version, required/disabled/excessive, and action plan. Do not yet change disk files.
+- [ ] Add a focused integration or protocol fixture test proving that the host advertises the correct mod list and the guest produces a matching diff.
+
+### M2 — Connect with mods already installed (first executable happy path)
+
+- [ ] On joining a host requiring only locally installed mods, snapshot the full original preset durably; activate required mods/deactivate excessive mods in a temporary LAN preset.
+- [ ] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery.
+- [ ] Test one host + one guest where the guest initially has the right mod **installed but disabled**. Prove a successful match without downloading an archive, then verify exact prior preset and submod restoration.
+
+### M3 — Reuse cached mod packages between sessions
+
+- [ ] Bind the existing persistent SHA-256 cache to the actual host manifest and guest join flow. A valid local archive is a cache hit; an already installed matching mod only needs activation.
+- [ ] Verify two successive joins to the same host with identical manifest: the **second transfer must be 0 bytes** and cached content still activates correctly.
+- [ ] Verify changed hash/version triggers only affected archive transfer; other cached mods are reused.
+
+### M4 — Transfer missing, redistributable mods from host
+
+- [ ] Add bounded, authenticated, session-scoped host→guest archive transfer and a first-use trust prompt. Reject missing/invalid hashes, malicious archive paths, and nonredistributable content.
+- [ ] Stage versions side by side so the player's privately installed mod version is not overwritten.
+- [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match.
+
+### M5 — Release validation and cross-platform support
+
+- [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download.
+- [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery.
+- [ ] Only after LAN passes the above gates prioritize the browser W0–W4 milestones.
+
+**Anti-stall rule:** Do not repeatedly implement unrelated edge-case hardening in L0/L2 while M1 is unimplemented. A missing CI environment is a verification blocker, not a prohibition on reviewing or implementing the next small functional slice. After two consecutive runs with the same blocker, skip repeating the probe and work on M1/M2. Every run must identify the milestone and prove a change in functional coverage, a fixed real compiler error, or a new test result; do not treat documentation/status growth as product progress.
 
 ### Release gates (must all be satisfied before claiming working LAN mod sync)
 
@@ -22,6 +66,8 @@ Current next step: **L0: compile the foundation and run `vcmitest`**. If the sch
 **Goal:** Joining a game should automatically prepare the host's compatible gameplay mods, use previously downloaded packages without retransmitting them, and restore the guest's exact prior active preset after the match.
 
 ### L0 — Compatibility, cache decisions, and reversible preset foundation — PARTIAL
+
+Source helpers and tests have been added, but this milestone remains unverified until the full build and real test suite succeed. Several crash-restore and cache helpers are now implemented beyond the initial draft. Do not repeat hardening without a failing validation or a dependency on M1–M4.
 
 - [x] Reuse `ModVerificationInfo::verifyListAgainstLocalMods` and existing `LobbyModsCheck` metadata.
 - [x] Add a pure `ModSyncPlan` for missing, disabled, excessive, and version-mismatched mods.
