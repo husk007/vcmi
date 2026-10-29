@@ -1,3 +1,3 @@
-M2 checkpoint: automatically complete an approved LAN join after mod-preset relaunch only if a fresh TCP preview is compatible.
-Compile full vcmiclient, check its --help startup, run vcmitest LanModSyncTest.* and both lobby libraries.
-Baseline CI #40885953945: 84/84 tests passed; full client link unverified.
+M1 checkpoint: show host archive availability and SHA-256-verified cache for each missing/mismatched root and submod in LAN lobby preview.
+Commit: cb08f1019de44080a467c97c2bfe32ddd6bf621e
+Reason: validate real vcmiclient link, host-to-guest manifest preflight classification and existing LanModSyncTest.*; keep transfer disabled.
