@@ -150,6 +150,113 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	EXPECT_EQ(decoded->archives.at("largehostmod").bytes, static_cast<std::int64_t>(LanModArchiveCache::maxArchiveBytes));
 }
 
+TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopback)
+{
+	struct Host final : INetworkServerListener
+	{
+		std::map<NetworkConnectionPtr, std::unique_ptr<GameConnection>> connections;
+		int legacyQueries = 0;
+		int optInQueries = 0;
+
+		void onNewConnection(const NetworkConnectionPtr & connection) override
+		{
+			connections.emplace(connection, std::make_unique<GameConnection>(connection));
+		}
+
+		void onDisconnected(const NetworkConnectionPtr & connection, const std::string &) override
+		{
+			connections.erase(connection);
+		}
+
+		void onPacketReceived(const NetworkConnectionPtr & connection, const std::vector<std::byte> & bytes) override
+		{
+			auto & peer = *connections.at(connection);
+			const auto query = peer.retrievePack(bytes);
+			LobbyModsCheck response;
+			response.vcmiVersion = VCMI_VERSION_STRING;
+			response.hostAccountDisplayName = "LAN host";
+			response.participantNames = {"LAN host"};
+			ModVerificationInfo mod;
+			mod.name = "Host gameplay mod";
+			mod.version = CModVersion(1, 2, 3);
+			response.mods.emplace("hostmod", mod);
+
+			if(dynamic_cast<LobbyQueryModSync *>(query.get()))
+			{
+				++optInQueries;
+				LobbyModSyncPreview extended;
+				static_cast<LobbyModsCheck &>(extended) = response;
+				extended.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 3});
+				peer.sendPack(extended);
+			}
+			else if(dynamic_cast<LobbyQueryState *>(query.get()))
+			{
+				++legacyQueries;
+				peer.sendPack(response);
+			}
+		}
+	} host;
+
+	struct Guest final : INetworkClientListener
+	{
+		bool optIn = false;
+		std::string failure;
+		NetworkConnectionPtr connection;
+		std::unique_ptr<GameConnection> peer;
+		std::unique_ptr<CPack> response;
+
+		explicit Guest(bool upgraded) : optIn(upgraded) {}
+
+		void onConnectionFailed(const std::string & error) override { failure = error; }
+		void onConnectionEstablished(const NetworkConnectionPtr & connected) override
+		{
+			connection = connected;
+			peer = std::make_unique<GameConnection>(connection);
+			if(optIn)
+			{
+				LobbyQueryModSync query;
+				peer->sendPack(query);
+			}
+			else
+			{
+				LobbyQueryState query;
+				peer->sendPack(query);
+			}
+		}
+		void onDisconnected(const NetworkConnectionPtr &, const std::string & error) override { failure = error; }
+		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
+		{
+			response = peer->retrievePack(bytes);
+		}
+	} legacy(false), upgraded(true);
+
+	// Use VCMI's actual framed TCP transport and GameConnection packet serializer.
+	auto network = INetworkHandler::createHandler();
+	auto server = network->createServerTCP(host);
+	const auto port = server->start(0);
+	ASSERT_NE(port, 0);
+	network->connectToRemote(legacy, "127.0.0.1", port);
+	network->connectToRemote(upgraded, "127.0.0.1", port);
+	network->getContext().run_for(std::chrono::milliseconds(1500));
+
+	EXPECT_TRUE(legacy.failure.empty()) << legacy.failure;
+	EXPECT_TRUE(upgraded.failure.empty()) << upgraded.failure;
+	EXPECT_EQ(host.legacyQueries, 1);
+	EXPECT_EQ(host.optInQueries, 1);
+	const auto * legacyPreview = dynamic_cast<LobbyModsCheck *>(legacy.response.get());
+	const auto * optInPreview = dynamic_cast<LobbyModSyncPreview *>(upgraded.response.get());
+	ASSERT_NE(legacyPreview, nullptr);
+	EXPECT_EQ(dynamic_cast<LobbyModSyncPreview *>(legacy.response.get()), nullptr);
+	ASSERT_NE(optInPreview, nullptr);
+	EXPECT_EQ(legacyPreview->mods.size(), 1);
+	EXPECT_EQ(legacyPreview->mods.at("hostmod").version, CModVersion(1, 2, 3));
+	EXPECT_EQ(optInPreview->mods, legacyPreview->mods);
+	ASSERT_EQ(optInPreview->archives.size(), 1);
+	EXPECT_EQ(optInPreview->archives.at("hostmod").bytes, 3);
+	EXPECT_EQ(optInPreview->archives.at("hostmod").sha256, std::string(64, 'a'));
+	network->stop();
+}
+
 TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 {
 	namespace fs = std::filesystem;
