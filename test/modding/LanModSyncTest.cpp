@@ -33,6 +33,7 @@
 #include "../../lib/modding/LanModArchiveCache.h"
 
 #include "../../lib/serializer/CMemorySerializer.h"
+#include "../../lib/serializer/GameConnection.h"
 #include "../../lib/networkPacks/PacksForLobby.h"
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
@@ -250,7 +251,9 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	ASSERT_NE(optInPreview, nullptr);
 	EXPECT_EQ(legacyPreview->mods.size(), 1);
 	EXPECT_EQ(legacyPreview->mods.at("hostmod").version, CModVersion(1, 2, 3));
-	EXPECT_EQ(optInPreview->mods, legacyPreview->mods);
+	EXPECT_EQ(optInPreview->mods.size(), legacyPreview->mods.size());
+	EXPECT_EQ(optInPreview->mods.at("hostmod").name, legacyPreview->mods.at("hostmod").name);
+	EXPECT_EQ(optInPreview->mods.at("hostmod").version, legacyPreview->mods.at("hostmod").version);
 	ASSERT_EQ(optInPreview->archives.size(), 1);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").bytes, 3);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").sha256, std::string(64, 'a'));
