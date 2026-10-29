@@ -265,23 +265,23 @@ Major dependencies are managed by Conan — see `dependencies/conanfile.py` for 
 
 ## Fork workstreams: LAN mod sync and WebAssembly
 
-The fork-specific execution plan lives in [ROADMAP.md](ROADMAP.md). The hourly executor must also follow [RUNNER.md](RUNNER.md) and read [RUNNER_STATUS.md](RUNNER_STATUS.md) at the start of every run. Prioritize the LAN mod synchronization milestones (L0-L4), then progress on the browser client feasibility milestones (W0-W4). Keep features optional so unmodified VCMI games remain compatible.
+This fork executes the feature work in [ROADMAP.md](ROADMAP.md) using the hourly policy in [RUNNER.md](RUNNER.md). Read the **M0–M5 critical path** and the short current state in [RUNNER_STATUS.md](RUNNER_STATUS.md) before each run. The lower L0–L4 sections define requirements, not a reason to keep hardening the same unverified helper forever.
 
-- Preserve the player's exact pre-session mod preset and enabled/disabled submod settings. Use a temporary multiplayer preset and a durable restore journal before applying changes.
-- Retain downloaded redistributable mod packages across LAN sessions. Verify the host's SHA-256 and reuse packages when the digest matches. Never silently overwrite an existing personal mod version.
-- Handle normal exit, disconnect, transfer failure, crash recovery, and controlled relaunch explicitly. A failed session must not destroy the saved original preset.
-- Only transfer redistributable mods from trusted LAN peers. Never transfer proprietary Heroes III game assets as part of synchronization. Treat mods containing scripts as untrusted content.
-- Implement and test protocol negotiation before changing the multiplayer packets. Clients without the feature must keep their current behavior.
-- For the browser port, isolate Emscripten builds and route browser connections through a WebSocket adapter; do not require native TCP or the Qt launcher inside the browser.
-- Mark roadmap tasks complete only after relevant tests pass. Add focused unit tests for pure synchronization logic and integration tests before claiming a working LAN transfer or playable browser build.
-- Follow the existing GitHub contribution policy above: automated agents must not create upstream PRs/issues or post comments. Changes should remain on a dedicated fork branch for human review.
+### Execution and evidence
 
-### Hourly automation working agreement
+- Work only in `husk007/vcmi` on `feature/lan-mod-sync-and-web-roadmap`. Fetch the latest HEAD, compare diffs against `develop`, and use file-SHA-safe updates. Do not write to `develop` or upstream; obey the no-AI-PR/no-issue/no-comment contribution rule above.
+- Prioritize **functional integration**, not commit count: (M0 real build and LAN tests in parallel) → (M1 capability/manifest/guest preview) → (M2 join with installed mods and full rollback) → (M3 verified cache reuse) → (M4 host archive transfer) → (M5 real LAN tests) → browser W0–W4.
+- A known container DNS error or unavailable compiler is a bounded verification blocker. Do not repeat failed checkout probes every hour or keep implementing unrelated rare edge-case cache fixes. Continue with the next safe functional call-chain when full compilation is blocked.
+- Build evidence must come from an actual VCMI compile; test evidence must come from the committed suite. Standalone snippets, WinAPI shims, or source assertions count only as `CODE_ONLY`. Never mark an untested implementation DONE.
+- The feature branch has a narrowly triggered validation workflow `.github/workflows/lan-mod-sync-validation.yml`; explicitly request checkpoint validation via its trigger file or manual dispatch where available. Do not require a PR just to obtain CI and do not flood Actions with hourly rebuilds.
+- Limit `RUNNER_STATUS.md` to the current checkpoint, verified evidence, known blocker, and next actions (about 6 KB). History is already in commits; don't append hourly narratives or status-only commits when nothing important changed.
 
-- Work only in `husk007/vcmi` on `feature/lan-mod-sync-and-web-roadmap`, always fetching the branch HEAD before writing. Never modify `develop`, upstream `vcmi/vcmi`, or someone else's branch.
-- Each hourly iteration must select a specific unchecked ROADMAP criterion, implement one focused, useful increment when possible, and persist it as one or more real commits. An uncommitted idea or a rewritten plan is not an implementation.
-- Reuse the existing LAN lobby mod compatibility preview, temporary preset support, and mod installer. Continue from previous commits instead of recreating them; inspect the diff and tests before changes.
-- Preserve previously downloaded mod archives by verified SHA-256 in a persistent cache; a repeated match with the same host/mod hashes must avoid retransmission. A matching installed version should only be activated in the temporary preset.
-- Before altering guest mod selection, persist a durable recovery snapshot of the original active preset and disabled submods. Restore exactly that state after all exit and failure paths; a completed archive transfer does not justify altering the user's personal mod installation.
-- Record verification honestly. `[x]` means its acceptance criteria were actually met; if tests cannot run, mark the result PARTIAL and leave build/runtime-dependent checkboxes open. Record blockers with a next action in `RUNNER_STATUS.md`, avoiding pointless hourly status-only commits.
-- Respect the existing no-AI-PR/no-issue rule. Commit changes directly to the fork feature branch for human review. Do not force-push or merge to `develop`.
+### LAN and browser invariants
+
+- Preserve the complete personal preset, prior active name, and disabled/enabled submod flags in a durable, crash-recoverable journal **before** joining a mod-altered LAN session. Restore on cancellation, disconnect, failure and crash; never overwrite private mod versions.
+- Cache redistributable host archives persistently and by verified SHA-256. For subsequent identical sessions: **zero bytes retransferred**; use an already installed matching mod via temporary activation. Changed hashes require selective refresh.
+- Host content is untrusted: require explicit first-use trust, enforce archive limits and safe paths, verify hashes and license permission, and never transfer the commercial Heroes III base assets.
+- Negotiate new lobby features compatibly; clients without `lanModSync` continue to use the original join path. Do not mutate game state outside the authoritative server.
+- For WebAssembly, keep the engine/server native initially and bridge the browser via WebSocket. Keep user-provided Heroes III assets outside all distributed binaries, pages, and caches.
+
+When a run cannot safely change code, state `NO COMMIT` plus the precise blocker. Never create placeholder work to simulate progress.
