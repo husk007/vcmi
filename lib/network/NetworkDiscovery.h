@@ -20,6 +20,8 @@ public:
 	void start() override;
 	void abort() override;
 	static std::vector<std::string> ipAddresses();
+	/// Probe a manually entered host before sending opt-in lobby packets; old hosts retain the legacy preview.
+	static bool probeHostPreview(const std::string & host, std::uint16_t tcpPort, std::uint16_t discoveryPort = 3030);
 
 private:
 	NetworkContext & context;

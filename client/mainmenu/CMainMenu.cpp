@@ -859,11 +859,13 @@ void CSimpleJoinScreen::startConnection(const std::string & addr, ui16 port)
 	}
 	else
 	{
-		// Show lobby preview before fully connecting as a player
+		// Direct-IP joins negotiate the same optional preview as broadcast-discovered hosts.
+		// No response from an older host preserves the legacy lobby packet flow.
+		const bool supportsLanPreview = lanModPreviewAdvertised || ServerDiscovery::probeHostPreview(addr, port);
 		GAME->server().startLobbyPreview(addr, port, [addr, port]()
 		{
 			GAME->server().connectToServer(addr, port);
-		}, lanModPreviewAdvertised, autoJoinAfterRelaunch);
+		}, supportsLanPreview, autoJoinAfterRelaunch);
 	}
 }
 

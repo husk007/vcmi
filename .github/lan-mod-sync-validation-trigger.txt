@@ -1,3 +1,2 @@
-M1 network integration checkpoint: real UDP loopback negotiation between a host discovery listener and guest probe.
-Validate exact legacy response, optional lanModSync preview reply, and no advertisement after lobby closes.
-Build vcmitest, full desktop client, both lobby libraries; run committed LanModSyncTest.* in real VCMI.
+M1 direct-IP LAN join: negotiate optional lanModSync preview over unicast UDP before the existing TCP LobbyQueryState flow.
+Legacy hosts and mismatched TCP ports keep legacy lobby preview. Validate real TCP loopback test and direct-IP probe fixture in vcmitest; link full vcmiclient.

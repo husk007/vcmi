@@ -131,6 +131,61 @@ void ServerDiscovery::start()
 	(*sendHandler)(boost::system::error_code());
 }
 
+
+bool ServerDiscovery::probeHostPreview(const std::string & host, std::uint16_t tcpPort, std::uint16_t discoveryPort)
+{
+	if(host.empty() || tcpPort == 0 || discoveryPort == 0)
+		return false;
+
+	try
+	{
+		NetworkContext probeContext;
+		using Udp = boost::asio::ip::udp;
+		boost::system::error_code error;
+		Udp::resolver resolver(probeContext);
+		const auto endpoints = resolver.resolve(Udp::v4(), host, std::to_string(discoveryPort), error);
+		if(error || endpoints.empty())
+			return false;
+		const auto target = endpoints.begin()->endpoint();
+
+		Udp::socket socket(probeContext);
+		socket.open(Udp::v4(), error);
+		if(error)
+			return false;
+		socket.bind(Udp::endpoint(Udp::v4(), 0), error);
+		if(error)
+			return false;
+
+		std::array<char, 128> responseBuffer{};
+		Udp::endpoint responseSender;
+		bool supportsPreview = false;
+		socket.async_receive_from(boost::asio::buffer(responseBuffer), responseSender,
+			[&](const boost::system::error_code & receiveError, std::size_t size)
+			{
+				if(!receiveError && responseSender.address() == target.address())
+				{
+					const auto response = LanModDiscovery::parseReply(std::string_view(responseBuffer.data(), size));
+					supportsPreview = response && response->supportsModPreview && response->port == tcpPort;
+				}
+			});
+
+		const std::string message(LanModDiscovery::previewProbe);
+		socket.send_to(boost::asio::buffer(message), target, 0, error);
+		if(!error)
+			probeContext.run_for(std::chrono::milliseconds(250));
+
+		socket.cancel(error);
+		probeContext.restart();
+		probeContext.poll();
+		return supportsPreview;
+	}
+	catch(const std::exception & e)
+	{
+		logGlobal->warn("Direct LAN preview capability probe failed: %s", e.what());
+		return false;
+	}
+}
+
 std::vector<std::string> ServerDiscovery::ipAddresses()
 {
     std::vector<std::string> addresses;

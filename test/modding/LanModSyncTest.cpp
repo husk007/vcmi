@@ -104,6 +104,51 @@ TEST(LanModSyncTest, RealUdpDiscoveryKeepsLegacyReplyAndNegotiatesLanPreviewOnLo
 	listener->stop();
 }
 
+TEST(LanModSyncTest, DirectIpJoinNegotiatesOptInPreviewAndFallsBackForLegacyHost)
+{
+	struct HostAnnouncer final : IServerDiscoveryAnnouncer
+	{
+		bool isInLobby() const override { return true; }
+		std::uint16_t getPort() const override { return 31317; }
+	} host;
+
+	NetworkContext hostContext;
+	using Udp = boost::asio::ip::udp;
+	Udp::socket reservation(hostContext, Udp::endpoint(Udp::v4(), 0));
+	const auto discoveryPort = reservation.local_endpoint().port();
+	reservation.close();
+
+	auto announcer = std::make_shared<ServerDiscoveryListener>(hostContext, host, discoveryPort);
+	announcer->start();
+
+	// The old discovery response does not authorize the new TCP packet.
+	Udp::socket legacy(hostContext, Udp::endpoint(Udp::v4(), 0));
+	const auto legacyPort = legacy.local_endpoint().port();
+	std::array<char, 128> legacyBuffer{};
+	Udp::endpoint legacySender;
+	legacy.async_receive_from(boost::asio::buffer(legacyBuffer), legacySender,
+		[&](const boost::system::error_code & error, std::size_t)
+		{
+			if(!error)
+			{
+				const std::string legacyReply = "VCMI_SERVER:31317";
+				legacy.send_to(boost::asio::buffer(legacyReply), legacySender);
+			}
+		});
+
+	std::thread hostThread([&]() { hostContext.run(); });
+	const bool upgraded = ServerDiscovery::probeHostPreview("127.0.0.1", 31317, discoveryPort);
+	const bool wrongGamePort = ServerDiscovery::probeHostPreview("127.0.0.1", 31318, discoveryPort);
+	const bool legacyFallback = ServerDiscovery::probeHostPreview("127.0.0.1", 31317, legacyPort);
+
+	boost::asio::post(hostContext, [announcer]() { announcer->stop(); });
+	hostThread.join();
+
+	EXPECT_TRUE(upgraded);
+	EXPECT_FALSE(wrongGamePort);
+	EXPECT_FALSE(legacyFallback);
+}
+
 TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegacyPackets)
 {
 	LobbyQueryState legacyQuery;
