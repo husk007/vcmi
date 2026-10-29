@@ -36,7 +36,8 @@ using ModArchiveHashes = std::map<TModID, std::string>;
 struct DLL_LINKAGE ModArchiveManifestEntry
 {
 	std::string sha256;
-	std::uint64_t bytes = 0;
+	/// VCMI's binary serializer supports signed int64_t, not unsigned uint64_t.
+	std::int64_t bytes = 0;
 
 	template <typename Handler> void serialize(Handler & h)
 	{

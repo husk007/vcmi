@@ -221,7 +221,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		{
 			const auto archive = hostArchives.find(rootId);
 			if(archive == hostArchives.end() || !ModArchiveDigest::isSha256(archive->second.sha256)
-				|| archive->second.bytes == 0 || archive->second.bytes > LanModArchiveCache::maxArchiveBytes)
+				|| archive->second.bytes <= 0 || static_cast<std::uintmax_t>(archive->second.bytes) > LanModArchiveCache::maxArchiveBytes)
 				continue;
 			++offered;
 			if(LanModArchiveCache::findVerifiedArchive(userData, rootId, archive->second.sha256))

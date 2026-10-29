@@ -65,6 +65,8 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	LobbyModSyncPreview optInResponse;
 	static_cast<LobbyModsCheck &>(optInResponse) = legacyResponse;
 	optInResponse.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 42});
+	// The 2 GiB archive limit must also survive VCMI signed-varint serialization.
+	optInResponse.archives.emplace("largehostmod", ModArchiveManifestEntry{std::string(64, 'b'), static_cast<std::int64_t>(LanModArchiveCache::maxArchiveBytes)});
 
 	const auto legacyResponseCopy = CMemorySerializer::deepCopy<CPack>(legacyResponse);
 	const auto optInResponseCopy = CMemorySerializer::deepCopy<CPack>(optInResponse);
@@ -79,9 +81,11 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	ASSERT_EQ(decoded->mods.size(), 1);
 	EXPECT_EQ(decoded->mods.at("hostmod").name, mod.name);
 	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
-	ASSERT_EQ(decoded->archives.size(), 1);
+	ASSERT_EQ(decoded->archives.size(), 2);
 	EXPECT_EQ(decoded->archives.at("hostmod").sha256, std::string(64, 'a'));
 	EXPECT_EQ(decoded->archives.at("hostmod").bytes, 42);
+	EXPECT_EQ(decoded->archives.at("largehostmod").sha256, std::string(64, 'b'));
+	EXPECT_EQ(decoded->archives.at("largehostmod").bytes, static_cast<std::int64_t>(LanModArchiveCache::maxArchiveBytes));
 }
 
 TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
