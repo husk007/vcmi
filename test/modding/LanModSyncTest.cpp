@@ -80,6 +80,57 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
 }
 
+TEST(LanModSyncTest, InstalledOnlyHostPlanChangesTemporaryPresetAndRestoresAllPersonalSettings)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["mods"].Vector().emplace_back("personalmod");
+	config["presets"]["personal"]["settings"]["personalmod"]["variants"].Bool() = true;
+	config["presets"]["personal"]["settings"]["hostmod"]["units"].Bool() = false;
+	config["presets"]["personal"]["settings"]["hostmod"]["units.elite"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = config.toCompactString();
+
+	const ModListVerificationStatus statuses = {
+		{"hostmod.units.elite", ModVerificationStatus::DISABLED},
+		{"personalmod", ModVerificationStatus::EXCESSIVE},
+		{"personalmod.variants", ModVerificationStatus::EXCESSIVE}
+	};
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	ASSERT_TRUE(plan.has_value());
+	LanModSessionState::begin(config);
+	LanModSessionState::applyInstalledOnlyPlan(config, *plan);
+
+	const JsonNode & staged = config;
+	const auto & temporary = staged["presets"][LanModSessionState::temporaryPresetName()];
+	const auto & roots = temporary["mods"].Vector();
+	EXPECT_NE(std::find(roots.begin(), roots.end(), JsonNode("hostmod")), roots.end());
+	EXPECT_EQ(std::find(roots.begin(), roots.end(), JsonNode("personalmod")), roots.end());
+	EXPECT_TRUE(temporary["settings"]["hostmod"]["units"].Bool());
+	EXPECT_TRUE(temporary["settings"]["hostmod"]["units.elite"].Bool());
+	EXPECT_FALSE(temporary["settings"]["personalmod"]["variants"].Bool());
+	EXPECT_EQ(staged["presets"]["personal"]["settings"]["personalmod"]["variants"].Bool(), true);
+	EXPECT_EQ(staged["presets"]["other"]["mods"].Vector().size(), 1);
+
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, InstalledOnlyPlanRefusesArchiveWorkWithoutModifyingSession)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+	const std::string snapshot = config.toCompactString();
+
+	ModSyncPlan plan;
+	plan.downloadOrUpdate.insert("newmod");
+	EXPECT_THROW(LanModSessionState::applyInstalledOnlyPlan(config, plan), std::runtime_error);
+	EXPECT_EQ(config.toCompactString(), snapshot);
+}
+
 TEST(LanModSyncTest, LanPreviewPlansInstalledDisabledModsWithoutArchiveTransfer)
 {
 	const ModListVerificationStatus statuses = {

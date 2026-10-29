@@ -42,6 +42,8 @@ enum class LanSessionStartupAction
 };
 
 /// Keeps the player's original mod preset intact during temporary LAN sessions.
+struct ModSyncPlan;
+
 class DLL_LINKAGE LanModSessionState
 {
 public:
@@ -52,6 +54,8 @@ public:
 	static bool restoreCompleteBackupIfPresent(JsonNode & restored, const JsonNode & sessionConfig,
 		const std::filesystem::path & settings);
 	static void begin(JsonNode & config);
+	/// Apply an installed-only host diff exclusively to the temporary LAN preset.
+	static void applyInstalledOnlyPlan(JsonNode & config, const ModSyncPlan & plan);
 	/// Refuse personal preset operations while the LAN recovery snapshot is active.
 	static void requirePersonalPresetUnlocked(const JsonNode & config);
 	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
@@ -80,6 +84,7 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan);
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
 	void restoreLanSessionOnShutdown();
@@ -193,6 +198,7 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan);
 	/// Persist a new one-shot token before spawning a replacement client.
 	std::string prepareControlledRelaunch();
 	void prepareControlledRelaunch(const std::string & relaunchToken);

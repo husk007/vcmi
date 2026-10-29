@@ -50,6 +50,28 @@ void CModHandler::beginLanSession()
 	modManager->beginLanSession();
 }
 
+bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods)
+{
+	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	if(!plan)
+		throw std::runtime_error("Host requires missing or incompatible mod versions");
+	if(!plan->requiresChanges())
+		return false;
+
+	modManager->prepareInstalledOnlyLanSession(*plan);
+	try
+	{
+		requestLanRelaunch();
+	}
+	catch(...)
+	{
+		restoreLanSession();
+		throw;
+	}
+	return true;
+}
+
 void CModHandler::restoreLanSession()
 {
 	lanRelaunchRequested.store(false, std::memory_order_release);

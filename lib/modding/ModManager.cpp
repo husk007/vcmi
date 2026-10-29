@@ -13,6 +13,7 @@
 #include "LanModRecoveryJournal.h"
 #include "LanRelaunchToken.h"
 #include "LanRelaunchTokenFormat.h"
+#include "ModVerificationInfo.h"
 
 #include "ModDescription.h"
 #include "ModScope.h"
@@ -204,6 +205,46 @@ void LanModSessionState::begin(JsonNode & config)
 	config["lanSession"]["originalPreset"] = original;
 	config["presets"][sessionName] = original;
 	config["activePreset"].String() = sessionName;
+}
+
+void LanModSessionState::applyInstalledOnlyPlan(JsonNode & config, const ModSyncPlan & plan)
+{
+	validateLanSessionSnapshot(config);
+	if(!plan.downloadOrUpdate.empty() || !plan.reuseCachedArchive.empty())
+		throw std::runtime_error("LAN installed-only preparation cannot require mod archives");
+
+	std::set<TModID> toActivate = plan.activate;
+	for(const auto & modId : plan.activate)
+	{
+		for(size_t dot = modId.find('.'); dot != std::string::npos; dot = modId.find('.', dot + 1))
+			toActivate.insert(modId.substr(0, dot));
+	}
+
+	for(const auto & modId : toActivate)
+		if(plan.deactivate.count(modId))
+			throw std::runtime_error("LAN mod preparation contains conflicting activation states");
+
+	JsonNode & temporary = config["presets"][temporaryPresetName()];
+	for(const auto & modId : plan.deactivate)
+	{
+		const size_t dot = modId.find('.');
+		if(dot == std::string::npos)
+			vstd::erase(temporary["mods"].Vector(), JsonNode(modId));
+		else
+			temporary["settings"][modId.substr(0, dot)][modId.substr(dot + 1)].Bool() = false;
+	}
+
+	for(const auto & modId : toActivate)
+	{
+		const size_t dot = modId.find('.');
+		if(dot == std::string::npos)
+		{
+			if(!vstd::contains(temporary["mods"].Vector(), JsonNode(modId)))
+				temporary["mods"].Vector().emplace_back(modId);
+		}
+		else
+			temporary["settings"][modId.substr(0, dot)][modId.substr(dot + 1)].Bool() = true;
+	}
 }
 
 void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken)
@@ -453,6 +494,24 @@ void ModsPresetState::beginLanSession()
 	if(!saveConfigurationState(pending))
 		throw std::runtime_error("LAN session snapshot could not sync the mod settings directory");
 	modConfig = std::move(pending);
+}
+
+void ModsPresetState::prepareInstalledOnlyLanSession(const ModSyncPlan & plan)
+{
+	beginLanSession();
+	try
+	{
+		JsonNode pending = modConfig;
+		LanModSessionState::applyInstalledOnlyPlan(pending, plan);
+		if(!saveConfigurationState(pending))
+			throw std::runtime_error("LAN temporary preset could not be synced to disk");
+		modConfig = std::move(pending);
+	}
+	catch(...)
+	{
+		restoreLanSession();
+		throw;
+	}
 }
 
 void ModsPresetState::prepareControlledRelaunch(const std::string & relaunchToken)
@@ -1241,6 +1300,11 @@ void ModManager::activatePreset(const std::string & presetName)
 void ModManager::beginLanSession()
 {
 	modsPreset->beginLanSession();
+}
+
+void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan)
+{
+	modsPreset->prepareInstalledOnlyLanSession(plan);
 }
 
 std::string ModManager::prepareControlledRelaunch()

@@ -85,6 +85,8 @@ public:
 	ModSyncPlan planLanModSync(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256) const;
 	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
 	void beginLanSession();
+	/// Persist an installed-only LAN preset and signal a controlled client restart.
+	bool prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods);
 	/// Restore the saved personal preset when a LAN join or session is cancelled.
 	void restoreLanSession();
 	/// Request a one-shot relaunch after gameplay resources are released.
