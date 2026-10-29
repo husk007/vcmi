@@ -29,6 +29,7 @@ struct ModVerificationInfo;
 struct GlobalLobbyRoomModInfo
 {
 	std::string modName;
+	std::string modId;
 	std::string version;
 	ModVerificationStatus status;
 };
@@ -47,6 +48,7 @@ class GlobalLobbyRoomModCard : public CIntObject
 {
 	std::shared_ptr<TransparentFilledRectangle> backgroundOverlay;
 	std::shared_ptr<CLabel> labelName;
+	std::shared_ptr<CLabel> labelModId;
 	std::shared_ptr<CLabel> labelStatus;
 	std::shared_ptr<CLabel> labelVersion;
 

@@ -54,17 +54,18 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 
 	OBJECT_CONSTRUCTION;
 	pos.w = 200;
-	pos.h = 40;
+	pos.h = 52;
 	backgroundOverlay = std::make_shared<TransparentFilledRectangle>(Rect(0, 0, pos.w, pos.h), ColorRGBA(0, 0, 0, 128), ColorRGBA(64, 64, 64, 64), 1);
 
-	labelName = std::make_shared<CLabel>(5, 10, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
-	labelVersion = std::make_shared<CLabel>(195, 30, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
+	labelName = std::make_shared<CLabel>(5, 9, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
+	labelModId = std::make_shared<CLabel>(5, 26, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, modInfo.modId, 120);
+	labelVersion = std::make_shared<CLabel>(195, 26, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
 	auto statusColor = Colors::RED;
 	if(modInfo.status == ModVerificationStatus::FULL_MATCH)
 		statusColor = ColorRGBA(128, 128, 128);
-	else if(modInfo.status == ModVerificationStatus::VERSION_MISMATCH)
+	else if(modInfo.status == ModVerificationStatus::DISABLED || modInfo.status == ModVerificationStatus::EXCESSIVE)
 		statusColor = Colors::YELLOW;
-	labelStatus = std::make_shared<CLabel>(5, 30, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status)));
+	labelStatus = std::make_shared<CLabel>(5, 43, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status)));
 }
 
 static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescription, const std::vector<GlobalLobbyRoomModInfo> & modVerificationList)
@@ -105,9 +106,8 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 			case ModVerificationStatus::NOT_INSTALLED:
 			case ModVerificationStatus::DISABLED:
 			case ModVerificationStatus::EXCESSIVE:
-				return "vcmi.lobby.preview.error.mods";
-				break;
 			case ModVerificationStatus::VERSION_MISMATCH:
+				return "vcmi.lobby.preview.error.mods";
 			case ModVerificationStatus::FULL_MATCH:
 				break;
 			default:
@@ -130,11 +130,14 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	for(const auto & modEntry : ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList))
 	{
 		GlobalLobbyRoomModInfo modInfo;
+		modInfo.modId = modEntry.first;
 		modInfo.status = modEntry.second;
 		if (modEntry.second == ModVerificationStatus::EXCESSIVE)
 			modInfo.version = LIBRARY->modh->getModInfo(modEntry.first).getVersion().toString();
 		else
 			modInfo.version = roomDescription.modList.at(modEntry.first).version.toString();
+		if(modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
+			modInfo.version = LIBRARY->modh->getModInfo(modEntry.first).getVersion().toString() + " -> " + modInfo.version;
 
 		if (modEntry.second == ModVerificationStatus::NOT_INSTALLED)
 			modInfo.modName = roomDescription.modList.at(modEntry.first).name;
@@ -203,7 +206,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	};
 
 	modListBackground = std::make_shared<TransparentFilledRectangle>(Rect(178, 48, 220, 340), ColorRGBA(0, 0, 0, 64), ColorRGBA(64, 80, 128, 255), 1);
-	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 40), 8, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
+	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 52), 6, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 

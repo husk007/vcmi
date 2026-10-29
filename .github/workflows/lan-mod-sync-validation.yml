@@ -58,6 +58,9 @@ jobs:
       - name: Build vcmitest
         run: cmake --build --preset linux-gcc-test --target vcmitest --parallel 2
 
+      - name: Build lobby preview client code
+        run: cmake --build --preset linux-gcc-test --target vcmiclientcommon --parallel 2
+
       - name: Stage runtime assets for vcmitest
         run: |
           # Running only the vcmitest target does not deploy the runtime assets.

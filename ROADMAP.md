@@ -13,7 +13,7 @@ The hourly task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUN
 ### M0 — Real build and regression evidence (highest-priority parallel gate)
 
 - [x] Add a narrowly triggered GitHub Actions workflow for a real Linux VCMI build and committed LAN tests: `.github/workflows/lan-mod-sync-validation.yml`.
-- [ ] Obtain an actual workflow result on this branch, correct real compile/test failures, and run `LanModSyncTest.*`. On success, record the run URL and commit SHA. On failure, link the exact job and failing diagnostic.
+- [x] Obtain a real `vcmitest` build and execute `LanModSyncTest.*`: [CI run #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539) passed **71/71 tests** on commit `a1e2bf2e70eb9ac2636091c8baf6d1926087a374` after correcting the runtime data setup. The wider client build is a separate gate.
 - [ ] If GitHub Actions is disabled or quota-blocked on this fork, record the blocker once and ask for the **specific** enablement action; do not replay the same failed DNS probe every hour. Continue M1–M3 with source-level validation and explicitly keep M0 open.
 - [ ] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup.
 
