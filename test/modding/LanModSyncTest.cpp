@@ -303,6 +303,43 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	ASSERT_EQ(optInPreview->archives.size(), 1);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").bytes, 3);
 	EXPECT_EQ(optInPreview->archives.at("hostmod").sha256, std::string(64, 'a'));
+
+	// Exercise the guest's recoverable installed-only preset with mods received over actual TCP.
+	JsonNode guestPreset;
+	guestPreset["activePreset"].String() = "personal";
+	guestPreset["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	guestPreset["presets"]["personal"]["mods"].Vector().emplace_back("personalmod");
+	guestPreset["presets"]["personal"]["settings"]["personalmod"]["units"].Bool() = true;
+	guestPreset["presets"]["personal"]["settings"]["hostmod"]["variants"].Bool() = false;
+	const auto originalPreset = guestPreset.toCompactString();
+
+	ModListVerificationStatus guestStatuses;
+	for(const auto & hostMod : optInPreview->mods)
+		guestStatuses.emplace(hostMod.first, ModVerificationStatus::DISABLED);
+	guestStatuses.emplace("personalmod", ModVerificationStatus::EXCESSIVE);
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(guestStatuses);
+	ASSERT_TRUE(plan.has_value());
+	EXPECT_TRUE(plan->downloadOrUpdate.empty());
+
+	LanModSessionState::begin(guestPreset);
+	LanModSessionState::applyInstalledOnlyPlan(guestPreset, *plan);
+	LanModSessionState::setRejoinTarget(guestPreset, {"127.0.0.1", port, true});
+	const std::string relaunchToken(64, 'c');
+	LanModSessionState::prepareControlledRelaunch(guestPreset, relaunchToken);
+	ASSERT_EQ(LanModSessionState::recoverOnStartup(guestPreset, relaunchToken), LanSessionStartupAction::RESUMED);
+
+	const auto rejoin = LanModSessionState::getRejoinTarget(guestPreset);
+	ASSERT_TRUE(rejoin.has_value());
+	EXPECT_EQ(rejoin->hostname, "127.0.0.1");
+	EXPECT_EQ(rejoin->port, port);
+	EXPECT_TRUE(rejoin->previewCapability);
+	const auto & staged = guestPreset["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector();
+	EXPECT_NE(std::find(staged.begin(), staged.end(), JsonNode("hostmod")), staged.end());
+	EXPECT_EQ(std::find(staged.begin(), staged.end(), JsonNode("personalmod")), staged.end());
+	EXPECT_TRUE(plan->matchesResolvedHostMods(optInPreview->mods, {"vcmi", "hostmod"}));
+	EXPECT_TRUE(LanModSessionState::restore(guestPreset));
+	EXPECT_EQ(guestPreset.toCompactString(), originalPreset);
+
 	network->stop();
 }
 

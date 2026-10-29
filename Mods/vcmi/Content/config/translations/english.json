@@ -925,6 +925,7 @@
 	"vcmi.lobby.preview.lanArchiveCached": "cached",
 	"vcmi.lobby.preview.lanArchiveOffered": "on host",
 	"vcmi.lobby.preview.lanLocalPlan": "Local mod changes needed (+ enable / - disable). Restart required.",
+	"vcmi.lobby.preview.lanPreparationFailed": "Could not prepare the installed mods for this LAN game. Check their dependencies and conflicts before trying again.",
 	"vcmi.lobby.preview.error.busy": "The room no longer accepts new players.",
 	"vcmi.lobby.preview.error.full": "The room is already full.",
 	"vcmi.lobby.preview.error.header": "Unable to join this room.",

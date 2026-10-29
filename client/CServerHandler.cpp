@@ -1348,7 +1348,16 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 					return;
 				if(plan->requiresChanges())
 				{
-					LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
+					try
+					{
+						LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
+					}
+					catch(const std::exception & e)
+					{
+						logNetwork->error("Unable to prepare installed LAN mods: %s", e.what());
+						CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
+						return;
+					}
 					throw GameShutdownException();
 				}
 			}
