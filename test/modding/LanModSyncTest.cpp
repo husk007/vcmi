@@ -23,6 +23,7 @@
 #endif
 
 #include "../../lib/network/NetworkDiscoveryProtocol.h"
+#include "../../lib/network/NetworkDiscovery.h"
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanModRecoveryJournal.h"
 #include "../../lib/modding/LanRelaunchToken.h"
@@ -40,6 +41,67 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+
+TEST(LanModSyncTest, RealUdpDiscoveryKeepsLegacyReplyAndNegotiatesLanPreviewOnLoopback)
+{
+	struct HostAnnouncer final : IServerDiscoveryAnnouncer
+	{
+		bool inLobby = true;
+		bool isInLobby() const override { return inLobby; }
+		std::uint16_t getPort() const override { return 3031; }
+	} host;
+
+	NetworkContext context;
+	using Udp = boost::asio::ip::udp;
+	Udp::socket reservation(context, Udp::endpoint(Udp::v4(), 0));
+	const auto discoveryPort = reservation.local_endpoint().port();
+	reservation.close();
+	auto listener = std::make_shared<ServerDiscoveryListener>(context, host, discoveryPort);
+	listener->start();
+
+	Udp::socket guest(context, Udp::endpoint(Udp::v4(), 0));
+	const auto probe = [&](std::string_view query)
+	{
+		auto buffer = std::make_shared<std::array<char, 128>>();
+		auto sender = std::make_shared<Udp::endpoint>();
+		auto response = std::make_shared<std::string>();
+		guest.async_receive_from(boost::asio::buffer(*buffer), *sender,
+			[buffer, sender, response](const boost::system::error_code & error, std::size_t bytes)
+			{
+				if(!error)
+					response->assign(buffer->data(), bytes);
+			});
+
+		const std::string message(query);
+		guest.send_to(boost::asio::buffer(message),
+			Udp::endpoint(boost::asio::ip::address_v4::loopback(), discoveryPort));
+		context.run_for(std::chrono::milliseconds(250));
+		if(response->empty())
+		{
+			guest.cancel();
+			context.restart();
+			context.poll();
+		}
+		context.restart();
+		return *response;
+	};
+
+	const auto legacy = probe(LanModDiscovery::legacyProbe);
+	ASSERT_EQ(legacy, "VCMI_SERVER:3031");
+	const auto legacyReply = LanModDiscovery::parseReply(legacy);
+	ASSERT_TRUE(legacyReply.has_value());
+	EXPECT_FALSE(legacyReply->supportsModPreview);
+
+	const auto upgraded = probe(LanModDiscovery::previewProbe);
+	ASSERT_EQ(upgraded, "VCMI_SERVER:3031;lanModSync=preview");
+	const auto upgradedReply = LanModDiscovery::parseReply(upgraded);
+	ASSERT_TRUE(upgradedReply.has_value());
+	EXPECT_TRUE(upgradedReply->supportsModPreview);
+
+	host.inLobby = false;
+	EXPECT_TRUE(probe(LanModDiscovery::previewProbe).empty());
+	listener->stop();
+}
 
 TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegacyPackets)
 {
