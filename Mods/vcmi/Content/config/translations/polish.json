@@ -965,6 +965,7 @@
 	"vcmi.mainMenu.ipAddress": "Lokalny adres IP",
 	"vcmi.mainMenu.ipAddressUnknown": "Nieznany",
 	"vcmi.mainMenu.join": "Dołącz",
+	"vcmi.mainMenu.lanModPreviewTag": "podgląd modów LAN",
 	"vcmi.mainMenu.joinTCP": "Dołącz do gry TCP/IP",
 	"vcmi.mainMenu.serverAddressEnter": "Podaj adres:",
 	"vcmi.mainMenu.serverClosing": "Zamykanie...",

@@ -611,9 +611,25 @@ void JoinScreen::onServerDiscovered(const DiscoveredServer & server)
 	{
 		OBJECT_CONSTRUCTION;
 
+		const auto key = std::make_pair(server.address, server.port);
+		const std::string previewBadge = server.lanModSyncPreview
+			? " [" + LIBRARY->generaltexth->translate("vcmi.mainMenu.lanModPreviewTag") + "]"
+			: "";
+		const std::string label = server.address + ":" + std::to_string(server.port) + previewBadge;
+
+		// Legacy and opt-in UDP probes may both discover the same host.
+		// Update the capability label rather than adding a duplicate Join button.
+		if(const auto found = discoveredServerRows.find(key); found != discoveredServerRows.end())
+		{
+			if(server.lanModSyncPreview)
+				labelsJoin[found->second]->setText(label);
+			redraw();
+			return;
+		}
 		if(buttonsJoin.size() >= 12)
 			return; //max 12 servers displayed
 
+		discoveredServerRows.emplace(key, buttonsJoin.size());
 		auto button = std::make_shared<CButton>(Point(174, 114 + buttonsJoin.size() * 25), AnimationPath::builtin("GSPBUT2.DEF"), CButton::tooltip(), [this, server]{ 
 			auto savedScreenType = screenType;
 			auto savedPlayerNames = playerNames;
@@ -622,7 +638,7 @@ void JoinScreen::onServerDiscovered(const DiscoveredServer & server)
 		});
 		button->setTextOverlay(LIBRARY->generaltexth->translate("vcmi.mainMenu.join"), FONT_SMALL, Colors::WHITE);
 		buttonsJoin.push_back(button);
-		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, server.address + ":" + std::to_string(server.port)));
+		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, label));
 		redraw();
 	});
 }

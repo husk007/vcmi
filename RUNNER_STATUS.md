@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | M0 real vcmitest + LAN GoogleTests | [CI #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539), commit `a1e2bf2`: built `vcmitest`, staged runtime assets and executed **71/71 `LanModSyncTest.*` tests successfully** (2026-10-29). Full game-client build and real LAN play remain unverified. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | Existing `LobbyQueryState` → `LobbyModsCheck` sends the active host mod list. Preview patch displays canonical mod ID, required version (including local → host mismatch), and existing localized action statuses; joining with a mismatched gameplay mod version is blocked. Client compilation is awaiting a new CI run. Explicit `lanModSync` opt-in and authenticated archive manifest are still missing. | CODE_ONLY (preview) |
+| M1 host preview / capability negotiation | Existing `LobbyQueryState` → `LobbyModsCheck` sends the active host mod list. Preview patch displays canonical mod ID, required version (including local → host mismatch), and existing localized action statuses; joining with a mismatched gameplay mod version is blocked. The latest [CI #40809087607](https://github.com/husk007/vcmi/actions/runs/40809087607) passed client-common compilation and 71 LAN unit tests on `f6df2b8`. Optional LAN UDP discovery now advertises `lanModSync=preview` only on explicit probe and preserves legacy replies; integration validation is pending. TCP opt-in and authenticated archive manifest remain missing. | CODE_ONLY (preview) |
 | M2 guest join with installed disabled mods | Temporary preset/restore hooks exist, but a working join → temporary activation → relaunch/rejoin → restoration flow is not proven. | PARTIAL / NOT TESTED |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Check the new CI checkpoint for **`vcmiclientcommon` compilation** of the modified lobby preview. Diagnose any actual compiler failure before changing protocol code.
-2. Continue M1 with a backward-compatible opt-in `lanModSync` handshake and authenticated host manifest, reusing the existing `LobbyQueryState` / `LobbyModsCheck` path. Old clients must retain their existing preview without disconnecting.
+1. Validate the discovery capability exchange and UI badge in CI, including compilation of `vcmiclientcommon` and `LanModSyncTest.*`.
+2. Continue M1 with a version-compatible TCP `lanModSync` opt-in and authenticated host manifest in the existing `LobbyQueryState` / `LobbyModsCheck` path. Never send new packet fields to an old peer.
 3. After M1, implement M2: activate **already-installed** matching mods using the temporary LAN preset, relaunch/rejoin, then restore the original preset; this requires no new transfer protocol.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.
 

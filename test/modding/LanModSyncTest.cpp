@@ -22,6 +22,7 @@
 #include <sys/wait.h>
 #endif
 
+#include "../../lib/network/NetworkDiscoveryProtocol.h"
 #include "../../lib/modding/AtomicModSettings.h"
 #include "../../lib/modding/LanModRecoveryJournal.h"
 #include "../../lib/modding/LanRelaunchToken.h"
@@ -37,6 +38,36 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+
+TEST(LanModSyncTest, LanDiscoveryNegotiatesOptionalPreviewWithoutChangingLegacyPackets)
+{
+	EXPECT_EQ(LanModDiscovery::replyForProbe(LanModDiscovery::legacyProbe, 3030), "VCMI_SERVER:3030");
+	EXPECT_EQ(LanModDiscovery::replyForProbe(LanModDiscovery::previewProbe, 3030),
+		"VCMI_SERVER:3030;lanModSync=preview");
+	EXPECT_TRUE(LanModDiscovery::replyForProbe("UNKNOWN_PROBE", 3030).empty());
+
+	const auto oldHost = LanModDiscovery::parseReply("VCMI_SERVER:3030");
+	ASSERT_TRUE(oldHost.has_value());
+	EXPECT_EQ(oldHost->port, 3030);
+	EXPECT_FALSE(oldHost->supportsModPreview);
+
+	const auto newHost = LanModDiscovery::parseReply("VCMI_SERVER:3030;lanModSync=preview");
+	ASSERT_TRUE(newHost.has_value());
+	EXPECT_EQ(newHost->port, 3030);
+	EXPECT_TRUE(newHost->supportsModPreview);
+
+	const auto futureHost = LanModDiscovery::parseReply("VCMI_SERVER:3030;otherFeature=v2");
+	ASSERT_TRUE(futureHost.has_value());
+	EXPECT_FALSE(futureHost->supportsModPreview);
+}
+
+TEST(LanModSyncTest, LanDiscoveryRejectsMalformedPortWithoutDroppingLegacyCapability)
+{
+	for(const auto & invalid : {"VCMI_SERVER:", "VCMI_SERVER:0", "VCMI_SERVER:65536",
+		"VCMI_SERVER:-1", "VCMI_SERVER:3030oops", "NOT_VCMI_SERVER:3030"})
+		EXPECT_FALSE(LanModDiscovery::parseReply(invalid).has_value()) << invalid;
+	EXPECT_TRUE(LanModDiscovery::replyForProbe(LanModDiscovery::previewProbe, 0).empty());
+}
 
 TEST(LanModSyncTest, InactiveInstalledModWithDifferentVersionRequiresUpdate)
 {

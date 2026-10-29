@@ -117,6 +117,7 @@ public:
 	std::shared_ptr<CGStatusBar> statusBar;
 	std::vector<std::shared_ptr<CLabel>> labelsJoin;
 	std::vector<std::shared_ptr<CButton>> buttonsJoin;
+	std::map<std::pair<std::string, uint16_t>, size_t> discoveredServerRows;
 	std::shared_ptr<IServerDiscovery> serverDiscovery;
 
 	JoinScreen(ESelectionScreen ScreenType, const std::vector<std::string> & playerNames);

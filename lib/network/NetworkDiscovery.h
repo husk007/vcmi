@@ -26,7 +26,7 @@ private:
 	IServerDiscoveryObserver & observer;
 	std::shared_ptr<boost::asio::ip::udp::socket> socket;
 	std::shared_ptr<boost::asio::steady_timer> sendTimer;
-	std::set<std::pair<std::string, uint16_t>> discoveredServers;
+	std::map<std::pair<std::string, uint16_t>, bool> discoveredServers;
 };
 
 class ServerDiscoveryListener : public IServerDiscoveryListener, public std::enable_shared_from_this<ServerDiscoveryListener>
