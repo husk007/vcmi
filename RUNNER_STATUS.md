@@ -14,10 +14,10 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #40814777919](https://github.com/husk007/vcmi/actions/runs/40814777919) on `0e315e2` built `vcmitest` and `vcmiclientcommon`; executed **73/73 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
+| M0 real vcmitest + LAN GoogleTests | [CI #40831773720](https://github.com/husk007/vcmi/actions/runs/40831773720) on `b41d459` built `vcmitest`, `vcmiclientcommon` and `vcmiservercommon`; **77/77 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | UDP opt-in discovery and existing TCP host mod list were already implemented. New code adds **separate TCP opt-in query/response packet IDs**, retaining unchanged legacy packet serialization. Guest enables the local mod preparation preview only after the TCP response explicitly confirms opt-in. A committed binary packet roundtrip test covers both legacy and extended query/response; new code awaits CI. SHA-256 host archive manifest still missing. | CODE_ONLY (TCP negotiation) |
-| M2 guest join with installed disabled mods | Temporary preset/restore hooks exist, but a working join → temporary activation → relaunch/rejoin → restoration flow is not proven. | PARTIAL / NOT TESTED |
+| M1 host preview / capability negotiation | Optional UDP discovery and TCP query/response packet IDs, legacy fallback, host active mod list and guest installed-only preview compiled; the committed binary roundtrip test passed in CI #40831773720. SHA-256 host archive manifest still missing. | TEST_PASS (protocol fixture) |
+| M2 guest join with installed disabled mods | Commit `57a94e1` applies the host's installed-only plan to a temporary LAN preset after a durable backup, activates nested submods, and requests controlled relaunch. New rollback/invalid-archive tests are committed but await CI; lobby button/rejoin wiring and real disconnect validation remain open. | CODE_ONLY (staging) |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
@@ -31,9 +31,9 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate the opt-in TCP packet exchange, host response, client common and server common against the updated CI workflow and real LAN GoogleTests.
-2. Complete M1 with a bounded, authenticated SHA-256 host archive manifest in the opt-in response; keep it unavailable to legacy clients.
-3. After M1, implement M2: activate **already-installed** matching mods using the temporary LAN preset, relaunch/rejoin, then restore the original preset; this requires no new transfer protocol.
+1. Run `LanModSyncTest.*` and the client/server common builds against commit `57a94e1` in the scoped M2 CI checkpoint.
+2. Wire the confirmed LAN lobby "prepare/restart" action to `CModHandler::prepareInstalledOnlyLanSession`, then carry the selected host/port across the controlled relaunch and rejoin automatically.
+3. Complete M1 with a bounded host SHA-256 manifest in the negotiated opt-in response, and verify legacy fallback remains unchanged.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.
 
 ## Evidence/reporting discipline
