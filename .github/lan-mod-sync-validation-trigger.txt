@@ -1,3 +1,3 @@
-M1 host archive manifest and guest verified-cache preview checkpoint
-Commit: 16a14fe44421af8b0495aebae8a162585ec2fbe0
-Reason: compile opt-in TCP metadata, host staged-archive hashing, guest UI and LanModSyncTest.*
+M1 TCP archive-size signed serialization CI repair checkpoint
+Commit: c6a80c037e5fc55c9c396308ec23bb9cccdf3db7
+Reason: retry real VCMI compilation after fixing BinaryDeserializer uint64_t static assertion; exercise boundary-size roundtrip and existing LanModSyncTest.*
