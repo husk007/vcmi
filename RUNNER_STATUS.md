@@ -14,7 +14,7 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 full VCMI build + real LAN GoogleTests | [GitHub Actions run #40792010925](https://github.com/husk007/vcmi/actions/runs/40792010925) was started on 2026-10-29. **Result not yet verified.** | RUNNING / CHECK LOGS |
+| M0 full VCMI build + real LAN GoogleTests | [GitHub Actions run #40792010925](https://github.com/husk007/vcmi/actions/runs/40792010925) compiled `vcmitest` successfully (635/635 build steps). All 71 LAN tests were discovered, but global setup failed **before executing tests**: `CONFIG/FILESYSTEM` missing. Workflow fix: stage `config/`, `Mods/` and `scripts/` in the build bin directory; rerun requested by workflow change. | BUILD_PASS / TEST_SETUP_FAIL (rerun pending) |
 | LAN helper code and tests | `ModSyncPlan`, temporary LAN preset journal, SHA-256 cache and many `LanModSyncTest.*` cases are committed. Numerous isolated GCC/Clang reproductions passed, but no actual `vcmitest` result has been recorded yet. | CODE_ONLY |
 | M1 capability negotiation and authenticated host manifest | Existing `LobbyQueryState` / `LobbyModsCheck` supports a host-mod preview. New opt-in negotiation/manifest is not connected. | NOT IMPLEMENTED |
 | M2 guest join with installed disabled mods | Temporary preset/restore hooks exist, but a working join → temporary activation → relaunch/rejoin → restoration flow is not proven. | PARTIAL / NOT TESTED |
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Inspect [LAN CI run #40792010925](https://github.com/husk007/vcmi/actions/runs/40792010925); if it fails, fix the actual CMake/compile/test error first (M0). Do not claim PASS without a successful run.
+1. Check the GitHub Actions rerun after staging the runtime assets. The first run built `vcmitest`, but `LanModSyncTest.*` did not execute because the global fixture could not load `config/filesystem.json`. Inspect any new failures and fix verified diagnostics only.
 2. Continue M1 while the build is pending: use `lib/networkPacks/PacksForLobby.h`, `server/NetPacksLobbyServer.cpp`, `client/CServerHandler.cpp`, and `client/globalLobby/GlobalLobbyRoomWindow.cpp` to negotiate host capabilities and present the mod diff. Design the protocol change to preserve compatibility with unmodified VCMI clients.
 3. After M1, implement M2: activate **already-installed** matching mods using the temporary LAN preset, relaunch/rejoin, then restore the original preset; this requires no new transfer protocol.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.

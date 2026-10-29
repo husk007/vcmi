@@ -58,6 +58,17 @@ jobs:
       - name: Build vcmitest
         run: cmake --build --preset linux-gcc-test --target vcmitest --parallel 2
 
+      - name: Stage runtime assets for vcmitest
+        run: |
+          # Running only the vcmitest target does not deploy the runtime assets.
+          # VCMIDirs::developmentMode requires config/, Mods/ and vcmitest
+          # together in the current working directory.
+          test -f config/filesystem.json
+          test -d Mods
+          test -x out/build/linux-gcc-test/bin/vcmitest
+          cp -a config Mods scripts out/build/linux-gcc-test/bin/
+          test -f out/build/linux-gcc-test/bin/config/filesystem.json
+
       - name: Prepare VCMI's public CI test fixture
         run: |
           curl --fail --location --retry 3 \
