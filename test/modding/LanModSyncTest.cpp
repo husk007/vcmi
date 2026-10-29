@@ -31,6 +31,8 @@
 #include "../../lib/modding/ModArchiveDigest.h"
 #include "../../lib/modding/LanModArchiveCache.h"
 
+#include "../../lib/serializer/CMemorySerializer.h"
+#include "../../lib/networkPacks/PacksForLobby.h"
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
@@ -38,6 +40,45 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+
+TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegacyPackets)
+{
+	LobbyQueryState legacyQuery;
+	LobbyQueryModSync optInQuery;
+	const auto legacyQueryCopy = CMemorySerializer::deepCopy<CPack>(legacyQuery);
+	const auto optInQueryCopy = CMemorySerializer::deepCopy<CPack>(optInQuery);
+	ASSERT_NE(legacyQueryCopy, nullptr);
+	ASSERT_NE(optInQueryCopy, nullptr);
+	EXPECT_EQ(dynamic_cast<LobbyQueryModSync *>(legacyQueryCopy.get()), nullptr);
+	EXPECT_NE(dynamic_cast<LobbyQueryModSync *>(optInQueryCopy.get()), nullptr);
+
+	ModVerificationInfo mod;
+	mod.name = "Host Mod";
+	mod.version = CModVersion(1, 2, 3);
+
+	LobbyModsCheck legacyResponse;
+	legacyResponse.vcmiVersion = "test-version";
+	legacyResponse.hostAccountDisplayName = "Host";
+	legacyResponse.participantNames = {"Host", "Guest"};
+	legacyResponse.mods.emplace("hostmod", mod);
+
+	LobbyModSyncPreview optInResponse;
+	static_cast<LobbyModsCheck &>(optInResponse) = legacyResponse;
+
+	const auto legacyResponseCopy = CMemorySerializer::deepCopy<CPack>(legacyResponse);
+	const auto optInResponseCopy = CMemorySerializer::deepCopy<CPack>(optInResponse);
+	ASSERT_NE(legacyResponseCopy, nullptr);
+	ASSERT_NE(optInResponseCopy, nullptr);
+	EXPECT_EQ(dynamic_cast<LobbyModSyncPreview *>(legacyResponseCopy.get()), nullptr);
+	const auto * decoded = dynamic_cast<LobbyModSyncPreview *>(optInResponseCopy.get());
+	ASSERT_NE(decoded, nullptr);
+	EXPECT_EQ(decoded->vcmiVersion, legacyResponse.vcmiVersion);
+	EXPECT_EQ(decoded->hostAccountDisplayName, "Host");
+	EXPECT_EQ(decoded->participantNames, legacyResponse.participantNames);
+	ASSERT_EQ(decoded->mods.size(), 1);
+	EXPECT_EQ(decoded->mods.at("hostmod").name, mod.name);
+	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
+}
 
 TEST(LanModSyncTest, LanPreviewPlansInstalledDisabledModsWithoutArchiveTransfer)
 {

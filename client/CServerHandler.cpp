@@ -338,8 +338,16 @@ void CServerHandler::onConnectionEstablished(const NetworkConnectionPtr & netCon
 
 	if(lobbyPreviewMode)
 	{
-		LobbyQueryState lqs;
-		sendLobbyPack(lqs);
+		if(lobbyPreviewCapabilityAdvertised)
+		{
+			LobbyQueryModSync query;
+			sendLobbyPack(query);
+		}
+		else
+		{
+			LobbyQueryState query;
+			sendLobbyPack(query);
+		}
 	}
 	else
 	{
@@ -1255,7 +1263,8 @@ void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std:
 
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 {
-	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised;
+	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised
+		&& dynamic_cast<LobbyModSyncPreview *>(&pack) != nullptr;
 	lobbyPreviewMode = false;
 	lobbyPreviewCapabilityAdvertised = false;
 

@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | M0 real vcmitest + LAN GoogleTests | [CI #40814777919](https://github.com/husk007/vcmi/actions/runs/40814777919) on `0e315e2` built `vcmitest` and `vcmiclientcommon`; executed **73/73 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | UDP opt-in discovery and legacy fallback built successfully in CI #40814777919. Existing TCP `LobbyQueryState` → `LobbyModsCheck` carries host active mods. LAN preview now calculates and displays an installed-only enable/disable plan, distinct from missing/version-mismatched mods; Join stays blocked pending M2 relaunch. New code/tests **not yet built in CI**. Explicit TCP capability negotiation and authenticated SHA-256 host manifest remain missing. | CODE_ONLY (new preview plan) |
+| M1 host preview / capability negotiation | UDP opt-in discovery and existing TCP host mod list were already implemented. New code adds **separate TCP opt-in query/response packet IDs**, retaining unchanged legacy packet serialization. Guest enables the local mod preparation preview only after the TCP response explicitly confirms opt-in. A committed binary packet roundtrip test covers both legacy and extended query/response; new code awaits CI. SHA-256 host archive manifest still missing. | CODE_ONLY (TCP negotiation) |
 | M2 guest join with installed disabled mods | Temporary preset/restore hooks exist, but a working join → temporary activation → relaunch/rejoin → restoration flow is not proven. | PARTIAL / NOT TESTED |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate the installed-only LAN preview plan and its two new GoogleTests in the next meaningful M1/M2 CI checkpoint.
-2. Continue M1 with safe optional TCP capability negotiation and an authenticated SHA-256 host manifest, without adding unnegotiated packet fields to old peers.
+1. Validate the opt-in TCP packet exchange, host response, client common and server common against the updated CI workflow and real LAN GoogleTests.
+2. Complete M1 with a bounded, authenticated SHA-256 host archive manifest in the opt-in response; keep it unavailable to legacy clients.
 3. After M1, implement M2: activate **already-installed** matching mods using the temporary LAN preset, relaunch/rejoin, then restore the original preset; this requires no new transfer protocol.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.
 

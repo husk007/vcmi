@@ -65,7 +65,14 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 			lms.hostAccountDisplayName = player.name;
 	}
 
-	connection->sendPack(lms);
+	if(dynamic_cast<LobbyQueryModSync *>(&pack))
+	{
+		LobbyModSyncPreview preview;
+		static_cast<LobbyModsCheck &>(preview) = std::move(lms);
+		connection->sendPack(preview);
+	}
+	else
+		connection->sendPack(lms);
 	result = false;
 }
 

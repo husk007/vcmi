@@ -203,6 +203,16 @@ struct DLL_LINKAGE LobbyModsCheck : public CPackForLobby
 	}
 };
 
+/// Dedicated packet IDs negotiate LAN mod preview without changing the legacy TCP wire format.
+/// These packets are exchanged only when the host advertises the opt-in feature over UDP.
+struct DLL_LINKAGE LobbyQueryModSync : public LobbyQueryState
+{
+};
+
+struct DLL_LINKAGE LobbyModSyncPreview : public LobbyModsCheck
+{
+};
+
 struct DLL_LINKAGE LobbyUpdateState : public CLobbyPackToPropagate
 {
 	LobbyState state;
