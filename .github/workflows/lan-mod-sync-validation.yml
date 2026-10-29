@@ -69,7 +69,13 @@ jobs:
           test -f config/filesystem.json
           test -d Mods
           test -x out/build/linux-gcc-test/bin/vcmitest
-          cp -a config Mods scripts out/build/linux-gcc-test/bin/
+          # CMake can already stage these assets as symlinks after the client build.
+          # Copy only missing assets to avoid cp rejecting a source/destination match.
+          for asset in config Mods scripts; do
+            if [ ! -e "out/build/linux-gcc-test/bin/$asset" ]; then
+              cp -a "$asset" out/build/linux-gcc-test/bin/
+            fi
+          done
           test -f out/build/linux-gcc-test/bin/config/filesystem.json
 
       - name: Prepare VCMI's public CI test fixture
