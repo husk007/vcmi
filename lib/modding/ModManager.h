@@ -12,6 +12,7 @@
 #include "../json/JsonNode.h"
 #include "../filesystem/ResourcePath.h"
 #include "LanRejoinTarget.h"
+#include "ModVerificationInfo.h"
 
 #include <filesystem>
 
@@ -204,7 +205,7 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
-	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target);
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModCompatibilityInfo & hostMods);
 	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Persist a new one-shot token before spawning a replacement client.
 	std::string prepareControlledRelaunch();

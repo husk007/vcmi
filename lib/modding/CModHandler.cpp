@@ -59,7 +59,7 @@ bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & ho
 	if(!plan->requiresChanges())
 		return false;
 
-	modManager->prepareInstalledOnlyLanSession(*plan, target);
+	modManager->prepareInstalledOnlyLanSession(*plan, target, hostMods);
 	try
 	{
 		requestLanRelaunch();

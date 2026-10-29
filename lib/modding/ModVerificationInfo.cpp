@@ -134,6 +134,21 @@ bool ModSyncPlan::requiresChanges() const
 	return !downloadOrUpdate.empty() || !reuseCachedArchive.empty() || !activate.empty() || !deactivate.empty();
 }
 
+bool ModSyncPlan::matchesResolvedHostMods(const ModCompatibilityInfo & hostMods, const std::vector<TModID> & resolvedMods) const
+{
+	const std::set<TModID> active(resolvedMods.begin(), resolvedMods.end());
+	for(const auto & [modId, info] : hostMods)
+		if(info.impactsGameplay && !active.contains(modId))
+			return false;
+	for(const auto & modId : activate)
+		if(!active.contains(modId))
+			return false;
+	for(const auto & modId : deactivate)
+		if(active.contains(modId))
+			return false;
+	return true;
+}
+
 static bool isReservedWindowsLanComponent(std::string component)
 {
 	std::transform(component.begin(), component.end(), component.begin(), [](unsigned char ch){

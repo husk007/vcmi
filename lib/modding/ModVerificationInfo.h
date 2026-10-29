@@ -40,6 +40,8 @@ struct DLL_LINKAGE ModSyncPlan
 	std::set<TModID> deactivate;
 
 	bool requiresChanges() const;
+	/// Confirm that the actual dependency resolver selected every required host mod and disabled extras.
+	bool matchesResolvedHostMods(const ModCompatibilityInfo & hostMods, const std::vector<TModID> & resolvedMods) const;
 };
 
 struct DLL_LINKAGE ModVerificationInfo

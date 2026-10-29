@@ -1350,9 +1350,22 @@ void ModManager::beginLanSession()
 	modsPreset->beginLanSession();
 }
 
-void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target)
+void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModCompatibilityInfo & hostMods)
 {
 	modsPreset->prepareInstalledOnlyLanSession(plan, target);
+	try
+	{
+		// The startup resolver can drop mods with missing dependencies or conflicts.
+		// Check the staged preset before requesting a restart, while rollback is possible.
+		ModDependenciesResolver resolved(modsPreset->getActiveMods(), *modsStorage);
+		if(!plan.matchesResolvedHostMods(hostMods, resolved.getActiveMods()))
+			throw std::runtime_error("LAN temporary preset cannot resolve the host's gameplay mods");
+	}
+	catch(...)
+	{
+		modsPreset->restoreLanSession();
+		throw;
+	}
 }
 
 std::optional<LanRejoinTarget> ModManager::consumeLanRejoinTarget()

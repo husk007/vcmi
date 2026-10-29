@@ -232,6 +232,29 @@ TEST(LanModSyncTest, LanPreviewDoesNotOfferLocalOnlyPlanForMissingOrMismatchedMo
 	}).has_value());
 }
 
+TEST(LanModSyncTest, InstalledOnlyLanPlanRequiresResolverToPreserveEveryGameplayMod)
+{
+	ModCompatibilityInfo hostMods;
+	ModVerificationInfo root;
+	root.impactsGameplay = true;
+	hostMods.emplace("hostmod", root);
+	ModVerificationInfo child;
+	child.parent = "hostmod";
+	child.impactsGameplay = true;
+	hostMods.emplace("hostmod.units", child);
+	ModVerificationInfo cosmetic;
+	cosmetic.impactsGameplay = false;
+	hostMods.emplace("cosmetic", cosmetic);
+
+	ModSyncPlan plan;
+	plan.activate.insert("hostmod.units");
+	plan.deactivate.insert("personalmod");
+	EXPECT_TRUE(plan.matchesResolvedHostMods(hostMods, {"vcmi", "hostmod", "hostmod.units"}));
+	EXPECT_FALSE(plan.matchesResolvedHostMods(hostMods, {"vcmi", "hostmod"}));
+	EXPECT_FALSE(plan.matchesResolvedHostMods(hostMods, {"vcmi", "hostmod.units"}));
+	EXPECT_FALSE(plan.matchesResolvedHostMods(hostMods, {"vcmi", "hostmod", "hostmod.units", "personalmod"}));
+}
+
 TEST(LanModSyncTest, LanDiscoveryNegotiatesOptionalPreviewWithoutChangingLegacyPackets)
 {
 	EXPECT_EQ(LanModDiscovery::replyForProbe(LanModDiscovery::legacyProbe, 3030), "VCMI_SERVER:3030");
