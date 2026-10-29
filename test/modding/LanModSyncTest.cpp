@@ -93,6 +93,21 @@ TEST(LanModSyncTest, LanDiscoveryNegotiatesOptionalPreviewWithoutChangingLegacyP
 	EXPECT_FALSE(futureHost->supportsModPreview);
 }
 
+TEST(LanModSyncTest, LanDiscoveryKeepsUpgradedPreviewCapabilityAcrossLegacyReplies)
+{
+	const auto legacy = LanModDiscovery::parseReply("VCMI_SERVER:3030");
+	const auto upgraded = LanModDiscovery::parseReply("VCMI_SERVER:3030;lanModSync=preview");
+	ASSERT_TRUE(legacy.has_value());
+	ASSERT_TRUE(upgraded.has_value());
+
+	bool selectedPreview = legacy->supportsModPreview;
+	EXPECT_FALSE(selectedPreview);
+	selectedPreview = LanModDiscovery::retainPreviewCapability(selectedPreview, upgraded->supportsModPreview);
+	EXPECT_TRUE(selectedPreview);
+	selectedPreview = LanModDiscovery::retainPreviewCapability(selectedPreview, legacy->supportsModPreview);
+	EXPECT_TRUE(selectedPreview);
+}
+
 TEST(LanModSyncTest, LanDiscoveryRejectsMalformedPortWithoutDroppingLegacyCapability)
 {
 	for(const auto & invalid : {"VCMI_SERVER:", "VCMI_SERVER:0", "VCMI_SERVER:65536",

@@ -27,6 +27,11 @@ struct Reply
 	bool supportsModPreview = false;
 };
 
+inline bool retainPreviewCapability(bool previouslyAdvertised, bool newlyAdvertised)
+{
+	return previouslyAdvertised || newlyAdvertised;
+}
+
 inline std::string replyForProbe(std::string_view probe, std::uint16_t port)
 {
 	if(!port || (probe != legacyProbe && probe != previewProbe))

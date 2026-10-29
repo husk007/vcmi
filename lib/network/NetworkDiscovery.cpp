@@ -72,9 +72,10 @@ void ServerDiscovery::start()
 
 				const auto serverKey = std::make_pair(server.address, server.port);
 				auto [known, inserted] = self->discoveredServers.try_emplace(serverKey, server.lanModSyncPreview);
-				if(inserted || (server.lanModSyncPreview && !known->second))
+				const bool retainedPreview = LanModDiscovery::retainPreviewCapability(known->second, server.lanModSyncPreview);
+				if(inserted || retainedPreview != known->second)
 				{
-					known->second = server.lanModSyncPreview;
+					known->second = retainedPreview;
 					logGlobal->info("Discovered server: %s", resp.c_str());
 					self->observer.onServerDiscovered(server);
 				}

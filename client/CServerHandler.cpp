@@ -1245,16 +1245,19 @@ void CServerHandler::sendGamePack(const CPackForServer & pack) const
 	logicConnection->sendPack(pack);
 }
 
-void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin)
+void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised)
 {
 	lobbyPreviewMode = true;
+	lobbyPreviewCapabilityAdvertised = capabilityAdvertised;
 	onLobbyPreviewJoin = std::move(onJoin);
 	connectToServer(addr, port);
 }
 
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 {
+	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised;
 	lobbyPreviewMode = false;
+	lobbyPreviewCapabilityAdvertised = false;
 
 	// Close the temporary query connection
 	if(networkConnection)
@@ -1294,5 +1297,5 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
 		},
-		true);
+		canPreviewLocalPreparation);
 }

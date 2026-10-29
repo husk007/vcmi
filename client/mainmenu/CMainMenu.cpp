@@ -11,6 +11,7 @@
 #include "CMainMenu.h"
 
 #include "../../lib/network/NetworkDiscovery.h"
+#include "../../lib/network/NetworkDiscoveryProtocol.h"
 #include "CCampaignScreen.h"
 #include "CHighScoreScreen.h"
 #include "CreditsScreen.h"
@@ -433,14 +434,14 @@ void CMainMenu::makeActiveInterface()
 	menu->switchToTab(menu->getActiveTab());
 }
 
-void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port)
+void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port, bool lanModPreviewAdvertised)
 {
 	GAME->server().resetStateForLobby(screenType == ESelectionScreen::newGame ? EStartMode::NEW_GAME : EStartMode::LOAD_GAME, screenType, EServerMode::LOCAL, names);
 	GAME->server().loadMode = loadMode;
 	GAME->server().hotseatMode = hotseatMode;
 	GAME->server().battleMode = battleMode;
 
-	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port);
+	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port, lanModPreviewAdvertised);
 }
 
 void CMainMenu::openCampaignLobby(const std::string & campaignFileName, std::string campaignSet)
@@ -612,33 +613,40 @@ void JoinScreen::onServerDiscovered(const DiscoveredServer & server)
 		OBJECT_CONSTRUCTION;
 
 		const auto key = std::make_pair(server.address, server.port);
-		const std::string previewBadge = server.lanModSyncPreview
-			? " [" + LIBRARY->generaltexth->translate("vcmi.mainMenu.lanModPreviewTag") + "]"
-			: "";
-		const std::string label = server.address + ":" + std::to_string(server.port) + previewBadge;
+		const auto labelFor = [](const DiscoveredServer & entry)
+		{
+			const std::string badge = entry.lanModSyncPreview
+				? " [" + LIBRARY->generaltexth->translate("vcmi.mainMenu.lanModPreviewTag") + "]"
+				: "";
+			return entry.address + ":" + std::to_string(entry.port) + badge;
+		};
 
-		// Legacy and opt-in UDP probes may both discover the same host.
-		// Update the capability label rather than adding a duplicate Join button.
+		// The extended response may arrive after the legacy one. The Join button
+		// must use the upgraded entry, not the first UDP result it captured.
 		if(const auto found = discoveredServerRows.find(key); found != discoveredServerRows.end())
 		{
-			if(server.lanModSyncPreview)
-				labelsJoin[found->second]->setText(label);
+			auto & entry = *discoveredServerEntries.at(key);
+			entry.lanModSyncPreview = LanModDiscovery::retainPreviewCapability(entry.lanModSyncPreview, server.lanModSyncPreview);
+			labelsJoin[found->second]->setText(labelFor(entry));
 			redraw();
 			return;
 		}
 		if(buttonsJoin.size() >= 12)
 			return; //max 12 servers displayed
 
+		auto entry = std::make_shared<DiscoveredServer>(server);
+		discoveredServerEntries.emplace(key, entry);
 		discoveredServerRows.emplace(key, buttonsJoin.size());
-		auto button = std::make_shared<CButton>(Point(174, 114 + buttonsJoin.size() * 25), AnimationPath::builtin("GSPBUT2.DEF"), CButton::tooltip(), [this, server]{ 
+		auto button = std::make_shared<CButton>(Point(174, 114 + buttonsJoin.size() * 25), AnimationPath::builtin("GSPBUT2.DEF"), CButton::tooltip(), [this, entry]{
 			auto savedScreenType = screenType;
 			auto savedPlayerNames = playerNames;
 			close();
-			CMainMenu::openLobby(savedScreenType, false, savedPlayerNames, ELoadMode::MULTI, false, false, server.address, server.port);
+			CMainMenu::openLobby(savedScreenType, false, savedPlayerNames, ELoadMode::MULTI, false, false,
+				entry->address, entry->port, entry->lanModSyncPreview);
 		});
 		button->setTextOverlay(LIBRARY->generaltexth->translate("vcmi.mainMenu.join"), FONT_SMALL, Colors::WHITE);
 		buttonsJoin.push_back(button);
-		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, label));
+		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, labelFor(*entry)));
 		redraw();
 	});
 }
@@ -753,7 +761,8 @@ void CMultiPlayers::enterSelectionScreen()
 	CMainMenu::openLobby(screenType, host, playerNames, loadMode, false, hotseat);
 }
 
-CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port)
+CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port, bool advertised)
+	: lanModPreviewAdvertised(advertised)
 {
 	OBJECT_CONSTRUCTION;
 	if(!ENGINE->isRoeData())
@@ -842,7 +851,7 @@ void CSimpleJoinScreen::startConnection(const std::string & addr, ui16 port)
 		GAME->server().startLobbyPreview(addr, port, [addr, port]()
 		{
 			GAME->server().connectToServer(addr, port);
-		});
+		}, lanModPreviewAdvertised);
 	}
 }
 
