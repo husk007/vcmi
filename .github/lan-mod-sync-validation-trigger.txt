@@ -1,3 +1,3 @@
-M2 checkpoint: close failed TCP LAN preview and restore personal mod preset on failed rejoin
-Previous CI: #40846276198 (81/81 LanModSyncTest PASS on 7f288a7)
-Verify: real vcmitest, vcmiclientcommon and vcmiservercommon builds
+M2 dependency-resolution preflight checkpoint
+Commit: 0c0de92c0eee5760b960873b5bf582eed9f2d91c
+Reason: build guest staging through the actual ModDependenciesResolver and run LanModSyncTest.*
