@@ -28,6 +28,8 @@
 
 #include "../../lib/modding/CModHandler.h"
 #include "../../lib/modding/ModDescription.h"
+#include "../../lib/modding/LanModArchiveCache.h"
+#include "../../lib/VCMIDirs.h"
 #include "../../lib/texts/CGeneralTextHandler.h"
 #include "../../lib/texts/MetaString.h"
 #include "../../lib/GameLibrary.h"
@@ -117,7 +119,8 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 	return "";
 }
 
-GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel, bool lanPreview)
+GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel,
+	bool lanPreview, ModArchiveManifest hostArchives)
 	: CWindowObject(BORDERED)
 	, onJoinCallback(onJoin)
 	, onCancelCallback(onCancel)
@@ -203,6 +206,34 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	}
 	else
 		joinStatusText.appendTextID("vcmi.lobby.preview.allowed");
+
+	if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && !hostArchives.empty())
+	{
+		std::set<TModID> requiredRoots;
+		for(const auto & [modId, status] : modStatuses)
+			if(status == ModVerificationStatus::NOT_INSTALLED || status == ModVerificationStatus::VERSION_MISMATCH)
+				requiredRoots.insert(modId.substr(0, modId.find('.')));
+
+		std::size_t offered = 0;
+		std::size_t cached = 0;
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		for(const auto & rootId : requiredRoots)
+		{
+			const auto archive = hostArchives.find(rootId);
+			if(archive == hostArchives.end() || !ModArchiveDigest::isSha256(archive->second.sha256)
+				|| archive->second.bytes == 0 || archive->second.bytes > LanModArchiveCache::maxArchiveBytes)
+				continue;
+			++offered;
+			if(LanModArchiveCache::findVerifiedArchive(userData, rootId, archive->second.sha256))
+				++cached;
+		}
+		if(offered)
+		{
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanArchiveAvailability");
+			joinStatusText.appendRawString(" " + std::to_string(offered) + " / " + std::to_string(cached));
+		}
+	}
 
 	labelJoinStatus = std::make_shared<CTextBox>(joinStatusText.toString(&GAME->translator()), Rect(10, 280, 150, 70), 0, FONT_SMALL, ETextAlignment::TOPLEFT, Colors::WHITE);
 

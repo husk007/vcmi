@@ -64,6 +64,7 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 
 	LobbyModSyncPreview optInResponse;
 	static_cast<LobbyModsCheck &>(optInResponse) = legacyResponse;
+	optInResponse.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 42});
 
 	const auto legacyResponseCopy = CMemorySerializer::deepCopy<CPack>(legacyResponse);
 	const auto optInResponseCopy = CMemorySerializer::deepCopy<CPack>(optInResponse);
@@ -78,6 +79,51 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	ASSERT_EQ(decoded->mods.size(), 1);
 	EXPECT_EQ(decoded->mods.at("hostmod").name, mod.name);
 	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
+	ASSERT_EQ(decoded->archives.size(), 1);
+	EXPECT_EQ(decoded->archives.at("hostmod").sha256, std::string(64, 'a'));
+	EXPECT_EQ(decoded->archives.at("hostmod").bytes, 42);
+}
+
+TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
+{
+	namespace fs = std::filesystem;
+	const fs::path directory = fs::temp_directory_path() / ("vcmi-lan-host-manifest-" + LanRelaunchToken::generate());
+	const fs::path shared = directory / "host" / "lan-mod-shares";
+	const fs::path guestData = directory / "guest";
+	ASSERT_TRUE(fs::create_directories(shared));
+	{
+		std::ofstream archive(shared / "hostmod.zip", std::ios::binary);
+		archive << "abc";
+	}
+	{
+		std::ofstream archive(shared / "disabled.zip", std::ios::binary);
+		archive << "other";
+	}
+
+	ModCompatibilityInfo activeMods;
+	ModVerificationInfo root;
+	root.name = "Host Mod";
+	activeMods.emplace("hostmod", root);
+	ModVerificationInfo child;
+	child.parent = "hostmod";
+	activeMods.emplace("hostmod.units", child);
+
+	const auto manifest = ModVerificationInfo::buildHostArchiveManifest(activeMods, directory / "host");
+	ASSERT_EQ(manifest.size(), 1);
+	const auto & offered = manifest.at("hostmod");
+	EXPECT_EQ(offered.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+	EXPECT_EQ(offered.bytes, 3);
+	const ModListVerificationStatus missing = {{"hostmod", ModVerificationStatus::NOT_INSTALLED}};
+	const ModArchiveHashes hashes = {{"hostmod", offered.sha256}};
+	const auto before = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
+	EXPECT_TRUE(before.downloadOrUpdate.contains("hostmod"));
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(guestData, "hostmod", offered.sha256, shared / "hostmod.zip").has_value());
+	const auto after = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
+	EXPECT_TRUE(after.downloadOrUpdate.empty());
+	EXPECT_EQ(after.reuseCachedArchive, std::set<TModID>({"hostmod"}));
+
+	std::error_code error;
+	fs::remove_all(directory, error);
 }
 
 TEST(LanModSyncTest, InstalledOnlyHostPlanChangesTemporaryPresetAndRestoresAllPersonalSettings)

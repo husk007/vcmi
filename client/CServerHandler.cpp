@@ -1300,8 +1300,9 @@ void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std:
 
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 {
-	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised
-		&& dynamic_cast<LobbyModSyncPreview *>(&pack) != nullptr;
+	const auto * extendedPreview = dynamic_cast<LobbyModSyncPreview *>(&pack);
+	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised && extendedPreview != nullptr;
+	const ModArchiveManifest hostArchives = canPreviewLocalPreparation ? extendedPreview->archives : ModArchiveManifest{};
 	lobbyPreviewMode = false;
 	lobbyPreviewCapabilityAdvertised = false;
 
@@ -1369,5 +1370,5 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
 		},
-		canPreviewLocalPreparation);
+		canPreviewLocalPreparation, hostArchives);
 }

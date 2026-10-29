@@ -211,6 +211,13 @@ struct DLL_LINKAGE LobbyQueryModSync : public LobbyQueryState
 
 struct DLL_LINKAGE LobbyModSyncPreview : public LobbyModsCheck
 {
+	ModArchiveManifest archives;
+
+	template <typename Handler> void serialize(Handler & h)
+	{
+		LobbyModsCheck::serialize(h);
+		h & archives;
+	}
 };
 
 struct DLL_LINKAGE LobbyUpdateState : public CLobbyPackToPropagate

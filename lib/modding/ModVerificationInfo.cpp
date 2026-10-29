@@ -189,6 +189,37 @@ static bool isValidLanModId(const TModID & modId)
 	return true;
 }
 
+ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
+	const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath)
+{
+	ModArchiveManifest manifest;
+	const auto shareDirectory = userDataPath / "lan-mod-shares";
+	std::error_code error;
+	if(!std::filesystem::is_directory(std::filesystem::symlink_status(shareDirectory, error)) || error)
+		return manifest;
+
+	for(const auto & [modId, info] : activeMods)
+	{
+		if(manifest.size() >= 64)
+			break;
+		if(modId == ModScope::scopeBuiltin() || !info.parent.empty()
+			|| modId.find('.') != TModID::npos || !isValidLanModId(modId))
+			continue;
+
+		const auto archive = shareDirectory / (modId + ".zip");
+		if(!LanModArchiveCache::isAllowedArchiveSize(archive))
+			continue;
+		const auto digest = ModArchiveDigest::sha256File(archive, LanModArchiveCache::maxArchiveBytes);
+		if(!digest)
+			continue;
+		const auto size = std::filesystem::file_size(archive, error);
+		if(error)
+			continue;
+		manifest.emplace(modId, ModArchiveManifestEntry{*digest, static_cast<std::uint64_t>(size)});
+	}
+	return manifest;
+}
+
 std::optional<ModSyncPlan> ModVerificationInfo::buildInstalledOnlyPlan(const ModListVerificationStatus & statuses)
 {
 	ModSyncPlan plan;

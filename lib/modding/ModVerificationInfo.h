@@ -11,6 +11,7 @@
 
 #include "CModVersion.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 
@@ -30,6 +31,21 @@ enum class ModVerificationStatus
 using ModListVerificationStatus = std::map<std::string, ModVerificationStatus>;
 
 using ModArchiveHashes = std::map<TModID, std::string>;
+
+/// Metadata for a host archive explicitly staged for LAN sharing; not proof of redistribution rights.
+struct DLL_LINKAGE ModArchiveManifestEntry
+{
+	std::string sha256;
+	std::uint64_t bytes = 0;
+
+	template <typename Handler> void serialize(Handler & h)
+	{
+		h & sha256;
+		h & bytes;
+	}
+};
+
+using ModArchiveManifest = std::map<TModID, ModArchiveManifestEntry>;
 
 /// Operations required to match the host's mod set without changing the player's normal preset.
 struct DLL_LINKAGE ModSyncPlan
@@ -64,6 +80,8 @@ struct DLL_LINKAGE ModVerificationInfo
 	static JsonNode jsonSerializeList(const ModCompatibilityInfo & input);
 	static ModCompatibilityInfo jsonDeserializeList(const JsonNode & input);
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
+	/// Advertise only active root mods with archives deliberately placed in userData/lan-mod-shares.
+	static ModArchiveManifest buildHostArchiveManifest(const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
 	/// Missing or malformed host archive digests reject download planning.
 	/// Read-only preview of changes possible using locally installed matching-version mods.

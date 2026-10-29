@@ -14,6 +14,7 @@
 #include "CGameHandler.h"
 
 #include "../lib/StartInfo.h"
+#include "../lib/VCMIDirs.h"
 #include "../lib/GameLibrary.h"
 #include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModDescription.h"
@@ -69,6 +70,8 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 	{
 		LobbyModSyncPreview preview;
 		static_cast<LobbyModsCheck &>(preview) = std::move(lms);
+		preview.archives = ModVerificationInfo::buildHostArchiveManifest(
+			preview.mods, std::filesystem::path(VCMIDirs::get().userDataPath().native()));
 		connection->sendPack(preview);
 	}
 	else

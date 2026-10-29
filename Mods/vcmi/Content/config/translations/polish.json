@@ -909,6 +909,7 @@
 	"vcmi.lobby.noPreview": "brak podglądu",
 	"vcmi.lobby.noUnderground": "brak podziemi",
 	"vcmi.lobby.preview.allowed": "Dołączyć do pokoju?",
+	"vcmi.lobby.preview.lanArchiveAvailability": "Paczki hosta / lokalny cache:",
 	"vcmi.lobby.preview.lanLocalPlan": "Zmień lokalne mody (+ włącz / - wyłącz). Wymagany restart.",
 	"vcmi.lobby.preview.error.busy": "Pokój nie akceptuje już nowych graczy.",
 	"vcmi.lobby.preview.error.full": "Pokój jest pełny.",
