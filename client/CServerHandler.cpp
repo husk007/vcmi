@@ -273,6 +273,7 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 			// A failed TCP preview must not leave a blocked Join screen behind.
 			lobbyPreviewMode = false;
 			lobbyPreviewCapabilityAdvertised = false;
+			lobbyPreviewAutoJoinAfterRelaunch = false;
 			onLobbyPreviewJoin = {};
 			if(ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
@@ -1132,6 +1133,7 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		// Restore a temporary mod preset if a post-relaunch preview has failed.
 		lobbyPreviewMode = false;
 		lobbyPreviewCapabilityAdvertised = false;
+		lobbyPreviewAutoJoinAfterRelaunch = false;
 		onLobbyPreviewJoin = {};
 		logicConnection.reset();
 		networkConnection.reset();
@@ -1290,10 +1292,11 @@ void CServerHandler::sendGamePack(const CPackForServer & pack) const
 	logicConnection->sendPack(pack);
 }
 
-void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised)
+void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised, bool autoJoinAfterRelaunch)
 {
 	lobbyPreviewMode = true;
 	lobbyPreviewCapabilityAdvertised = capabilityAdvertised;
+	lobbyPreviewAutoJoinAfterRelaunch = autoJoinAfterRelaunch;
 	onLobbyPreviewJoin = std::move(onJoin);
 	connectToServer(addr, port);
 }
@@ -1303,8 +1306,10 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	const auto * extendedPreview = dynamic_cast<LobbyModSyncPreview *>(&pack);
 	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised && extendedPreview != nullptr;
 	const ModArchiveManifest hostArchives = canPreviewLocalPreparation ? extendedPreview->archives : ModArchiveManifest{};
+	const bool resumeApprovedJoin = lobbyPreviewAutoJoinAfterRelaunch;
 	lobbyPreviewMode = false;
 	lobbyPreviewCapabilityAdvertised = false;
+	lobbyPreviewAutoJoinAfterRelaunch = false;
 
 	// Close the temporary query connection
 	if(networkConnection)
@@ -1371,4 +1376,12 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 				ENGINE->windows().popWindows(1);
 		},
 		canPreviewLocalPreparation, hostArchives);
+
+	// The player approved this LAN room before relaunch. The host may have changed.
+	// Continue only if the fresh preview permits joining without further changes.
+	if(resumeApprovedJoin)
+	{
+		if(auto room = ENGINE->windows().topWindow<GlobalLobbyRoomWindow>())
+			room->joinIfCompatible();
+	}
 }

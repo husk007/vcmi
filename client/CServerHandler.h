@@ -123,6 +123,7 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 	std::atomic<EClientState> state;
 	bool lobbyPreviewMode = false;
 	bool lobbyPreviewCapabilityAdvertised = false;
+	bool lobbyPreviewAutoJoinAfterRelaunch = false;
 	std::function<void()> onLobbyPreviewJoin;
 
 	void threadRunNetwork();
@@ -249,6 +250,6 @@ public:
 
 	void sendGamePack(const CPackForServer & pack) const;
 
-	void startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised = false);
+	void startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised = false, bool autoJoinAfterRelaunch = false);
 	void onLobbyPreviewResponse(LobbyModsCheck & pack);
 };

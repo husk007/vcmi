@@ -425,7 +425,7 @@ int main(int argc, char * argv[])
 					try
 					{
 						CMainMenu::openLobby(ESelectionScreen::newGame, false, CMultiMode::getPlayersNames(),
-							ELoadMode::MULTI, false, false, target->hostname, target->port, target->previewCapability);
+							ELoadMode::MULTI, false, false, target->hostname, target->port, target->previewCapability, true);
 						rejoiningLan = true;
 						logGlobal->info("Rejoining selected LAN host after mod preset relaunch");
 					}

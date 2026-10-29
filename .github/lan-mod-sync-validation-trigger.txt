@@ -1,3 +1,3 @@
-M1 TCP archive-size signed serialization CI repair checkpoint
-Commit: c6a80c037e5fc55c9c396308ec23bb9cccdf3db7
-Reason: retry real VCMI compilation after fixing BinaryDeserializer uint64_t static assertion; exercise boundary-size roundtrip and existing LanModSyncTest.*
+M2 checkpoint: automatically complete an approved LAN join after mod-preset relaunch only if a fresh TCP preview is compatible.
+Compile full vcmiclient, check its --help startup, run vcmitest LanModSyncTest.* and both lobby libraries.
+Baseline CI #40885953945: 84/84 tests passed; full client link unverified.

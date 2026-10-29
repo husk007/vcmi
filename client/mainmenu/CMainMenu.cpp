@@ -434,14 +434,14 @@ void CMainMenu::makeActiveInterface()
 	menu->switchToTab(menu->getActiveTab());
 }
 
-void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port, bool lanModPreviewAdvertised)
+void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port, bool lanModPreviewAdvertised, bool autoJoinAfterRelaunch)
 {
 	GAME->server().resetStateForLobby(screenType == ESelectionScreen::newGame ? EStartMode::NEW_GAME : EStartMode::LOAD_GAME, screenType, EServerMode::LOCAL, names);
 	GAME->server().loadMode = loadMode;
 	GAME->server().hotseatMode = hotseatMode;
 	GAME->server().battleMode = battleMode;
 
-	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port, lanModPreviewAdvertised);
+	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port, lanModPreviewAdvertised, autoJoinAfterRelaunch);
 }
 
 void CMainMenu::openCampaignLobby(const std::string & campaignFileName, std::string campaignSet)
@@ -761,8 +761,9 @@ void CMultiPlayers::enterSelectionScreen()
 	CMainMenu::openLobby(screenType, host, playerNames, loadMode, false, hotseat);
 }
 
-CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port, bool advertised)
+CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port, bool advertised, bool autoJoin)
 	: lanModPreviewAdvertised(advertised)
+	, autoJoinAfterRelaunch(autoJoin)
 {
 	OBJECT_CONSTRUCTION;
 	if(!ENGINE->isRoeData())
@@ -862,7 +863,7 @@ void CSimpleJoinScreen::startConnection(const std::string & addr, ui16 port)
 		GAME->server().startLobbyPreview(addr, port, [addr, port]()
 		{
 			GAME->server().connectToServer(addr, port);
-		}, lanModPreviewAdvertised);
+		}, lanModPreviewAdvertised, autoJoinAfterRelaunch);
 	}
 }
 

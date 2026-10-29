@@ -64,6 +64,11 @@ jobs:
       - name: Build LAN host lobby TCP code
         run: cmake --build --preset linux-gcc-test --target vcmiservercommon --parallel 2
 
+      - name: Link complete desktop client and validate its entry point
+        run: |
+          cmake --build --preset linux-gcc-test --target vcmiclient --parallel 2
+          out/build/linux-gcc-test/bin/vcmiclient --help > /dev/null
+
       - name: Stage runtime assets for vcmitest
         run: |
           # Running only the vcmitest target does not deploy the runtime assets.

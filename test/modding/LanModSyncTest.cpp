@@ -194,6 +194,22 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, AutomaticLanRejoinRequiresTheOriginalOneShotToken)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["hostmod"]["units"].Bool() = false;
+	const auto original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	LanModSessionState::setRejoinTarget(config, {"192.168.1.42", 3030, true});
+	LanModSessionState::prepareControlledRelaunch(config, std::string(64, 'a'));
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, std::string(64, 'b')), LanSessionStartupAction::RESTORED);
+	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
 TEST(LanModSyncTest, CancellingRejoinedLobbyRestoresOriginalModsAndSubmods)
 {
 	JsonNode config;

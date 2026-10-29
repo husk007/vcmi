@@ -179,6 +179,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	MetaString joinStatusText;
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
+	directJoinAllowed = errorMessage.empty();
 	bool allowInstalledOnlyPreparation = false;
 	if (!errorMessage.empty())
 	{
@@ -277,6 +278,14 @@ void GlobalLobbyRoomWindow::onJoin()
 {
 	if(onJoinCallback)
 		onJoinCallback();
+}
+
+bool GlobalLobbyRoomWindow::joinIfCompatible()
+{
+	if(!directJoinAllowed)
+		return false;
+	onJoin();
+	return true;
 }
 
 void GlobalLobbyRoomWindow::onClose()

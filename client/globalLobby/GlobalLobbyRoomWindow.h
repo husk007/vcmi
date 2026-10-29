@@ -61,6 +61,7 @@ class GlobalLobbyRoomWindow : public CWindowObject
 	std::vector<GlobalLobbyRoomModInfo> modVerificationList;
 	std::function<void()> onJoinCallback;
 	std::function<void()> onCancelCallback;
+	bool directJoinAllowed = false;
 
 	std::shared_ptr<FilledTexturePlayerColored> filledBackground;
 	std::shared_ptr<CLabel> labelTitle;
@@ -88,4 +89,6 @@ public:
 	GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel = nullptr,
 		bool lanPreview = false, ModArchiveManifest hostArchives = {});
 	GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const std::string & roomUUID);
+	/// Complete an approved LAN join only if the fresh preview is compatible.
+	bool joinIfCompatible();
 };
