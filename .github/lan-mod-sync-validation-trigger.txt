@@ -1,2 +1,3 @@
-M1 direct-IP LAN join: negotiate optional lanModSync preview over unicast UDP before the existing TCP LobbyQueryState flow.
-Legacy hosts and mismatched TCP ports keep legacy lobby preview. Validate real TCP loopback test and direct-IP probe fixture in vcmitest; link full vcmiclient.
+M1/M2 capability refresh before rejoining a LAN host: an advertised host may become legacy during guest mod-preset relaunch.
+Verify direct-IP UDP downgrade on the same host:port, legacy TCP packet fallback, TCP mod preview/preset regression, full vcmiclient and LanModSyncTest.*.
+Checkpoint includes prior M2 error-handling and TCP-to-preset changes at 4dcaa1074ddd85dc086128d66b994abc7cee7109.

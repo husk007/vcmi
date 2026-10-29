@@ -144,6 +144,26 @@ TEST(LanModSyncTest, DirectIpJoinNegotiatesOptInPreviewAndFallsBackForLegacyHost
 	boost::asio::post(hostContext, [announcer]() { announcer->stop(); });
 	hostThread.join();
 
+	// The same endpoint can become a legacy host while the guest restarts.
+	// Re-probing must downgrade to LobbyQueryState rather than using stale capability.
+	NetworkContext replacementContext;
+	Udp::socket replacementHost(replacementContext, Udp::endpoint(Udp::v4(), discoveryPort));
+	std::array<char, 128> replacementBuffer{};
+	Udp::endpoint replacementSender;
+	replacementHost.async_receive_from(boost::asio::buffer(replacementBuffer), replacementSender,
+		[&](const boost::system::error_code & error, std::size_t)
+		{
+			if(!error)
+			{
+				const std::string legacyReply = "VCMI_SERVER:31317";
+				replacementHost.send_to(boost::asio::buffer(legacyReply), replacementSender);
+			}
+		});
+	std::thread replacementThread([&]() { replacementContext.run_for(std::chrono::milliseconds(900)); });
+	const bool staleCapability = ServerDiscovery::probeHostPreview("127.0.0.1", 31317, discoveryPort);
+	replacementThread.join();
+
+	EXPECT_FALSE(staleCapability);
 	EXPECT_TRUE(upgraded);
 	EXPECT_FALSE(wrongGamePort);
 	EXPECT_FALSE(legacyFallback);

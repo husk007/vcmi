@@ -861,7 +861,11 @@ void CSimpleJoinScreen::startConnection(const std::string & addr, ui16 port)
 	{
 		// Direct-IP joins negotiate the same optional preview as broadcast-discovered hosts.
 		// No response from an older host preserves the legacy lobby packet flow.
-		const bool supportsLanPreview = lanModPreviewAdvertised || ServerDiscovery::probeHostPreview(addr, port);
+		// A discovered host or saved relaunch target may now point to a legacy server.
+		// Only send the opt-in TCP query after a fresh UDP capability check.
+		const bool supportsLanPreview = ServerDiscovery::probeHostPreview(addr, port);
+		if(lanModPreviewAdvertised && !supportsLanPreview)
+			logGlobal->info("LAN host %s:%d no longer advertises mod sync; using legacy preview", addr, port);
 		GAME->server().startLobbyPreview(addr, port, [addr, port]()
 		{
 			GAME->server().connectToServer(addr, port);
