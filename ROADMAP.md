@@ -76,7 +76,7 @@ Source helpers and tests have been added, but this milestone remains unverified 
 - [x] Add targeted unit tests for both behaviors.
 - [ ] Verify compilation and run `vcmitest` on a compatible Linux build.
 - [ ] Persist LAN session journal with crash-safe atomic writes and recovery semantics.
-- [ ] Connect the helper to the guest lifecycle; the current APIs are not yet invoked by the UI.
+- [ ] Complete guest lifecycle integration. Restore/cancellation hooks already exist in source, but actual host-selected mod activation and automatic LAN rejoin are not wired or validated in a real client.
 
 ### L1 — Capability negotiation and manifest
 
@@ -98,8 +98,8 @@ Source helpers and tests have been added, but this milestone remains unverified 
 
 ### L3 — Apply, play, and restore
 
-- [ ] Create an on-disk atomic restore journal **before** changing the active preset.
-- [ ] Create a temporary `__vcmi_lan_session` preset, preserving the full original preset (including enabled and disabled submods) and the original preset name.
+- [ ] Verify the already implemented on-disk recovery journal in a full VCMI build and real clean/crash recovery; fix only demonstrated failures before marking it done.
+- [ ] Verify the implemented `__vcmi_lan_session` temporary preset preserves the full original active preset and submod choices across a real launch/disconnect/restart sequence.
 - [ ] Activate all required gameplay mods and disable excessive ones **only in the temporary session**; preserve unrelated personal presets.
 - [ ] Reinitialize game resources safely or use a controlled relaunch; game assets currently load during initialization.
 - [ ] Automatically rejoin the selected room after the reload, and keep the host from starting until all clients report ready.
