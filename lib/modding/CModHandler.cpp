@@ -50,7 +50,7 @@ void CModHandler::beginLanSession()
 	modManager->beginLanSession();
 }
 
-bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods)
+bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods, const LanRejoinTarget & target)
 {
 	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
 	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
@@ -59,7 +59,7 @@ bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & ho
 	if(!plan->requiresChanges())
 		return false;
 
-	modManager->prepareInstalledOnlyLanSession(*plan);
+	modManager->prepareInstalledOnlyLanSession(*plan, target);
 	try
 	{
 		requestLanRelaunch();
@@ -70,6 +70,11 @@ bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & ho
 		throw;
 	}
 	return true;
+}
+
+std::optional<LanRejoinTarget> CModHandler::consumeLanRejoinTarget()
+{
+	return modManager->consumeLanRejoinTarget();
 }
 
 void CModHandler::restoreLanSession()

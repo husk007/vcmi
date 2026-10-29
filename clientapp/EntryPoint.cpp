@@ -415,7 +415,30 @@ int main(int argc, char * argv[])
 		{
 			GAME->mainmenu()->makeActiveInterface();
 
-			bool playIntroVideo = !vm.count("battle") && !vm.count("nointro") && settings["video"]["showIntro"].Bool();
+			bool rejoiningLan = false;
+#if !defined(VCMI_MOBILE)
+			// The endpoint is exposed only after the matching one-shot relaunch marker was accepted.
+			if(!lanRelaunchToken.empty())
+			{
+				if(const auto target = LIBRARY->modh->consumeLanRejoinTarget())
+				{
+					try
+					{
+						CMainMenu::openLobby(ESelectionScreen::newGame, false, CMultiMode::getPlayersNames(),
+							ELoadMode::MULTI, false, false, target->hostname, target->port, target->previewCapability);
+						rejoiningLan = true;
+						logGlobal->info("Rejoining selected LAN host after mod preset relaunch");
+					}
+					catch(const std::exception & error)
+					{
+						logGlobal->error("Unable to rejoin LAN host: %s", error.what());
+						LIBRARY->modh->restoreLanSession();
+					}
+				}
+			}
+#endif
+
+			bool playIntroVideo = !rejoiningLan && !vm.count("battle") && !vm.count("nointro") && settings["video"]["showIntro"].Bool();
 			if(playIntroVideo)
 				GAME->mainmenu()->playIntroVideos();
 			else

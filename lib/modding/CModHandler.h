@@ -11,6 +11,7 @@
 
 #include "../json/JsonNode.h"
 #include "ModVerificationInfo.h"
+#include "LanRejoinTarget.h"
 
 #include <atomic>
 
@@ -86,7 +87,9 @@ public:
 	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
 	void beginLanSession();
 	/// Persist an installed-only LAN preset and signal a controlled client restart.
-	bool prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods);
+	bool prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods, const LanRejoinTarget & target);
+	/// Available exactly once after a matching one-shot relaunch token was consumed.
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Restore the saved personal preset when a LAN join or session is cancelled.
 	void restoreLanSession();
 	/// Request a one-shot relaunch after gameplay resources are released.

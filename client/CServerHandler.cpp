@@ -1292,9 +1292,10 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	}
 
 	const ModCompatibilityInfo hostMods = pack.mods;
+	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation};
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
-		[this, hostMods, canPreviewLocalPreparation]()
+		[this, hostMods, canPreviewLocalPreparation, selectedHost]()
 		{
 			if(canPreviewLocalPreparation)
 			{
@@ -1304,7 +1305,7 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 					return;
 				if(plan->requiresChanges())
 				{
-					LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods);
+					LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
 					throw GameShutdownException();
 				}
 			}

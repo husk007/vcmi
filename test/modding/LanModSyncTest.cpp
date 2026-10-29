@@ -117,6 +117,47 @@ TEST(LanModSyncTest, InstalledOnlyHostPlanChangesTemporaryPresetAndRestoresAllPe
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["settings"]["personalmod"]["submod"].Bool() = true;
+	const auto original = config.toCompactString();
+
+	LanModSessionState::begin(config);
+	const LanRejoinTarget selected{"192.168.1.42", 3030, true};
+	LanModSessionState::setRejoinTarget(config, selected);
+	const std::string token(64, 'a');
+	LanModSessionState::prepareControlledRelaunch(config, token);
+
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(config, token), LanSessionStartupAction::RESUMED);
+	const auto resumed = LanModSessionState::getRejoinTarget(config);
+	ASSERT_TRUE(resumed.has_value());
+	EXPECT_EQ(resumed->hostname, selected.hostname);
+	EXPECT_EQ(resumed->port, selected.port);
+	EXPECT_TRUE(resumed->previewCapability);
+	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
+
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, LanRejoinRejectsInvalidHostOrPortWithoutModifyingSession)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	LanModSessionState::begin(config);
+	const auto snapshot = config.toCompactString();
+
+	EXPECT_THROW(LanModSessionState::setRejoinTarget(config, {"host\\nother", 3030, true}), std::invalid_argument);
+	EXPECT_THROW(LanModSessionState::setRejoinTarget(config, {"192.168.1.42", 0, true}), std::invalid_argument);
+	EXPECT_EQ(config.toCompactString(), snapshot);
+	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());
+}
+
 TEST(LanModSyncTest, InstalledOnlyPlanRefusesArchiveWorkWithoutModifyingSession)
 {
 	JsonNode config;

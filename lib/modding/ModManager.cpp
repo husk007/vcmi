@@ -247,6 +247,42 @@ void LanModSessionState::applyInstalledOnlyPlan(JsonNode & config, const ModSync
 	}
 }
 
+static bool validLanRejoinTarget(const LanRejoinTarget & target)
+{
+	return !target.hostname.empty() && target.hostname.size() <= 255 && target.port != 0
+		&& std::none_of(target.hostname.begin(), target.hostname.end(), [](unsigned char ch)
+		{
+			return ch <= 32 || ch == 127;
+		});
+}
+
+void LanModSessionState::setRejoinTarget(JsonNode & config, const LanRejoinTarget & target)
+{
+	validateLanSessionSnapshot(config);
+	if(!validLanRejoinTarget(target))
+		throw std::invalid_argument("LAN rejoin requires a valid host and nonzero port");
+	config["lanSession"]["rejoin"]["hostname"].String() = target.hostname;
+	config["lanSession"]["rejoin"]["port"].Integer() = target.port;
+	config["lanSession"]["rejoin"]["previewCapability"].Bool() = target.previewCapability;
+}
+
+std::optional<LanRejoinTarget> LanModSessionState::getRejoinTarget(const JsonNode & config)
+{
+	if(!config["activePreset"].isString() || config["activePreset"].String() != temporaryPresetName())
+		return std::nullopt;
+	const JsonNode & rejoin = config["lanSession"]["rejoin"];
+	if(!rejoin.isStruct() || !rejoin["hostname"].isString()
+		|| rejoin["port"].getType() != JsonNode::JsonType::DATA_INTEGER
+		|| !rejoin["previewCapability"].isBool())
+		return std::nullopt;
+	const si64 port = rejoin["port"].Integer();
+	if(port <= 0 || port > 65535)
+		return std::nullopt;
+	LanRejoinTarget target{rejoin["hostname"].String(), static_cast<std::uint16_t>(port),
+		rejoin["previewCapability"].Bool()};
+	return validLanRejoinTarget(target) ? std::optional<LanRejoinTarget>{target} : std::nullopt;
+}
+
 void LanModSessionState::prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken)
 {
 	if(!LanRelaunchTokenFormat::isValid(relaunchToken))
@@ -463,7 +499,10 @@ ModsPresetState::ModsPresetState(bool useTestPreset, const std::string & relaunc
 		if(action == LanSessionStartupAction::RESTORED)
 			discardLanRecoveryIfMatching(modSettingsStoragePath(settingsPath), modConfig);
 		if(action == LanSessionStartupAction::RESUMED)
+		{
+			pendingLanRejoinTarget = LanModSessionState::getRejoinTarget(modConfig);
 			logGlobal->info("Resumed a controlled LAN relaunch; recovery snapshot remains available");
+		}
 		else
 			logGlobal->warn("Recovered the original mod preset after an interrupted LAN session");
 	}
@@ -496,13 +535,14 @@ void ModsPresetState::beginLanSession()
 	modConfig = std::move(pending);
 }
 
-void ModsPresetState::prepareInstalledOnlyLanSession(const ModSyncPlan & plan)
+void ModsPresetState::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target)
 {
 	beginLanSession();
 	try
 	{
 		JsonNode pending = modConfig;
 		LanModSessionState::applyInstalledOnlyPlan(pending, plan);
+		LanModSessionState::setRejoinTarget(pending, target);
 		if(!saveConfigurationState(pending))
 			throw std::runtime_error("LAN temporary preset could not be synced to disk");
 		modConfig = std::move(pending);
@@ -512,6 +552,13 @@ void ModsPresetState::prepareInstalledOnlyLanSession(const ModSyncPlan & plan)
 		restoreLanSession();
 		throw;
 	}
+}
+
+std::optional<LanRejoinTarget> ModsPresetState::consumeLanRejoinTarget()
+{
+	auto target = pendingLanRejoinTarget;
+	pendingLanRejoinTarget.reset();
+	return target;
 }
 
 void ModsPresetState::prepareControlledRelaunch(const std::string & relaunchToken)
@@ -525,6 +572,7 @@ void ModsPresetState::prepareControlledRelaunch(const std::string & relaunchToke
 
 void ModsPresetState::restoreLanSession()
 {
+	pendingLanRejoinTarget.reset();
 	JsonNode restored = modConfig;
 	if(LanModSessionState::restore(restored))
 	{
@@ -1302,9 +1350,14 @@ void ModManager::beginLanSession()
 	modsPreset->beginLanSession();
 }
 
-void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan)
+void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target)
 {
-	modsPreset->prepareInstalledOnlyLanSession(plan);
+	modsPreset->prepareInstalledOnlyLanSession(plan, target);
+}
+
+std::optional<LanRejoinTarget> ModManager::consumeLanRejoinTarget()
+{
+	return modsPreset->consumeLanRejoinTarget();
 }
 
 std::string ModManager::prepareControlledRelaunch()

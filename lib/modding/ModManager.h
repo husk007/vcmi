@@ -11,6 +11,7 @@
 
 #include "../json/JsonNode.h"
 #include "../filesystem/ResourcePath.h"
+#include "LanRejoinTarget.h"
 
 #include <filesystem>
 
@@ -56,6 +57,9 @@ public:
 	static void begin(JsonNode & config);
 	/// Apply an installed-only host diff exclusively to the temporary LAN preset.
 	static void applyInstalledOnlyPlan(JsonNode & config, const ModSyncPlan & plan);
+	/// Store and recover the exact host selected by the player for a controlled relaunch.
+	static void setRejoinTarget(JsonNode & config, const LanRejoinTarget & target);
+	static std::optional<LanRejoinTarget> getRejoinTarget(const JsonNode & config);
 	/// Refuse personal preset operations while the LAN recovery snapshot is active.
 	static void requirePersonalPresetUnlocked(const JsonNode & config);
 	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
@@ -70,6 +74,7 @@ class ModsPresetState : boost::noncopyable
 {
 	JsonNode modConfig;
 	JsonPath settingsPath; // which mod-settings file we read AND write
+	std::optional<LanRejoinTarget> pendingLanRejoinTarget;
 
 	bool saveConfigurationState(const JsonNode & state) const;
 	void createInitialPreset();
@@ -84,7 +89,8 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
-	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan);
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target);
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
 	void restoreLanSessionOnShutdown();
@@ -198,7 +204,8 @@ public:
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
-	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan);
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target);
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Persist a new one-shot token before spawning a replacement client.
 	std::string prepareControlledRelaunch();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
