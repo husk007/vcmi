@@ -12,6 +12,7 @@
 #include "CModVersion.h"
 
 #include <filesystem>
+#include <optional>
 
 class JsonNode;
 struct ModVerificationInfo;
@@ -63,6 +64,10 @@ struct DLL_LINKAGE ModVerificationInfo
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
 	/// Missing or malformed host archive digests reject download planning.
+	/// Read-only preview of changes possible using locally installed matching-version mods.
+	/// Missing or version-mismatched mods cannot be resolved by activation alone.
+	/// This is not an archive-integrity or dependency validation.
+	static std::optional<ModSyncPlan> buildInstalledOnlyPlan(const ModListVerificationStatus & statuses);
 	static ModSyncPlan buildSyncPlan(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const ModArchiveHashes & verifiedCachedSha256);
 	/// Rehash only needed persistent archives before deciding whether a download is required.
 	static ModSyncPlan buildSyncPlanFromPersistentCache(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256, const std::filesystem::path & userDataPath);

@@ -117,7 +117,7 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 	return "";
 }
 
-GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel)
+GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel, bool lanPreview)
 	: CWindowObject(BORDERED)
 	, onJoinCallback(onJoin)
 	, onCancelCallback(onCancel)
@@ -127,7 +127,8 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	pos.w = 400;
 	pos.h = 400;
 
-	for(const auto & modEntry : ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList))
+	const auto modStatuses = ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList);
+	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
 		modInfo.modId = modEntry.first;
@@ -177,9 +178,24 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
 	if (!errorMessage.empty())
 	{
-		joinStatusText.appendTextID("vcmi.lobby.preview.error.header");
-		joinStatusText.appendRawString("\n");
-		joinStatusText.appendTextID(errorMessage);
+		// The TCP lobby response already carries the host's active mod list.
+		// Show a concrete local-only preparation plan, but keep Join disabled
+		// until the M2 temporary-preset and relaunch path is connected.
+		const auto localPlan = lanPreview && errorMessage == "vcmi.lobby.preview.error.mods"
+			? ModVerificationInfo::buildInstalledOnlyPlan(modStatuses)
+			: std::nullopt;
+		if(localPlan && localPlan->requiresChanges())
+		{
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
+			joinStatusText.appendRawString("\n+" + std::to_string(localPlan->activate.size())
+				+ " / -" + std::to_string(localPlan->deactivate.size()));
+		}
+		else
+		{
+			joinStatusText.appendTextID("vcmi.lobby.preview.error.header");
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID(errorMessage);
+		}
 	}
 	else
 		joinStatusText.appendTextID("vcmi.lobby.preview.allowed");

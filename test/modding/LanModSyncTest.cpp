@@ -39,6 +39,38 @@
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
 
+TEST(LanModSyncTest, LanPreviewPlansInstalledDisabledModsWithoutArchiveTransfer)
+{
+	const ModListVerificationStatus statuses = {
+		{"hostmod", ModVerificationStatus::DISABLED},
+		{"personalmod", ModVerificationStatus::EXCESSIVE},
+		{"matchingmod", ModVerificationStatus::FULL_MATCH}
+	};
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	ASSERT_TRUE(plan.has_value());
+	EXPECT_EQ(plan->activate.size(), 1);
+	EXPECT_TRUE(plan->activate.contains("hostmod"));
+	EXPECT_EQ(plan->deactivate.size(), 1);
+	EXPECT_TRUE(plan->deactivate.contains("personalmod"));
+	EXPECT_TRUE(plan->downloadOrUpdate.empty());
+	EXPECT_TRUE(plan->reuseCachedArchive.empty());
+	EXPECT_TRUE(plan->requiresChanges());
+}
+
+TEST(LanModSyncTest, LanPreviewDoesNotOfferLocalOnlyPlanForMissingOrMismatchedMods)
+{
+	EXPECT_FALSE(ModVerificationInfo::buildInstalledOnlyPlan({
+		{"missingmod", ModVerificationStatus::NOT_INSTALLED},
+		{"alreadyhere", ModVerificationStatus::DISABLED}
+	}).has_value());
+	EXPECT_FALSE(ModVerificationInfo::buildInstalledOnlyPlan({
+		{"differentversion", ModVerificationStatus::VERSION_MISMATCH}
+	}).has_value());
+	EXPECT_FALSE(ModVerificationInfo::buildInstalledOnlyPlan({
+		{"../unsafe", ModVerificationStatus::DISABLED}
+	}).has_value());
+}
+
 TEST(LanModSyncTest, LanDiscoveryNegotiatesOptionalPreviewWithoutChangingLegacyPackets)
 {
 	EXPECT_EQ(LanModDiscovery::replyForProbe(LanModDiscovery::legacyProbe, 3030), "VCMI_SERVER:3030");

@@ -1293,5 +1293,6 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			// Also close the CSimpleJoinScreen that was underneath the preview
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
-		});
+		},
+		true);
 }

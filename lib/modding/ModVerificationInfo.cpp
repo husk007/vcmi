@@ -174,6 +174,36 @@ static bool isValidLanModId(const TModID & modId)
 	return true;
 }
 
+std::optional<ModSyncPlan> ModVerificationInfo::buildInstalledOnlyPlan(const ModListVerificationStatus & statuses)
+{
+	ModSyncPlan plan;
+	for(const auto & [modId, status] : statuses)
+	{
+		if(!isValidLanModId(modId))
+			return std::nullopt;
+		if(modId == ModScope::scopeBuiltin())
+			continue;
+
+		switch(status)
+		{
+			case ModVerificationStatus::FULL_MATCH:
+				break;
+			case ModVerificationStatus::DISABLED:
+				plan.activate.insert(modId);
+				break;
+			case ModVerificationStatus::EXCESSIVE:
+				plan.deactivate.insert(modId);
+				break;
+			case ModVerificationStatus::NOT_INSTALLED:
+			case ModVerificationStatus::VERSION_MISMATCH:
+				return std::nullopt;
+			default:
+				return std::nullopt;
+		}
+	}
+	return plan;
+}
+
 ModSyncPlan ModVerificationInfo::buildSyncPlan(
 	const ModListVerificationStatus & statuses,
 	const ModArchiveHashes & expectedSha256,

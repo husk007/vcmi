@@ -85,6 +85,6 @@ class GlobalLobbyRoomWindow : public CWindowObject
 	void onClose();
 
 public:
-	GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel = nullptr);
+	GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel = nullptr, bool lanPreview = false);
 	GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const std::string & roomUUID);
 };

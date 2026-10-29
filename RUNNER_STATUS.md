@@ -14,9 +14,9 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539), commit `a1e2bf2`: built `vcmitest`, staged runtime assets and executed **71/71 `LanModSyncTest.*` tests successfully** (2026-10-29). Full game-client build and real LAN play remain unverified. | TEST_PASS (vcmitest) |
+| M0 real vcmitest + LAN GoogleTests | [CI #40814777919](https://github.com/husk007/vcmi/actions/runs/40814777919) on `0e315e2` built `vcmitest` and `vcmiclientcommon`; executed **73/73 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | Existing `LobbyQueryState` → `LobbyModsCheck` sends the active host mod list. Preview patch displays canonical mod ID, required version (including local → host mismatch), and existing localized action statuses; joining with a mismatched gameplay mod version is blocked. The latest [CI #40809087607](https://github.com/husk007/vcmi/actions/runs/40809087607) passed client-common compilation and 71 LAN unit tests on `f6df2b8`. Optional LAN UDP discovery now advertises `lanModSync=preview` only on explicit probe and preserves legacy replies; integration validation is pending. TCP opt-in and authenticated archive manifest remain missing. | CODE_ONLY (preview) |
+| M1 host preview / capability negotiation | UDP opt-in discovery and legacy fallback built successfully in CI #40814777919. Existing TCP `LobbyQueryState` → `LobbyModsCheck` carries host active mods. LAN preview now calculates and displays an installed-only enable/disable plan, distinct from missing/version-mismatched mods; Join stays blocked pending M2 relaunch. New code/tests **not yet built in CI**. Explicit TCP capability negotiation and authenticated SHA-256 host manifest remain missing. | CODE_ONLY (new preview plan) |
 | M2 guest join with installed disabled mods | Temporary preset/restore hooks exist, but a working join → temporary activation → relaunch/rejoin → restoration flow is not proven. | PARTIAL / NOT TESTED |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate the discovery capability exchange and UI badge in CI, including compilation of `vcmiclientcommon` and `LanModSyncTest.*`.
-2. Continue M1 with a version-compatible TCP `lanModSync` opt-in and authenticated host manifest in the existing `LobbyQueryState` / `LobbyModsCheck` path. Never send new packet fields to an old peer.
+1. Validate the installed-only LAN preview plan and its two new GoogleTests in the next meaningful M1/M2 CI checkpoint.
+2. Continue M1 with safe optional TCP capability negotiation and an authenticated SHA-256 host manifest, without adding unnegotiated packet fields to old peers.
 3. After M1, implement M2: activate **already-installed** matching mods using the temporary LAN preset, relaunch/rejoin, then restore the original preset; this requires no new transfer protocol.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.
 
