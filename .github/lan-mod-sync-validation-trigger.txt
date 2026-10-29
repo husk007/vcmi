@@ -1,0 +1,3 @@
+M1 checkpoint: optional lanModSync=preview discovery, legacy fallback and UI badge
+Feature commit: c01d864de05561d87d7069a1a758d0c2fcdd1bf4
+Verify: vcmitest LanModSyncTest.* and vcmiclientcommon Linux compilation
