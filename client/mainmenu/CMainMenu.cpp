@@ -830,6 +830,17 @@ void CSimpleJoinScreen::leaveScreen()
 {
 	textTitle->setText(LIBRARY->generaltexth->translate("vcmi.mainMenu.serverClosing"));
 	GAME->server().setState(EClientState::CONNECTION_CANCELLED);
+	if(LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			LIBRARY->modh->restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			logGlobal->error("Unable to restore LAN mod preset after cancelling join: %s", e.what());
+		}
+	}
 	close();
 }
 

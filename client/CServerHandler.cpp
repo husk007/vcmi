@@ -1315,6 +1315,18 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		},
 		[]()
 		{
+			// A cancelled post-relaunch preview must not leave the temporary LAN preset active.
+			if(LIBRARY && LIBRARY->modh)
+			{
+				try
+				{
+					LIBRARY->modh->restoreLanSession();
+				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to restore LAN mod preset after preview cancellation: %s", e.what());
+				}
+			}
 			ENGINE->windows().popWindows(1);
 			// Also close the CSimpleJoinScreen that was underneath the preview
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())

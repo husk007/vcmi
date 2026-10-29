@@ -144,6 +144,34 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
+TEST(LanModSyncTest, CancellingRejoinedLobbyRestoresOriginalModsAndSubmods)
+{
+	JsonNode config;
+	config["activePreset"].String() = "personal";
+	config["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	config["presets"]["personal"]["mods"].Vector().emplace_back("personalmod");
+	config["presets"]["personal"]["settings"]["personalmod"]["variants"].Bool() = true;
+	config["presets"]["personal"]["settings"]["hostmod"]["units"].Bool() = false;
+	config["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const auto original = config.toCompactString();
+
+	ModSyncPlan plan;
+	plan.activate.insert("hostmod.units");
+	plan.deactivate.insert("personalmod");
+	LanModSessionState::begin(config);
+	LanModSessionState::applyInstalledOnlyPlan(config, plan);
+	LanModSessionState::setRejoinTarget(config, {"192.168.1.42", 3030, true});
+	const std::string token(64, 'a');
+	LanModSessionState::prepareControlledRelaunch(config, token);
+
+	ASSERT_EQ(LanModSessionState::recoverOnStartup(config, token), LanSessionStartupAction::RESUMED);
+	EXPECT_TRUE(LanModSessionState::getRejoinTarget(config).has_value());
+	EXPECT_TRUE(LanModSessionState::restore(config));
+	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());
+	EXPECT_FALSE(LanModSessionState::shouldRestoreOnShutdown(config));
+	EXPECT_EQ(config.toCompactString(), original);
+}
+
 TEST(LanModSyncTest, LanRejoinRejectsInvalidHostOrPortWithoutModifyingSession)
 {
 	JsonNode config;
