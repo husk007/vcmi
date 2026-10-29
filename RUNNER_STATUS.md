@@ -14,10 +14,10 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #40838909050](https://github.com/husk007/vcmi/actions/runs/40838909050) on `cad4eaa` built `vcmitest`, `vcmiclientcommon` and `vcmiservercommon`; **79/79 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
+| M0 real vcmitest + LAN GoogleTests | [CI #40846276198](https://github.com/husk007/vcmi/actions/runs/40846276198) on `7f288a7` built `vcmitest`, `vcmiclientcommon` and `vcmiservercommon`; **81/81 `LanModSyncTest.*` PASS** (2026-10-29). Full client executable and two-client LAN game remain unverified. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Optional UDP discovery and TCP query/response packet IDs, legacy fallback, host active mod list and guest installed-only preview compiled; the committed binary roundtrip test passed in CI #40831773720. SHA-256 host archive manifest still missing. | TEST_PASS (protocol fixture) |
-| M2 guest join with installed disabled mods | Installed-only staging passed **79/79** tests in CI #40838909050 (2026-10-29). New code now persists the selected host/port for the one-shot relaunch and opens the same LAN lobby automatically. The rejoin integration awaits CI and a real two-client trial; dependency verification and disconnect/restoration remain open. | CODE_ONLY (rejoin) |
+| M2 guest join with installed disabled mods | Installed-only staging passed **79/79** tests in CI #40838909050 (2026-10-29). One-shot rejoin built and 81/81 tests passed in CI #40846276198. New failed-preview cleanup restores the temporary preset after unexpected TCP disconnect or connection refusal and closes the join screen; GUI path awaits validation. | CODE_ONLY (failed preview) |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Verify the new M2 relaunch/rejoin checkpoint with actual Linux vcmitest, client and server builds.
-2. Exercise cancellation, failed rejoin, and exact preset restoration on disconnect in a real client.
+1. Verify failed-preview rollback in the Linux CI checkpoint and exercise it with a real client.
+2. Exercise a disabled-but-installed guest mod through restart, join, disconnect and exact preset restoration in two LAN clients.
 3. Complete M1 with a bounded host SHA-256 manifest in the negotiated opt-in response, and verify legacy fallback remains unchanged.
 4. Next bind M3 hash-verification cache reuse and M4 host transfer; verify a second join transfers zero bytes.
 

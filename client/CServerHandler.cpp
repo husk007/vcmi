@@ -268,6 +268,15 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 	{
 		// remote server refused connection - show error message
 		setState(EClientState::NONE);
+		if(lobbyPreviewMode)
+		{
+			// A failed TCP preview must not leave a blocked Join screen behind.
+			lobbyPreviewMode = false;
+			lobbyPreviewCapabilityAdvertised = false;
+			onLobbyPreviewJoin = {};
+			if(ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>())
+				ENGINE->windows().popWindows(1);
+		}
 		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
 		{
 			try
@@ -1113,6 +1122,34 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 	{
 		// Note: this branch can be reached on app shutdown, when main thread holds mutex till destruction
 		logNetwork->info("Successfully closed connection to server!");
+		return;
+	}
+
+	if(lobbyPreviewMode)
+	{
+		// The query connection has no game lobby screen. An unexpected disconnect
+		// must not dispatch LobbyClientDisconnected to a nonexistent lobby.
+		// Restore a temporary mod preset if a post-relaunch preview has failed.
+		lobbyPreviewMode = false;
+		lobbyPreviewCapabilityAdvertised = false;
+		onLobbyPreviewJoin = {};
+		logicConnection.reset();
+		networkConnection.reset();
+		setState(EClientState::NONE);
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				LIBRARY->modh->restoreLanSession();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after preview disconnection: %s", e.what());
+			}
+		}
+		if(ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>())
+			ENGINE->windows().popWindows(1);
+		showServerError(LIBRARY->generaltexth->translate("vcmi.server.errors.disconnected"));
 		return;
 	}
 
