@@ -21,6 +21,8 @@
 
 #if !defined(VCMI_MOBILE) && !defined(_WIN32)
 #include <sys/wait.h>
+#include <signal.h>
+#include <unistd.h>
 #endif
 
 #include "../../lib/network/NetworkDiscoveryProtocol.h"
@@ -2105,6 +2107,143 @@ TEST(LanModSyncTest, SuccessfulDesktopRelaunchPreservesMarkerForReplacement)
 }
 #endif
 
+
+
+#if !defined(VCMI_MOBILE) && !defined(_WIN32)
+TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfterCrash)
+{
+	// Exercise the linked desktop executable, not a simulated ModManager.
+	// Use only the tiny redistributable test mod created by the CI workflow.
+	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
+	if(!requiredMod || std::string(requiredMod) != "lan-ci-fixture")
+		GTEST_SKIP() << "Requires the public installed-only LAN CI fixture";
+
+	namespace fs = std::filesystem;
+	const fs::path executable = fs::current_path() / "vcmiclient";
+	if(!fs::is_regular_file(executable))
+		GTEST_SKIP() << "Requires a linked vcmiclient executable";
+
+	const fs::path sandbox = fs::temp_directory_path() / ("vcmi-lan-process-" + LanRelaunchToken::generate());
+	const fs::path configRoot = sandbox / "config";
+	const fs::path modSettings = configRoot / "vcmi" / "modSettings.json";
+	ASSERT_TRUE(fs::create_directories(modSettings.parent_path()));
+	const auto cleanup = vstd::makeScopeGuard([&]()
+	{
+		std::error_code error;
+		fs::remove_all(sandbox, error);
+	});
+
+	JsonNode original;
+	original["activePreset"].String() = "personal";
+	original["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	original["presets"]["personal"]["settings"].Struct();
+	JsonNode session = original;
+	LanModSessionState::begin(session);
+	ModSyncPlan installedOnly;
+	installedOnly.activate.insert(requiredMod);
+	LanModSessionState::applyInstalledOnlyPlan(session, installedOnly);
+	LanModSessionState::setRejoinTarget(session, {"127.0.0.1", 3030, true, {"Guest"}, false});
+	const std::string token = LanRelaunchToken::generate();
+	LanModSessionState::prepareControlledRelaunch(session, token);
+	{
+		std::ofstream output(modSettings, std::ios::binary);
+		ASSERT_TRUE(output.good());
+		output << session.toCompactString();
+		ASSERT_TRUE(output.good());
+	}
+
+	const auto launch = [&](bool controlled) -> pid_t
+	{
+		const pid_t child = ::fork();
+		if(child == 0)
+		{
+			if(::setenv("XDG_CONFIG_HOME", configRoot.c_str(), 1) != 0)
+				::_exit(126);
+			::setenv("SDL_VIDEODRIVER", "dummy", 1);
+			::setenv("SDL_AUDIODRIVER", "dummy", 1);
+			if(controlled)
+				::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
+					"--lan-relaunch-token", token.c_str(), static_cast<char *>(nullptr));
+			else
+				::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
+					static_cast<char *>(nullptr));
+			::_exit(127);
+		}
+		return child;
+	};
+
+	const auto stop = [](pid_t & pid)
+	{
+		if(pid <= 0)
+			return;
+		::kill(pid, SIGKILL); // Intentionally simulate a crashed client.
+		int status = 0;
+		while(::waitpid(pid, &status, 0) == -1 && errno == EINTR) {}
+		pid = -1;
+	};
+
+	const auto observe = [&](pid_t & pid, bool resumed)
+	{
+		for(int attempt = 0; attempt < 120; ++attempt)
+		{
+			try
+			{
+				std::ifstream input(modSettings, std::ios::binary);
+				if(input)
+				{
+					const std::string bytes((std::istreambuf_iterator<char>(input)),
+						std::istreambuf_iterator<char>());
+					JsonNode state(bytes.data(), bytes.size(), "Real VCMI LAN process settings");
+					const JsonNode & current = state;
+					if(resumed)
+					{
+						const JsonNode & temporary = current["presets"][LanModSessionState::temporaryPresetName()]["mods"];
+						if(current["activePreset"].isString()
+							&& current["activePreset"].String() == LanModSessionState::temporaryPresetName()
+							&& current["lanSession"]["relaunchToken"].isNull()
+							&& temporary.isVector()
+							&& std::find(temporary.Vector().begin(), temporary.Vector().end(),
+								JsonNode(requiredMod)) != temporary.Vector().end())
+							return true;
+					}
+					else if(current["lanSession"].isNull()
+						&& current["activePreset"].isString()
+						&& current["activePreset"].String() == "personal"
+						&& current["presets"]["personal"].toCompactString()
+							== original["presets"]["personal"].toCompactString())
+						return true;
+				}
+			}
+			catch(const std::exception &)
+			{
+				// The other process might be atomically replacing this file.
+			}
+			int status = 0;
+			if(::waitpid(pid, &status, WNOHANG) == pid)
+			{
+				pid = -1;
+				return false;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(250));
+		}
+		return false;
+	};
+
+	pid_t first = launch(true);
+	ASSERT_GT(first, 0);
+	const bool resumed = observe(first, true);
+	stop(first);
+	ASSERT_TRUE(resumed) << "vcmiclient failed to consume the one-shot token and retain the installed host mod";
+
+	// A fresh client without a one-shot token must recover the exact personal
+	// preset after the first client is forcibly terminated.
+	pid_t second = launch(false);
+	ASSERT_GT(second, 0);
+	const bool recovered = observe(second, false);
+	stop(second);
+	EXPECT_TRUE(recovered) << "vcmiclient failed to restore the personal preset after a crash";
+}
+#endif
 
 TEST(LanModSyncTest, ArchiveDigestRejectsBytesBeyondDeclaredLimit)
 {
