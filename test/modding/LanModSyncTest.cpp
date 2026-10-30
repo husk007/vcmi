@@ -2808,6 +2808,21 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	}
 	EXPECT_TRUE(syncedMods->acceptingPlayers);
 
+	// CI supplies a genuinely active, redistributable host gameplay mod which is
+	// installed but disabled in the guest test preset. Do not infer a host
+	// requirement from a locally selected mod that the host never advertised.
+	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
+	if(requiredMod)
+	{
+		const auto required = syncedMods->mods.find(requiredMod);
+		ASSERT_NE(required, syncedMods->mods.end()) << "Running host did not advertise the required LAN mod";
+		EXPECT_TRUE(required->second.impactsGameplay);
+		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
+		const auto requiredStatus = statuses.find(requiredMod);
+		ASSERT_NE(requiredStatus, statuses.end());
+		EXPECT_EQ(requiredStatus->second, ModVerificationStatus::DISABLED);
+	}
+
 	// A compatible guest must be able to join the same live server after
 	// inspecting the opt-in host mod list. Preview-only sockets stay unregistered.
 	struct JoinGuest final : INetworkClientListener
@@ -2884,8 +2899,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	const auto personalPreset = beforeRelaunch.exportCurrentPreset().toCompactString();
 	const auto personalPresets = beforeRelaunch.getAllPresets();
 	const auto personalMods = beforeRelaunch.getActiveMods();
-	ASSERT_EQ(std::find(personalMods.begin(), personalMods.end(), "roe-demo"), personalMods.end())
-		<< "Integration fixture needs the installed RoE demo initially disabled";
+	const std::string stagedModId = requiredMod ? requiredMod : "roe-demo";
+	ASSERT_EQ(std::find(personalMods.begin(), personalMods.end(), stagedModId), personalMods.end())
+		<< "Integration fixture needs the host-required mod initially disabled";
 	const auto restoreGuestSettings = vstd::makeScopeGuard([]()
 	{
 		try
@@ -2900,8 +2916,21 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	});
 
 	ModSyncPlan localOnly;
-	localOnly.activate.insert("roe-demo");
+	if(requiredMod)
+	{
+		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
+		const auto found = statuses.find(stagedModId);
+		ASSERT_NE(found, statuses.end());
+		ModListVerificationStatus hostRequirement;
+		hostRequirement[stagedModId] = found->second;
+		const auto planFromHost = ModVerificationInfo::buildInstalledOnlyPlan(hostRequirement);
+		ASSERT_TRUE(planFromHost.has_value());
+		localOnly = *planFromHost;
+	}
+	else
+		localOnly.activate.insert(stagedModId);
 	ASSERT_TRUE(localOnly.downloadOrUpdate.empty());
+	ASSERT_EQ(localOnly.activate.count(stagedModId), 1);
 	const LanRejoinTarget savedHost{"127.0.0.1", static_cast<std::uint16_t>(port),
 		true, {"LAN integration guest"}, false};
 	beforeRelaunch.prepareInstalledOnlyLanSession(localOnly, savedHost);
@@ -2914,7 +2943,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(resumedTarget->port, savedHost.port);
 	EXPECT_EQ(resumedTarget->playerNames, savedHost.playerNames);
 	const auto activeAfterRelaunch = relaunchedGuest.getActiveMods();
-	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), "roe-demo"), activeAfterRelaunch.end());
+	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
 
 	// The saved endpoint must lead back to the actual running host, not a test
 	// socket double. Preview again, then reconnect under the original player name.
@@ -2927,6 +2956,12 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_NE(freshLobby, nullptr);
 	EXPECT_TRUE(freshLobby->acceptingPlayers);
 	EXPECT_EQ(freshLobby->mods.size(), syncedMods->mods.size());
+	if(requiredMod)
+	{
+		const auto requiredAfterRestart = freshLobby->mods.find(stagedModId);
+		ASSERT_NE(requiredAfterRestart, freshLobby->mods.end());
+		EXPECT_EQ(requiredAfterRestart->second.version, syncedMods->mods.at(stagedModId).version);
+	}
 
 	JoinGuest resumedConnection;
 	network->getContext().restart();
