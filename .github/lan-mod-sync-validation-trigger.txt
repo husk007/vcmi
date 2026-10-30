@@ -1,1 +1,1 @@
-M1/M2 integration checkpoint: 62648b364b3b3d6a9412e671cb377835a30ee4b3 - independent vcmiserver, guest join and real persisted installed-only preset relaunch/reconnect/restore
+M1/M2 CI regression fix: 0c111f1c60af65bd23e98e8c843218c8aa4b5763 - host lobby listener retains own assigned connection ID when guest connect notifications are broadcast; retry failed real-vcmiserver integration test
