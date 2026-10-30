@@ -2957,14 +2957,18 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	beforeRelaunch.prepareInstalledOnlyLanSession(localOnly, savedHost);
 	const auto token = LanRelaunchToken::generate();
 	beforeRelaunch.prepareControlledRelaunch(token);
-	ModsPresetState relaunchedGuest(true, token);
+	// Recreate the production mod manager, including dependency resolution, from
+	// the persisted LAN preset. Reading the JSON alone cannot prove the game loads it.
+	ModManager relaunchedGuest(JsonNode(), true, {}, token);
 	const auto resumedTarget = relaunchedGuest.consumeLanRejoinTarget();
 	ASSERT_TRUE(resumedTarget.has_value());
 	EXPECT_EQ(resumedTarget->hostname, savedHost.hostname);
 	EXPECT_EQ(resumedTarget->port, savedHost.port);
 	EXPECT_EQ(resumedTarget->playerNames, savedHost.playerNames);
-	const auto activeAfterRelaunch = relaunchedGuest.getActiveMods();
+	const auto & activeAfterRelaunch = relaunchedGuest.getActiveMods();
 	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
+	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, activeAfterRelaunch))
+		<< "Reloaded client did not resolve the gameplay mods required by the live host";
 
 	// The saved endpoint must lead back to the actual running host, not a test
 	// socket double. Preview again, then reconnect under the original player name.
