@@ -1,1 +1,1 @@
-M1 visible per-mod installed-only LAN action plan (enable/disable) + M2 real ModManager host-rejoin regression from 701e5d6; validate full VCMI client and vcmitest against real server
+M2 real desktop vcmiclient process relaunch + SIGKILL crash-restoration test added at c63801773ce7b18aa049a77d2e7b5ce31d09fdc7; validate actual client and vcmitest against public CI fixture
