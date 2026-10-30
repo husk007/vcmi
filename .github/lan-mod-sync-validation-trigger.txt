@@ -1,1 +1,3 @@
-M2 independent-LAN-host checkpoint: real host + guest second installed-only join, re-preview, reconnect, exact personal root/submod preset restoration; test commit 91729ab6b5aae140e145f281e3ad53ec16322491. Last validated CI #41093067134: 93/93 pass on 313f2be; validate new changes without GUI-only proprietary assets.
+M2 validation checkpoint for code commit 050547ddb985a892df5c7fbc4cc998b24c4d5026.
+CI #41110957126 compiled real vcmitest, vcmiserver and vcmiclient; 92/93 LAN tests passed.
+Retest the real-host double join after excluding forced vcmi-test from the test-only excessive-mod plan. Validate both joins, restored root/submod settings, and legacy preview. No proprietary Heroes III assets are included.
