@@ -1,1 +1,1 @@
-M2 AppImage LAN relaunch: 8fea8ebdf6d413108aba7e8f52792d18e066d737 - build real client and run vcmitest with Linux AppImage executable selection regression test
+M1 visible per-mod installed-only LAN action plan (enable/disable) + M2 real ModManager host-rejoin regression from 701e5d6; validate full VCMI client and vcmitest against real server

@@ -924,6 +924,8 @@
 	"vcmi.lobby.preview.lanArchiveAvailability": "Host packages / verified cache:",
 	"vcmi.lobby.preview.lanArchiveCached": "cached",
 	"vcmi.lobby.preview.lanArchiveOffered": "on host",
+	"vcmi.lobby.preview.lanActionDisable": "disable for LAN",
+	"vcmi.lobby.preview.lanActionEnable": "enable for LAN",
 	"vcmi.lobby.preview.lanLocalPlan": "Local mod changes needed (+ enable / - disable). Restart required.",
 	"vcmi.lobby.preview.lanRestoreRestartRequired": "Your original mod preset has been restored. Restart VCMI before playing another game to reload your personal mods.",
 	"vcmi.lobby.preview.lanPreparationFailed": "Could not prepare the installed mods for this LAN game. Check their dependencies and conflicts before trying again.",

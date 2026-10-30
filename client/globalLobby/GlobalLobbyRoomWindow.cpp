@@ -70,6 +70,8 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 	std::string statusText = LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status));
 	if(!modInfo.archiveStatusTextId.empty())
 		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.archiveStatusTextId);
+	if(!modInfo.lanActionTextId.empty())
+		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.lanActionTextId);
 	labelStatus = std::make_shared<CLabel>(5, 43, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, statusText);
 }
 
@@ -134,6 +136,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	pos.h = 400;
 
 	const auto modStatuses = ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList);
+	const auto localPlan = lanPreview ? ModVerificationInfo::buildInstalledOnlyPlan(modStatuses) : std::nullopt;
 	// Rehash each required root at most once, even when several missing submods
 	// refer to the same host package. Reuse this result for cards and totals.
 	const LanArchivePreview archiveAvailability = lanPreview && !hostArchives.empty()
@@ -145,6 +148,13 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		GlobalLobbyRoomModInfo modInfo;
 		modInfo.modId = modEntry.first;
 		modInfo.status = modEntry.second;
+		if(localPlan)
+		{
+			if(localPlan->activate.contains(modEntry.first))
+				modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionEnable";
+			else if(localPlan->deactivate.contains(modEntry.first))
+				modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDisable";
+		}
 		if(modEntry.second == ModVerificationStatus::NOT_INSTALLED || modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
 		{
 			const auto rootId = modEntry.first.substr(0, modEntry.first.find('.'));
@@ -206,10 +216,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		// The TCP lobby response already carries the host's active mod list.
 		// A locally installed mod can now be staged in the recoverable LAN preset.
 		// Mobile builds keep Join disabled until a restart mechanism is available.
-		const auto localPlan = lanPreview && errorMessage == "vcmi.lobby.preview.error.mods"
-			? ModVerificationInfo::buildInstalledOnlyPlan(modStatuses)
-			: std::nullopt;
-		if(localPlan && localPlan->requiresChanges())
+		if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && localPlan && localPlan->requiresChanges())
 		{
 			#if !defined(VCMI_MOBILE)
 			allowInstalledOnlyPreparation = true;
