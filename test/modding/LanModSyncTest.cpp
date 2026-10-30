@@ -2720,6 +2720,15 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			auto packet = peer->retrievePack(bytes);
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
 			{
+				// LobbyClientConnected is also broadcast when OTHER guests join.
+				// Only the first response assigns this host's own connection ID.
+				if(joined)
+					return;
+				if(accepted->clientId == GameConnectionID::INVALID)
+				{
+					error = "Real VCMI server returned an invalid host connection ID";
+					return;
+				}
 				joined = true;
 				peer->connectionID = accepted->clientId;
 				peer->setSerializationVersion(accepted->version);
@@ -2730,6 +2739,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	network->connectToRemote(host, "127.0.0.1", static_cast<std::uint16_t>(port));
 	network->getContext().run_for(std::chrono::seconds(4));
 	ASSERT_TRUE(host.joined) << "Real VCMI host did not accept a lobby player: " << host.error;
+	const auto originalHostId = host.peer->connectionID;
 
 	struct PreviewGuest final : INetworkClientListener
 	{
@@ -2847,7 +2857,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	network->getContext().run_for(std::chrono::seconds(4));
 	ASSERT_TRUE(guest.joined) << "Real VCMI server rejected guest after compatible LAN preview: " << guest.error;
 	EXPECT_NE(guest.assignedClientId, host.peer->connectionID);
-	EXPECT_EQ(guest.assignedHostId, host.peer->connectionID);
+	EXPECT_EQ(guest.assignedHostId, originalHostId);
+	EXPECT_EQ(host.peer->connectionID, originalHostId) << "Guest-join notification changed the host's identity";
 
 	PreviewGuest afterJoin(true);
 	network->getContext().restart();
@@ -2922,7 +2933,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	network->connectToRemote(resumedConnection, resumedTarget->hostname, resumedTarget->port);
 	network->getContext().run_for(std::chrono::seconds(4));
 	ASSERT_TRUE(resumedConnection.joined) << "Relaunched guest could not rejoin live host: " << resumedConnection.error;
-	EXPECT_EQ(resumedConnection.assignedHostId, host.peer->connectionID);
+	EXPECT_EQ(resumedConnection.assignedHostId, originalHostId);
+	EXPECT_EQ(host.peer->connectionID, originalHostId) << "Guest-rejoin notification changed the host's identity";
 	EXPECT_NE(resumedConnection.assignedClientId, guest.assignedClientId);
 
 	resumedConnection.connection->close();
