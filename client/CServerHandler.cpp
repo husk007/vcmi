@@ -499,6 +499,20 @@ void CServerHandler::sendClientDisconnecting()
 	networkConnection.reset();
 	logicConnection.reset();
 	waitForServerShutdown();
+
+	// Leaving the lobby does not call endGameplay(), so restore its LAN preset here.
+	// In gameplay, endGameplay() restores only after the client has released its resources.
+	if(!client && loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			LIBRARY->modh->restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after leaving multiplayer lobby: %s", e.what());
+		}
+	}
 }
 
 void CServerHandler::setCampaignState(std::shared_ptr<CampaignState> newCampaign)
