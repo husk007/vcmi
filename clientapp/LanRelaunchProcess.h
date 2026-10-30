@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -36,6 +37,28 @@ inline bool isValidToken(const std::string & token)
 }
 
 #if !defined(VCMI_MOBILE)
+/// When the running binary is inside a temporary AppImage mount, restart the
+/// original AppImage. The next process then has its own mount after this one exits.
+inline std::filesystem::path executableForRelaunch(
+	const std::filesystem::path & executable, const char * appImage, const char * appDir)
+{
+	const auto absolute = std::filesystem::absolute(executable).lexically_normal();
+#if defined(__linux__)
+	if(appImage && *appImage && appDir && *appDir)
+	{
+		const std::filesystem::path image(appImage);
+		const std::filesystem::path mount(appDir);
+		if(image.is_absolute() && mount.is_absolute())
+		{
+			const auto relative = absolute.lexically_relative(mount.lexically_normal());
+			if(!relative.empty() && relative != "." && *relative.begin() != std::filesystem::path(".."))
+				return image.lexically_normal();
+		}
+	}
+#endif
+	return absolute;
+}
+
 /// A successful return means the replacement was started, not that it finished initialization.
 inline std::uint64_t spawn(const std::filesystem::path & executable, const std::string & token)
 {
@@ -44,7 +67,11 @@ inline std::uint64_t spawn(const std::filesystem::path & executable, const std::
 	if(!isValidToken(token))
 		throw std::invalid_argument("LAN relaunch token must contain 64 lowercase hexadecimal characters");
 
+	#if defined(__linux__)
+	const auto absoluteExecutable = executableForRelaunch(executable, std::getenv("APPIMAGE"), std::getenv("APPDIR"));
+#else
 	const auto absoluteExecutable = std::filesystem::absolute(executable);
+#endif
 #ifdef _WIN32
 	const std::wstring binary = absoluteExecutable.native();
 	// Windows executable paths cannot contain double quotes. The token contains only hex digits.

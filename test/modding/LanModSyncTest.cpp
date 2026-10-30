@@ -1915,6 +1915,27 @@ TEST(LanModSyncTest, PendingRelaunchSkipsShutdownRollbackButConsumedMarkerAllows
 	EXPECT_EQ(config.toCompactString(), original);
 }
 
+#if defined(__linux__) && !defined(VCMI_MOBILE)
+TEST(LanModSyncTest, DesktopRelaunchUsesOriginalAppImageInsteadOfTemporaryMount)
+{
+	const std::filesystem::path mountedClient("/tmp/.mount_vcmi/usr/bin/vcmiclient");
+	const std::filesystem::path originalImage("/home/player/VCMI.AppImage");
+	const char * imagePath = "/home/player/VCMI.AppImage";
+	const char * mountPath = "/tmp/.mount_vcmi";
+
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch(mountedClient, imagePath, mountPath), originalImage);
+	// Do not restart an unrelated AppImage for normal installations or for
+	// other mounted archives that happen to share the same path prefix.
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch("/usr/bin/vcmiclient", imagePath, mountPath),
+		std::filesystem::path("/usr/bin/vcmiclient"));
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch("/tmp/.mount_vcmi-other/usr/bin/vcmiclient", imagePath, mountPath),
+		std::filesystem::path("/tmp/.mount_vcmi-other/usr/bin/vcmiclient"));
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch(mountedClient, nullptr, mountPath), mountedClient);
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch(mountedClient, imagePath, nullptr), mountedClient);
+	EXPECT_EQ(LanRelaunchProcess::executableForRelaunch(mountedClient, "VCMI.AppImage", mountPath), mountedClient);
+}
+#endif
+
 #ifndef VCMI_MOBILE
 TEST(LanModSyncTest, DesktopRelaunchResolvesActualExecutablePath)
 {
