@@ -2145,12 +2145,12 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 	LanModSessionState::setRejoinTarget(session, {"127.0.0.1", 3030, true, {"Guest"}, false});
 	const std::string token = LanRelaunchToken::generate();
 	LanModSessionState::prepareControlledRelaunch(session, token);
-	{
-		std::ofstream output(modSettings, std::ios::binary);
-		ASSERT_TRUE(output.good());
-		output << session.toCompactString();
-		ASSERT_TRUE(output.good());
-	}
+	// Match the production sequence: original settings, durable recovery backup,
+	// then the temporary LAN preset. A crash must recover the original bytes.
+	const std::string originalBytes = original.toCompactString();
+	ASSERT_TRUE(AtomicModSettings::replace(modSettings, originalBytes));
+	ASSERT_TRUE(LanModRecoveryJournal::persist(modSettings, originalBytes));
+	ASSERT_TRUE(AtomicModSettings::replace(modSettings, session.toCompactString()));
 
 	const auto launch = [&](bool controlled) -> pid_t
 	{
@@ -2241,7 +2241,14 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 	ASSERT_GT(second, 0);
 	const bool recovered = observe(second, false);
 	stop(second);
-	EXPECT_TRUE(recovered) << "vcmiclient failed to restore the personal preset after a crash";
+	if(!recovered)
+	{
+		std::ifstream finalFile(modSettings, std::ios::binary);
+		const std::string finalBytes((std::istreambuf_iterator<char>(finalFile)),
+			std::istreambuf_iterator<char>());
+		ADD_FAILURE() << "vcmiclient failed to restore the personal preset after a crash. "
+			<< "Final mod settings: " << finalBytes;
+	}
 }
 #endif
 
