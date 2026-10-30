@@ -1,1 +1,1 @@
-M2 CI #41058914568 failed 1/92 after crash restoration: original process fixture omitted VCMI auto-normalized built-in core mod. Seed core in the original personal preset and validate exact restoration; base a0e53debaba0be63bbf287fdfdaea31d9edc4e16
+M2 independent-LAN-host checkpoint: real host + guest second installed-only join, re-preview, reconnect, exact personal root/submod preset restoration; test commit 91729ab6b5aae140e145f281e3ad53ec16322491. Last validated CI #41093067134: 93/93 pass on 313f2be; validate new changes without GUI-only proprietary assets.
