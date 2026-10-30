@@ -506,7 +506,8 @@ void CServerHandler::sendClientDisconnecting()
 	{
 		try
 		{
-			LIBRARY->modh->restoreLanSession();
+			if(LIBRARY->modh->restoreLanSession())
+				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
 		}
 		catch(const std::exception & e)
 		{
@@ -851,11 +852,12 @@ void CServerHandler::endGameplay()
 	client->endGame();
 	client.reset();
 
+	bool restoredPersonalLanMods = false;
 	if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
 	{
 		try
 		{
-			LIBRARY->modh->restoreLanSession();
+			restoredPersonalLanMods = LIBRARY->modh->restoreLanSession();
 		}
 		catch(const std::exception & e)
 		{
@@ -872,6 +874,9 @@ void CServerHandler::endGameplay()
 
 	if(ENGINE)
 		ENGINE->discord().setStatus("", "", {0, 0});
+
+	if(restoredPersonalLanMods)
+		CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
 }
 
 std::optional<std::string> CServerHandler::canQuickLoadGame(const std::string & path) const

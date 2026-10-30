@@ -77,10 +77,12 @@ std::optional<LanRejoinTarget> CModHandler::consumeLanRejoinTarget()
 	return modManager->consumeLanRejoinTarget();
 }
 
-void CModHandler::restoreLanSession()
+bool CModHandler::restoreLanSession()
 {
 	lanRelaunchRequested.store(false, std::memory_order_release);
+	const bool hadLanPreset = modManager->getActivePreset() == LanModSessionState::temporaryPresetName();
 	modManager->restoreLanSession();
+	return hadLanPreset;
 }
 
 void CModHandler::requestLanRelaunch()

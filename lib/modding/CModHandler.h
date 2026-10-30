@@ -91,7 +91,8 @@ public:
 	/// Available exactly once after a matching one-shot relaunch token was consumed.
 	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Restore the saved personal preset when a LAN join or session is cancelled.
-	void restoreLanSession();
+	/// True only when an active temporary LAN preset was restored; loaded assets need a restart.
+	bool restoreLanSession();
 	/// Request a one-shot relaunch after gameplay resources are released.
 	void requestLanRelaunch();
 	bool consumeLanRelaunchRequest();

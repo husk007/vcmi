@@ -42,6 +42,7 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/ScopeGuard.h"
 
 TEST(LanModSyncTest, RealUdpDiscoveryKeepsLegacyReplyAndNegotiatesLanPreviewOnLoopback)
 {
@@ -2619,3 +2620,61 @@ TEST(LanModSyncTest, PersistentLanArchiveSyncRejectsInvalidEntries)
     fs::remove_all(directory, error);
 }
 #endif
+
+
+TEST(LanModSyncTest, ActualTestPresetRoundTripsInstalledOnlyRelaunchThroughDisk)
+{
+	// Use VCMI's real test mod-settings file, not an in-memory JSON copy.
+	ModsPresetState before(true);
+	const auto personalPresetName = before.getActivePreset();
+	const auto personalPreset = before.exportCurrentPreset().toCompactString();
+	const auto personalPresets = before.getAllPresets();
+	const auto personalActive = before.getActiveMods();
+	if(std::find(personalActive.begin(), personalActive.end(), "roe-demo") != personalActive.end())
+		GTEST_SKIP() << "The RoE demo mod is already active in this test environment";
+
+	// Retain a recovery path if an assertion or simulated relaunch fails.
+	auto restoreTestPreset = vstd::makeScopeGuard([]()
+	{
+		try
+		{
+			ModsPresetState recovery(true);
+			recovery.restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			ADD_FAILURE() << "Could not recover on-disk LAN test preset: " << e.what();
+		}
+	});
+
+	ModSyncPlan plan;
+	plan.activate.insert("roe-demo"); // shipped with VCMI, normally disabled
+	EXPECT_TRUE(plan.downloadOrUpdate.empty());
+	const LanRejoinTarget host{"127.0.0.1", 3030, true, {"LAN guest"}, false};
+	before.prepareInstalledOnlyLanSession(plan, host);
+	EXPECT_EQ(before.getActivePreset(), LanModSessionState::temporaryPresetName());
+	const auto stagedMods = before.getActiveMods();
+	EXPECT_NE(std::find(stagedMods.begin(), stagedMods.end(), "roe-demo"), stagedMods.end());
+
+	const auto token = LanRelaunchToken::generate();
+	before.prepareControlledRelaunch(token);
+	ModsPresetState restarted(true, token);
+	EXPECT_EQ(restarted.getActivePreset(), LanModSessionState::temporaryPresetName());
+	const auto resume = restarted.consumeLanRejoinTarget();
+	EXPECT_TRUE(resume.has_value());
+	if(resume)
+	{
+		EXPECT_EQ(resume->hostname, host.hostname);
+		EXPECT_EQ(resume->port, host.port);
+		EXPECT_EQ(resume->playerNames, host.playerNames);
+	}
+	const auto activeAfterRestart = restarted.getActiveMods();
+	EXPECT_NE(std::find(activeAfterRestart.begin(), activeAfterRestart.end(), "roe-demo"), activeAfterRestart.end());
+
+	restarted.restoreLanSession();
+	ModsPresetState restored(true);
+	EXPECT_EQ(restored.getActivePreset(), personalPresetName);
+	EXPECT_EQ(restored.exportCurrentPreset().toCompactString(), personalPreset);
+	EXPECT_EQ(restored.getAllPresets(), personalPresets);
+	EXPECT_EQ(restored.getActiveMods(), personalActive);
+}

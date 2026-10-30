@@ -913,6 +913,7 @@
 	"vcmi.lobby.preview.lanArchiveCached": "w cache",
 	"vcmi.lobby.preview.lanArchiveOffered": "u hosta",
 	"vcmi.lobby.preview.lanLocalPlan": "Zmień lokalne mody (+ włącz / - wyłącz). Wymagany restart.",
+	"vcmi.lobby.preview.lanRestoreRestartRequired": "Przywrócono Twój pierwotny zestaw modów. Uruchom ponownie VCMI przed kolejną grą, aby wczytać własne mody.",
 	"vcmi.lobby.preview.error.busy": "Pokój nie akceptuje już nowych graczy.",
 	"vcmi.lobby.preview.error.full": "Pokój jest pełny.",
 	"vcmi.lobby.preview.error.header": "Napotkano problem podczas dołączenia do pokoju.",

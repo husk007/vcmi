@@ -1,1 +1,1 @@
-M2 functional checkpoint at 94ffd5b0: automatically restore the original personal mod preset and dismiss the stale LAN room when a previously approved post-relaunch join is rejected. Compile complete vcmiclient and run real LanModSyncTest.* including busy-host TCP preview.
+M2 checkpoint: real persisted installed-only relaunch test and client restart notice after clean restore
