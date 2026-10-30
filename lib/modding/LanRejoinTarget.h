@@ -18,4 +18,5 @@ struct LanRejoinTarget
 	bool previewCapability = false;
 	std::vector<std::string> playerNames;
 	bool loadGame = false;
+	std::string approvedHostModsSha256;
 };

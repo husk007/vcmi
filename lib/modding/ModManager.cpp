@@ -11,6 +11,7 @@
 #include "ModManager.h"
 #include "AtomicModSettings.h"
 #include "LanModRecoveryJournal.h"
+#include "ModArchiveDigest.h"
 #include "LanRelaunchToken.h"
 #include "LanRelaunchTokenFormat.h"
 #include "ModVerificationInfo.h"
@@ -265,6 +266,8 @@ void LanModSessionState::setRejoinTarget(JsonNode & config, const LanRejoinTarge
 	config["lanSession"]["rejoin"]["port"].Integer() = target.port;
 	config["lanSession"]["rejoin"]["previewCapability"].Bool() = target.previewCapability;
 	config["lanSession"]["rejoin"]["loadGame"].Bool() = target.loadGame;
+	if(!target.approvedHostModsSha256.empty())
+		config["lanSession"]["rejoin"]["approvedHostModsSha256"].String() = target.approvedHostModsSha256;
 	auto & playerNames = config["lanSession"]["rejoin"]["playerNames"].Vector();
 	playerNames.clear();
 	for(const auto & name : target.playerNames)
@@ -303,6 +306,13 @@ std::optional<LanRejoinTarget> LanModSessionState::getRejoinTarget(const JsonNod
 		if(!loadGame.isBool())
 			return std::nullopt;
 		target.loadGame = loadGame.Bool();
+	}
+	const JsonNode & fingerprint = rejoin["approvedHostModsSha256"];
+	if(!fingerprint.isNull())
+	{
+		if(!fingerprint.isString() || !ModArchiveDigest::isSha256(fingerprint.String()))
+			return std::nullopt;
+		target.approvedHostModsSha256 = fingerprint.String();
 	}
 	return validLanRejoinTarget(target) ? std::optional<LanRejoinTarget>{target} : std::nullopt;
 }

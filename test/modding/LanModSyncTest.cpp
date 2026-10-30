@@ -499,7 +499,7 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	const auto original = config.toCompactString();
 
 	LanModSessionState::begin(config);
-	const LanRejoinTarget selected{"192.168.1.42", 3030, true, {"Alice", "Bob"}, true};
+	const LanRejoinTarget selected{"192.168.1.42", 3030, true, {"Alice", "Bob"}, true, std::string(64, 'b')};
 	LanModSessionState::setRejoinTarget(config, selected);
 	const std::string token(64, 'a');
 	LanModSessionState::prepareControlledRelaunch(config, token);
@@ -512,20 +512,42 @@ TEST(LanModSyncTest, LanRejoinRestoresSelectedEndpointAndPreservesPersonalPreset
 	EXPECT_TRUE(resumed->previewCapability);
 	EXPECT_EQ(resumed->playerNames, selected.playerNames);
 	EXPECT_TRUE(resumed->loadGame);
+	EXPECT_EQ(resumed->approvedHostModsSha256, selected.approvedHostModsSha256);
 
 	// Sessions saved by earlier clients contain only the host endpoint and capability.
 	JsonNode legacy = config;
 	legacy["lanSession"]["rejoin"].Struct().erase("playerNames");
 	legacy["lanSession"]["rejoin"].Struct().erase("loadGame");
+	legacy["lanSession"]["rejoin"].Struct().erase("approvedHostModsSha256");
 	const auto oldTarget = LanModSessionState::getRejoinTarget(legacy);
 	ASSERT_TRUE(oldTarget.has_value());
 	EXPECT_TRUE(oldTarget->playerNames.empty());
 	EXPECT_FALSE(oldTarget->loadGame);
+	EXPECT_TRUE(oldTarget->approvedHostModsSha256.empty());
 	EXPECT_TRUE(LanModSessionState::shouldRestoreOnShutdown(config));
 
 	EXPECT_TRUE(LanModSessionState::restore(config));
 	EXPECT_FALSE(LanModSessionState::getRejoinTarget(config).has_value());
 	EXPECT_EQ(config.toCompactString(), original);
+}
+
+TEST(LanModSyncTest, ApprovedHostModListDetectsChangesBeforeAutomaticRejoin)
+{
+	ModCompatibilityInfo hostMods;
+	ModVerificationInfo first;
+	first.version = CModVersion::fromString("1.0");
+	first.impactsGameplay = true;
+	hostMods["lan-ci-fixture"] = first;
+	const auto approved = ModVerificationInfo::fingerprintHostMods(hostMods);
+	EXPECT_EQ(approved.size(), 64U);
+	EXPECT_EQ(approved, ModVerificationInfo::fingerprintHostMods(hostMods));
+	ModVerificationInfo second = first;
+	second.version = CModVersion::fromString("1.1");
+	hostMods["lan-ci-fixture"] = second;
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintHostMods(hostMods));
+	hostMods["lan-ci-fixture"] = first;
+	hostMods["another-gameplay-mod"] = first;
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintHostMods(hostMods));
 }
 
 TEST(LanModSyncTest, AutomaticLanRejoinRequiresTheOriginalOneShotToken)
@@ -3099,7 +3121,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_TRUE(localOnly.downloadOrUpdate.empty());
 	ASSERT_EQ(localOnly.activate.count(stagedModId), 1);
 	const LanRejoinTarget savedHost{"127.0.0.1", static_cast<std::uint16_t>(port),
-		true, {"LAN integration guest"}, false};
+		true, {"LAN integration guest"}, false,
+		ModVerificationInfo::fingerprintHostMods(syncedMods->mods)};
 	beforeRelaunch.prepareInstalledOnlyLanSession(localOnly, savedHost);
 	const auto token = LanRelaunchToken::generate();
 	beforeRelaunch.prepareControlledRelaunch(token);
@@ -3111,6 +3134,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(resumedTarget->hostname, savedHost.hostname);
 	EXPECT_EQ(resumedTarget->port, savedHost.port);
 	EXPECT_EQ(resumedTarget->playerNames, savedHost.playerNames);
+	EXPECT_EQ(resumedTarget->approvedHostModsSha256, savedHost.approvedHostModsSha256);
 	const auto & activeAfterRelaunch = relaunchedGuest.getActiveMods();
 	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
 	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, activeAfterRelaunch))
@@ -3127,6 +3151,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_NE(freshLobby, nullptr);
 	EXPECT_TRUE(freshLobby->acceptingPlayers);
 	EXPECT_EQ(freshLobby->mods.size(), syncedMods->mods.size());
+	EXPECT_EQ(ModVerificationInfo::fingerprintHostMods(freshLobby->mods),
+		resumedTarget->approvedHostModsSha256);
 	if(requiredMod)
 	{
 		const auto requiredAfterRestart = freshLobby->mods.find(stagedModId);

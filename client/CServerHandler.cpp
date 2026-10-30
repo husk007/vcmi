@@ -1311,8 +1311,9 @@ void CServerHandler::sendGamePack(const CPackForServer & pack) const
 	logicConnection->sendPack(pack);
 }
 
-void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised, bool autoJoinAfterRelaunch)
+void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised, bool autoJoinAfterRelaunch, std::string approvedHostModsSha256)
 {
+	lobbyPreviewExpectedHostModsSha256 = std::move(approvedHostModsSha256);
 	lobbyPreviewMode = true;
 	lobbyPreviewCapabilityAdvertised = capabilityAdvertised;
 	lobbyPreviewAutoJoinAfterRelaunch = autoJoinAfterRelaunch;
@@ -1326,6 +1327,8 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised && extendedPreview != nullptr;
 	const ModArchiveManifest hostArchives = canPreviewLocalPreparation ? extendedPreview->archives : ModArchiveManifest{};
 	const bool resumeApprovedJoin = lobbyPreviewAutoJoinAfterRelaunch;
+	const std::string approvedHostModsSha256 = std::move(lobbyPreviewExpectedHostModsSha256);
+	lobbyPreviewExpectedHostModsSha256.clear();
 	lobbyPreviewMode = false;
 	lobbyPreviewCapabilityAdvertised = false;
 	lobbyPreviewAutoJoinAfterRelaunch = false;
@@ -1356,7 +1359,8 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 
 	const ModCompatibilityInfo hostMods = pack.mods;
 	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation,
-		localPlayerNames, screenType == ESelectionScreen::loadGame};
+		localPlayerNames, screenType == ESelectionScreen::loadGame,
+		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintHostMods(hostMods) : std::string{}};
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
 		[this, hostMods, canPreviewLocalPreparation, selectedHost]()
@@ -1413,7 +1417,10 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	{
 		if(auto room = ENGINE->windows().topWindow<GlobalLobbyRoomWindow>())
 		{
-			if(!room->joinIfCompatible())
+			const bool unchangedHostMods = approvedHostModsSha256.empty()
+				|| (canPreviewLocalPreparation
+					&& ModVerificationInfo::fingerprintHostMods(hostMods) == approvedHostModsSha256);
+			if(!unchangedHostMods || !room->joinIfCompatible())
 			{
 				// The approved host may have changed while the client was restarting.
 				// Do not leave the temporary LAN preset active after a rejected rejoin.

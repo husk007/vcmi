@@ -60,6 +60,26 @@ ModCompatibilityInfo ModVerificationInfo::jsonDeserializeList(const JsonNode & i
 	return output;
 }
 
+std::string ModVerificationInfo::fingerprintHostMods(const ModCompatibilityInfo & input)
+{
+	std::string representation;
+	const auto append = [&representation](const std::string & field)
+	{
+		representation += std::to_string(field.size()) + ":" + field;
+	};
+	for(const auto & [modId, mod] : input)
+	{
+		append(modId);
+		append(mod.version.toString());
+		append(mod.parent);
+		append(std::to_string(mod.checksum));
+		append(mod.impactsGameplay ? "1" : "0");
+	}
+	ModArchiveDigest::Sha256 digest;
+	digest.update(representation.data(), representation.size());
+	return digest.finish();
+}
+
 ModListVerificationStatus ModVerificationInfo::verifyListAgainstLocalMods(const ModCompatibilityInfo & modList)
 {
 	ModListVerificationStatus result;

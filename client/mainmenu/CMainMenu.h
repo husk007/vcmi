@@ -181,7 +181,7 @@ public:
 	void activate() override;
 	void onScreenResize() override;
 	void makeActiveInterface();
-	static void openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode = false, std::string server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false);
+	static void openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode = false, std::string server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 	static void openCampaignLobby(const std::string & campaignFileName, std::string campaignSet = "");
 	static void openCampaignLobby(std::shared_ptr<CampaignState> campaign);
 	static void startTutorial();
@@ -206,6 +206,7 @@ class CSimpleJoinScreen : public WindowBase
 	std::shared_ptr<CTextInput> inputPort;
 	bool lanModPreviewAdvertised = false;
 	bool autoJoinAfterRelaunch = false;
+	std::string approvedHostModsSha256;
 
 	void connectToServer();
 	void leaveScreen();
@@ -213,7 +214,7 @@ class CSimpleJoinScreen : public WindowBase
 	void startConnection(const std::string & addr = {}, ui16 port = 0);
 
 public:
-	CSimpleJoinScreen(bool host = true, const std::string & server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false);
+	CSimpleJoinScreen(bool host = true, const std::string & server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 };
 
 class CLoadingScreen : virtual public CWindowObject, virtual public Load::Progress
