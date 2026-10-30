@@ -1,1 +1,1 @@
-M1/M2 checkpoint: opt-in host lobby preview now carries whether the actual server still accepts new players. Verify a rejoining guest sees a busy host over real TCP and legacy preview packets remain unchanged; compile full desktop client and run LanModSyncTest.*.
+M2 functional checkpoint at 94ffd5b0: automatically restore the original personal mod preset and dismiss the stale LAN room when a previously approved post-relaunch join is rejected. Compile complete vcmiclient and run real LanModSyncTest.* including busy-host TCP preview.
