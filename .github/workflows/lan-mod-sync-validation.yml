@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -y --no-install-recommends install \
-            cmake ninja-build build-essential pkg-config ccache p7zip-full \
+            cmake ninja-build build-essential pkg-config ccache p7zip-full xvfb xauth \
             libcurl4-openssl-dev libboost-dev libboost-filesystem-dev \
             libboost-date-time-dev libboost-program-options-dev \
             libboost-iostreams-dev libsdl2-dev libsdl2-image-dev \
@@ -140,7 +140,10 @@ jobs:
           fi
           export VCMI_LAN_TEST_SERVER_PORT="$port"
           export VCMI_LAN_TEST_REQUIRED_MOD="lan-ci-fixture"
-          ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no || {
+          export VCMI_LAN_TEST_GUI_CLIENT=1
+          export SDL_AUDIODRIVER=dummy
+          xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+            ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no || {
             tail -n 120 "$RUNNER_TEMP/lan-real-host.log"
             exit 1
           }

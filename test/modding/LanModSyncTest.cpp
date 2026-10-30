@@ -2888,6 +2888,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
 		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
@@ -2914,7 +2915,13 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				// LobbyClientConnected is also broadcast when OTHER guests join.
 				// Only the first response assigns this host's own connection ID.
 				if(joined)
+				{
+					// Observe real guests accepted by the server, including the
+					// independently launched graphical client after LAN relaunch.
+					if(accepted->clientId != peer->connectionID)
+						observedGuestNames.insert(observedGuestNames.end(), accepted->names.begin(), accepted->names.end());
 					return;
+				}
 				if(accepted->clientId == GameConnectionID::INVALID)
 				{
 					error = "Real VCMI server returned an invalid host connection ID";
@@ -3178,6 +3185,110 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(restoredGuest.exportCurrentPreset().toCompactString(), personalPreset);
 	EXPECT_EQ(restoredGuest.getAllPresets(), personalPresets);
 	EXPECT_EQ(restoredGuest.getActiveMods(), personalMods);
+
+#if defined(__linux__) && !defined(VCMI_MOBILE)
+	if(std::getenv("VCMI_LAN_TEST_GUI_CLIENT"))
+	{
+		// Unlike the headless process test, this starts the real SDL client under
+		// a virtual display and observes its automatic join on the live server.
+		// The host is already registered, with lan-ci-fixture active.
+		ASSERT_NE(requiredMod, nullptr);
+		namespace fs = std::filesystem;
+		const auto executable = fs::current_path() / "vcmiclient";
+		ASSERT_TRUE(fs::is_regular_file(executable));
+		const auto sandbox = fs::temp_directory_path() / ("vcmi-lan-gui-" + LanRelaunchToken::generate());
+		const auto configRoot = sandbox / "config";
+		const auto modSettings = configRoot / "vcmi" / "modSettings.json";
+		ASSERT_TRUE(fs::create_directories(modSettings.parent_path()));
+		const auto removeSandbox = vstd::makeScopeGuard([&]()
+		{
+			std::error_code error;
+			fs::remove_all(sandbox, error);
+		});
+
+		JsonNode original;
+		original["activePreset"].String() = "personal";
+		original["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+		original["presets"]["personal"]["mods"].Vector().emplace_back("core");
+		original["presets"]["personal"]["settings"].Struct();
+		JsonNode staged = original;
+		LanModSessionState::begin(staged);
+		ModSyncPlan installed;
+		installed.activate.insert(requiredMod);
+		LanModSessionState::applyInstalledOnlyPlan(staged, installed);
+		const std::string guiGuestName = "LAN GUI relaunch guest";
+		LanModSessionState::setRejoinTarget(staged,
+			{"127.0.0.1", static_cast<std::uint16_t>(port), true, {guiGuestName}, false,
+				ModVerificationInfo::fingerprintHostMods(syncedMods->mods)});
+		const std::string token = LanRelaunchToken::generate();
+		LanModSessionState::prepareControlledRelaunch(staged, token);
+		const std::string originalBytes = original.toCompactString();
+		ASSERT_TRUE(AtomicModSettings::replace(modSettings, originalBytes));
+		ASSERT_TRUE(LanModRecoveryJournal::persist(modSettings, originalBytes));
+		ASSERT_TRUE(AtomicModSettings::replace(modSettings, staged.toCompactString()));
+
+		pid_t guiPid = ::fork();
+		if(guiPid == 0)
+		{
+			::setenv("XDG_CONFIG_HOME", configRoot.c_str(), 1);
+			::setenv("SDL_AUDIODRIVER", "dummy", 1);
+			::execl(executable.c_str(), executable.c_str(), "--nointro",
+				"--logLocation", sandbox.c_str(), "--lan-relaunch-token", token.c_str(),
+				static_cast<char *>(nullptr));
+			::_exit(127);
+		}
+		ASSERT_GT(guiPid, 0);
+		const auto stopClient = vstd::makeScopeGuard([&]()
+		{
+			if(guiPid > 0)
+			{
+				::kill(guiPid, SIGKILL);
+				int status = 0;
+				while(::waitpid(guiPid, &status, 0) == -1 && errno == EINTR) {}
+				guiPid = -1;
+			}
+		});
+		bool guiJoined = false;
+		for(int attempt = 0; attempt < 120 && !guiJoined; ++attempt)
+		{
+			network->getContext().restart();
+			network->getContext().run_for(std::chrono::milliseconds(250));
+			guiJoined = std::find(host.observedGuestNames.begin(), host.observedGuestNames.end(),
+				guiGuestName) != host.observedGuestNames.end();
+			int status = 0;
+			if(!guiJoined && ::waitpid(guiPid, &status, WNOHANG) == guiPid)
+			{
+				guiPid = -1;
+				break;
+			}
+		}
+		if(!guiJoined)
+		{
+			const auto logFile = sandbox / "VCMI_Client_log.txt";
+			std::ifstream log(logFile);
+			if(log)
+			{
+				const std::string contents((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+				ADD_FAILURE() << "Real GUI LAN rejoin failed. Client log tail: "
+					<< contents.substr(contents.size() > 2500 ? contents.size() - 2500 : 0);
+			}
+		}
+		EXPECT_TRUE(guiJoined) << "Real graphical vcmiclient did not automatically join the live LAN host";
+		if(guiJoined)
+		{
+			std::ifstream configFile(modSettings, std::ios::binary);
+			const std::string bytes((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
+			JsonNode state(bytes.data(), bytes.size(), "GUI LAN guest mod settings");
+			EXPECT_EQ(state["activePreset"].String(), LanModSessionState::temporaryPresetName());
+			const auto & tempMods = state["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector();
+			EXPECT_NE(std::find(tempMods.begin(), tempMods.end(), JsonNode(requiredMod)), tempMods.end());
+			EXPECT_TRUE(state["lanSession"]["relaunchToken"].isNull());
+		}
+		// Leave crash recovery to the separate real-process regression test.
+		// The live-host assertion above proves that GUI startup, UDP capability
+		// probe, TCP mod preview and automatic lobby join all actually ran.
+	}
+#endif
 
 	network->stop();
 }
