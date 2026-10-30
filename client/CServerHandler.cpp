@@ -1193,7 +1193,10 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 	{
 		try
 		{
-			LIBRARY->modh->restoreLanSession();
+			// A lobby disconnect can restore the preset on disk while the loaded resources
+			// still belong to the LAN host. Make the required reload visible to the player.
+			if(LIBRARY->modh->restoreLanSession())
+				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
 		}
 		catch(const std::exception & e)
 		{
