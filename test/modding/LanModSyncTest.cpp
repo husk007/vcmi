@@ -3212,6 +3212,45 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(restoredGuest.getAllPresets(), personalPresets);
 	EXPECT_EQ(restoredGuest.getActiveMods(), personalMods);
 
+	// Join the same independent LAN host a second time. After the first match
+	// the player's personal root mods and submods must not leak into this join,
+	// and the previously installed host mod needs activation, not a download.
+	ModsPresetState repeatedGuest(true);
+	repeatedGuest.prepareInstalledOnlyLanSession(localOnly, savedHost);
+	const std::string repeatedToken = LanRelaunchToken::generate();
+	repeatedGuest.prepareControlledRelaunch(repeatedToken);
+	ModManager repeatedRelaunch(JsonNode(), true, {}, repeatedToken);
+	const auto repeatedTarget = repeatedRelaunch.consumeLanRejoinTarget();
+	ASSERT_TRUE(repeatedTarget.has_value());
+	EXPECT_EQ(repeatedTarget->approvedHostModsSha256, savedHost.approvedHostModsSha256);
+	EXPECT_TRUE(localOnly.downloadOrUpdate.empty());
+	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, repeatedRelaunch.getActiveMods()))
+		<< "Second LAN join loaded a different mod set";
+
+	PreviewGuest repeatedPreview(true);
+	network->getContext().restart();
+	network->connectToRemote(repeatedPreview, repeatedTarget->hostname, repeatedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(repeatedPreview.error.empty()) << repeatedPreview.error;
+	const auto * repeatedHost = dynamic_cast<LobbyModSyncPreview *>(repeatedPreview.response.get());
+	ASSERT_NE(repeatedHost, nullptr);
+	EXPECT_EQ(ModVerificationInfo::fingerprintHostMods(repeatedHost->mods),
+		repeatedTarget->approvedHostModsSha256);
+
+	JoinGuest repeatedConnection;
+	network->getContext().restart();
+	network->connectToRemote(repeatedConnection, repeatedTarget->hostname, repeatedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(repeatedConnection.joined) << "Second join to independent LAN host failed: " << repeatedConnection.error;
+	EXPECT_EQ(repeatedConnection.assignedHostId, originalHostId);
+	repeatedConnection.connection->close();
+	repeatedRelaunch.restoreLanSession();
+	ModsPresetState restoredAgain(true);
+	EXPECT_EQ(restoredAgain.getActivePreset(), personalName);
+	EXPECT_EQ(restoredAgain.exportCurrentPreset().toCompactString(), personalPreset);
+	EXPECT_EQ(restoredAgain.getAllPresets(), personalPresets);
+	EXPECT_EQ(restoredAgain.getActiveMods(), personalMods);
+
 #if defined(__linux__) && !defined(VCMI_MOBILE)
 	if(std::getenv("VCMI_LAN_TEST_GUI_CLIENT"))
 	{
