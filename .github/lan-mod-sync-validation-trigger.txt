@@ -1,3 +1,3 @@
-M2 validation checkpoint for code commit 050547ddb985a892df5c7fbc4cc998b24c4d5026.
-CI #41110957126 compiled real vcmitest, vcmiserver and vcmiclient; 92/93 LAN tests passed.
-Retest the real-host double join after excluding forced vcmi-test from the test-only excessive-mod plan. Validate both joins, restored root/submod settings, and legacy preview. No proprietary Heroes III assets are included.
+M2 implementation checkpoint: a624d9dd041b57dfd967c9212c403361e4b9fc38
+Verify full VCMI desktop build and LanModSyncTest.* after connecting lobby and preview rollback to a controlled, argument-free relaunch with restored personal mods.
+Previous Linux CI #41126748632 passed 93/93 tests on 9302d1a. New test checks a spawned replacement receives no LAN rejoin token. No proprietary game data included.
