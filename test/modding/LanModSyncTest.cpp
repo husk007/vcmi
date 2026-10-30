@@ -2864,5 +2864,74 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_NE(std::find(occupiedLobby->participantNames.begin(), occupiedLobby->participantNames.end(),
 		"LAN integration guest"), occupiedLobby->participantNames.end());
 
+	// Exercise the real-host reconnection path alongside VCMI's durable installed-only
+	// mod preset. The independent server remains alive while the guest disconnects,
+	// stages a previously disabled local mod, and loads its saved rejoin endpoint.
+	guest.connection->close();
+	ModsPresetState beforeRelaunch(true);
+	const auto personalName = beforeRelaunch.getActivePreset();
+	const auto personalPreset = beforeRelaunch.exportCurrentPreset().toCompactString();
+	const auto personalPresets = beforeRelaunch.getAllPresets();
+	const auto personalMods = beforeRelaunch.getActiveMods();
+	ASSERT_EQ(std::find(personalMods.begin(), personalMods.end(), "roe-demo"), personalMods.end())
+		<< "Integration fixture needs the installed RoE demo initially disabled";
+	const auto restoreGuestSettings = vstd::makeScopeGuard([]()
+	{
+		try
+		{
+			ModsPresetState recovery(true);
+			recovery.restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			ADD_FAILURE() << "Could not restore actual guest mod settings after LAN test: " << e.what();
+		}
+	});
+
+	ModSyncPlan localOnly;
+	localOnly.activate.insert("roe-demo");
+	ASSERT_TRUE(localOnly.downloadOrUpdate.empty());
+	const LanRejoinTarget savedHost{"127.0.0.1", static_cast<std::uint16_t>(port),
+		true, {"LAN integration guest"}, false};
+	beforeRelaunch.prepareInstalledOnlyLanSession(localOnly, savedHost);
+	const auto token = LanRelaunchToken::generate();
+	beforeRelaunch.prepareControlledRelaunch(token);
+	ModsPresetState relaunchedGuest(true, token);
+	const auto resumedTarget = relaunchedGuest.consumeLanRejoinTarget();
+	ASSERT_TRUE(resumedTarget.has_value());
+	EXPECT_EQ(resumedTarget->hostname, savedHost.hostname);
+	EXPECT_EQ(resumedTarget->port, savedHost.port);
+	EXPECT_EQ(resumedTarget->playerNames, savedHost.playerNames);
+	const auto activeAfterRelaunch = relaunchedGuest.getActiveMods();
+	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), "roe-demo"), activeAfterRelaunch.end());
+
+	// The saved endpoint must lead back to the actual running host, not a test
+	// socket double. Preview again, then reconnect under the original player name.
+	PreviewGuest resumedPreview(true);
+	network->getContext().restart();
+	network->connectToRemote(resumedPreview, resumedTarget->hostname, resumedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(resumedPreview.error.empty()) << resumedPreview.error;
+	const auto * freshLobby = dynamic_cast<LobbyModSyncPreview *>(resumedPreview.response.get());
+	ASSERT_NE(freshLobby, nullptr);
+	EXPECT_TRUE(freshLobby->acceptingPlayers);
+	EXPECT_EQ(freshLobby->mods.size(), syncedMods->mods.size());
+
+	JoinGuest resumedConnection;
+	network->getContext().restart();
+	network->connectToRemote(resumedConnection, resumedTarget->hostname, resumedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(resumedConnection.joined) << "Relaunched guest could not rejoin live host: " << resumedConnection.error;
+	EXPECT_EQ(resumedConnection.assignedHostId, host.peer->connectionID);
+	EXPECT_NE(resumedConnection.assignedClientId, guest.assignedClientId);
+
+	resumedConnection.connection->close();
+	relaunchedGuest.restoreLanSession();
+	ModsPresetState restoredGuest(true);
+	EXPECT_EQ(restoredGuest.getActivePreset(), personalName);
+	EXPECT_EQ(restoredGuest.exportCurrentPreset().toCompactString(), personalPreset);
+	EXPECT_EQ(restoredGuest.getAllPresets(), personalPresets);
+	EXPECT_EQ(restoredGuest.getActiveMods(), personalMods);
+
 	network->stop();
 }
