@@ -102,6 +102,7 @@ jobs:
           cat > "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/mod.json" <<'JSON'
           {
             "name": "LAN CI installed-only fixture",
+            "author": "VCMI LAN integration tests",
             "version": "1.0",
             "modType": "Mechanics",
             "keepDisabled": true,
@@ -140,7 +141,12 @@ jobs:
           fi
           export VCMI_LAN_TEST_SERVER_PORT="$port"
           export VCMI_LAN_TEST_REQUIRED_MOD="lan-ci-fixture"
-          export VCMI_LAN_TEST_GUI_CLIENT=1
+          # The public vcmi-test-data fixture has no complete Heroes III GUI sprites.
+          # The previous graphical client smoke test reached CRADVNTR and exited
+          # before attempting LAN rejoin. Do not report that as an M2 code failure.
+          # Run the opt-in GUI branch of LanModSyncTest only on a machine with
+          # the owner\x27s legally installed full Heroes III graphical data.
+          echo "::notice title=GUI LAN rejoin not validated::Public fixture lacks full Heroes III graphical resources (CRADVNTR). Real GUI M2 acceptance requires a licensed local installation."
           export SDL_AUDIODRIVER=dummy
           xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
             ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no || {
