@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -2677,4 +2678,124 @@ TEST(LanModSyncTest, ActualTestPresetRoundTripsInstalledOnlyRelaunchThroughDisk)
 	EXPECT_EQ(restored.exportCurrentPreset().toCompactString(), personalPreset);
 	EXPECT_EQ(restored.getAllPresets(), personalPresets);
 	EXPECT_EQ(restored.getActiveMods(), personalActive);
+}
+
+TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview)
+{
+	// The workflow launches a separate real vcmiserver. No stub host is used.
+	const char * portText = std::getenv("VCMI_LAN_TEST_SERVER_PORT");
+	if(!portText)
+		GTEST_SKIP() << "Requires an independent vcmiserver process";
+	const int port = std::stoi(portText);
+	ASSERT_GT(port, 0);
+	ASSERT_LE(port, 65535);
+
+	auto network = INetworkHandler::createHandler();
+	struct HostClient final : INetworkClientListener
+	{
+		NetworkConnectionPtr connection;
+		std::unique_ptr<GameConnection> peer;
+		std::string error;
+		bool joined = false;
+
+		void onConnectionFailed(const std::string & reason) override { error = reason; }
+		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
+		{
+			connection = ready;
+			peer = std::make_unique<GameConnection>(ready);
+			peer->enterLobbyConnectionMode();
+			LobbyClientConnected join;
+			join.uuid = "00000000-0000-4000-8000-000000000001";
+			join.names = {"LAN integration host"};
+			join.mode = EStartMode::NEW_GAME;
+			peer->sendPack(join);
+		}
+		void onDisconnected(const NetworkConnectionPtr &, const std::string & reason) override
+		{
+			if(!joined)
+				error = reason;
+		}
+		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
+		{
+			auto packet = peer->retrievePack(bytes);
+			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
+			{
+				joined = true;
+				peer->connectionID = accepted->clientId;
+				peer->setSerializationVersion(accepted->version);
+			}
+		}
+	} host;
+
+	network->connectToRemote(host, "127.0.0.1", static_cast<std::uint16_t>(port));
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(host.joined) << "Real VCMI host did not accept a lobby player: " << host.error;
+
+	struct PreviewGuest final : INetworkClientListener
+	{
+		explicit PreviewGuest(bool optIn) : wantsModSync(optIn) {}
+		bool wantsModSync;
+		std::string error;
+		NetworkConnectionPtr connection;
+		std::unique_ptr<GameConnection> peer;
+		std::unique_ptr<CPack> response;
+
+		void onConnectionFailed(const std::string & reason) override { error = reason; }
+		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
+		{
+			connection = ready;
+			peer = std::make_unique<GameConnection>(ready);
+			peer->enterLobbyConnectionMode();
+			if(wantsModSync)
+			{
+				LobbyQueryModSync query;
+				peer->sendPack(query);
+			}
+			else
+			{
+				LobbyQueryState query;
+				peer->sendPack(query);
+			}
+		}
+		void onDisconnected(const NetworkConnectionPtr &, const std::string & reason) override
+		{
+			if(!response)
+				error = reason;
+		}
+		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
+		{
+			if(!response)
+				response = peer->retrievePack(bytes);
+		}
+	} legacy(false), optIn(true);
+
+	network->getContext().restart();
+	network->connectToRemote(legacy, "127.0.0.1", static_cast<std::uint16_t>(port));
+	network->connectToRemote(optIn, "127.0.0.1", static_cast<std::uint16_t>(port));
+	network->getContext().run_for(std::chrono::seconds(4));
+
+	ASSERT_TRUE(legacy.error.empty()) << legacy.error;
+	ASSERT_TRUE(optIn.error.empty()) << optIn.error;
+	const auto * legacyMods = dynamic_cast<LobbyModsCheck *>(legacy.response.get());
+	const auto * syncedMods = dynamic_cast<LobbyModSyncPreview *>(optIn.response.get());
+	ASSERT_NE(legacyMods, nullptr);
+	ASSERT_NE(syncedMods, nullptr);
+	EXPECT_EQ(dynamic_cast<LobbyModSyncPreview *>(legacy.response.get()), nullptr);
+	EXPECT_EQ(legacyMods->vcmiVersion, VCMI_VERSION_STRING);
+	EXPECT_EQ(syncedMods->vcmiVersion, legacyMods->vcmiVersion);
+	EXPECT_EQ(legacyMods->hostAccountDisplayName, "LAN integration host");
+	EXPECT_EQ(syncedMods->hostAccountDisplayName, legacyMods->hostAccountDisplayName);
+	EXPECT_EQ(legacyMods->participantNames, syncedMods->participantNames);
+	ASSERT_EQ(legacyMods->participantNames.size(), 1);
+	EXPECT_FALSE(legacyMods->mods.empty());
+	EXPECT_EQ(syncedMods->mods.size(), legacyMods->mods.size());
+	for(const auto & [id, mod] : legacyMods->mods)
+	{
+		const auto found = syncedMods->mods.find(id);
+		ASSERT_NE(found, syncedMods->mods.end()) << id;
+		EXPECT_EQ(found->second.version, mod.version);
+		EXPECT_EQ(found->second.name, mod.name);
+	}
+	EXPECT_TRUE(syncedMods->acceptingPlayers);
+	network->stop();
 }

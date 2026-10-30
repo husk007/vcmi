@@ -64,6 +64,9 @@ jobs:
       - name: Build LAN host lobby TCP code
         run: cmake --build --preset linux-gcc-test --target vcmiservercommon --parallel 2
 
+      - name: Build real LAN host executable
+        run: cmake --build --preset linux-gcc-test --target vcmiserver --parallel 2
+
       - name: Link complete desktop client and validate its entry point
         run: |
           cmake --build --preset linux-gcc-test --target vcmiclient --parallel 2
@@ -94,10 +97,27 @@ jobs:
           mkdir -p "$HOME/.local/share/vcmi"
           7z x -y "${RUNNER_TEMP}/heroes3.7z" -o"$HOME/.local/share/vcmi"
 
-      - name: Run committed LAN unit tests
+      - name: Run committed LAN tests against independent VCMI host
         working-directory: out/build/linux-gcc-test/bin
+        shell: bash
         run: |
-          ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no
+          set -euo pipefail
+          port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+          ./vcmiserver --port "$port" > "$RUNNER_TEMP/lan-real-host.log" 2>&1 &
+          host_pid=$!
+          trap 'kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true' EXIT
+          # A disposable TCP readiness probe would shut down a host without players.
+          # The integration test registers a real lobby host before previewing it.
+          sleep 10
+          if ! kill -0 "$host_pid" 2>/dev/null; then
+            tail -n 120 "$RUNNER_TEMP/lan-real-host.log"
+            exit 1
+          fi
+          export VCMI_LAN_TEST_SERVER_PORT="$port"
+          ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no || {
+            tail -n 120 "$RUNNER_TEMP/lan-real-host.log"
+            exit 1
+          }
 
       - name: Preserve configure/build logs for debugging
         if: failure()

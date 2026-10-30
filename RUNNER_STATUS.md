@@ -1,6 +1,6 @@
 # VCMI Hourly Runner — current state
 
-**Last management review:** 2026-10-29, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
+**Last management review:** 2026-10-30, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
 
 ## Configuration
 
@@ -14,7 +14,7 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #40976444839](https://github.com/husk007/vcmi/actions/runs/40976444839) completed successfully on `39ec9a9` (2026-10-30): built `vcmitest`, `vcmiclientcommon`, `vcmiservercommon` and complete `vcmiclient` (`--help` PASS); **88/88 `LanModSyncTest.*` PASS**. No real two-client LAN game yet. | TEST_PASS (vcmitest) |
+| M0 real vcmitest + LAN GoogleTests | [CI #40994502542](https://github.com/husk007/vcmi/actions/runs/40994502542) completed successfully on `9896a26` (2026-10-30): built `vcmitest`, `vcmiclientcommon`, `vcmiservercommon` and complete `vcmiclient` (`--help` PASS); **89/89 `LanModSyncTest.*` PASS**, including real persisted preset relaunch/restore. No real two-client LAN game yet. | TEST_PASS (vcmitest) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Installed-only staging passed **79/79** tests in CI #40838909050 (2026-10-29). One-shot rejoin built and 81/81 tests passed in CI #40846276198. Failed-preview cleanup compiled and passed **82/82** in [CI #40860763346](https://github.com/husk007/vcmi/actions/runs/40860763346). Installed-only stage checks actual dependency resolution before restart and rolls back on unresolved host mods; **83/83** tests passed in [CI #40868852556](https://github.com/husk007/vcmi/actions/runs/40868852556). One-shot auto-continue after restart compiled and passed in CI #40896125797; joins only after a fresh compatible lobby preview. Two-client gameplay and restoration remain untested. | CODE_ONLY (auto-continue); TEST_PASS (existing unit) |
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Confirm the automatic rejoin rejection rollback in the next scoped CI checkpoint; then test two real clients.
+1. Validate the new real-vcmiserver host/guest lobby fixture in CI; then test two real gameplay clients.
 2. Exercise an installed-but-disabled mod through restart, rejoin and exact restoration with two actual LAN clients.
 3. Add explicit first-use trust and license checks before any host archive transfer; keep proprietary game assets excluded.
 4. Bind M3 cache reuse and M4 host transfer after host package identity/version validation.
