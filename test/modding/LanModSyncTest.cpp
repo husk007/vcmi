@@ -3093,6 +3093,20 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	// stages a previously disabled local mod, and loads its saved rejoin endpoint.
 	guest.connection->close();
 	ModsPresetState beforeRelaunch(true);
+	const std::string guestOnlyMod = "roe-demo";
+	const auto initialGuestMods = beforeRelaunch.getActiveMods();
+	const bool guestOnlyInitiallyActive =
+		std::find(initialGuestMods.begin(), initialGuestMods.end(), guestOnlyMod) != initialGuestMods.end();
+	if(requiredMod)
+	{
+		// A real guest may have a private gameplay mod that the host does not use.
+		// The LAN preset must disable it, then restore it after the guest leaves.
+		ASSERT_EQ(syncedMods->mods.count(guestOnlyMod), 0);
+		const auto & installed = LIBRARY->modh->getAllMods();
+		ASSERT_NE(std::find(installed.begin(), installed.end(), guestOnlyMod), installed.end());
+		beforeRelaunch.setModActive(guestOnlyMod, true);
+		beforeRelaunch.saveConfigurationState();
+	}
 	const auto personalName = beforeRelaunch.getActivePreset();
 	const auto personalPreset = beforeRelaunch.exportCurrentPreset().toCompactString();
 	const auto personalPresets = beforeRelaunch.getAllPresets();
@@ -3100,12 +3114,19 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	const std::string stagedModId = requiredMod ? requiredMod : "roe-demo";
 	ASSERT_EQ(std::find(personalMods.begin(), personalMods.end(), stagedModId), personalMods.end())
 		<< "Integration fixture needs the host-required mod initially disabled";
-	const auto restoreGuestSettings = vstd::makeScopeGuard([]()
+	const auto restoreGuestSettings = vstd::makeScopeGuard([requiredMod, guestOnlyMod, guestOnlyInitiallyActive]()
 	{
 		try
 		{
 			ModsPresetState recovery(true);
 			recovery.restoreLanSession();
+			if(requiredMod)
+			{
+				// Undo only the test's personal-mod modification after checking that
+				// the LAN recovery restored it exactly.
+				recovery.setModActive(guestOnlyMod, guestOnlyInitiallyActive);
+				recovery.saveConfigurationState();
+			}
 		}
 		catch(const std::exception & e)
 		{
@@ -3116,14 +3137,16 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ModSyncPlan localOnly;
 	if(requiredMod)
 	{
-		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
+		// Build the complete plan for the live host, rather than testing just
+		// one required mod. The guest-only mod is active in the personal preset.
+		auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
 		const auto found = statuses.find(stagedModId);
 		ASSERT_NE(found, statuses.end());
-		ModListVerificationStatus hostRequirement;
-		hostRequirement[stagedModId] = found->second;
-		const auto planFromHost = ModVerificationInfo::buildInstalledOnlyPlan(hostRequirement);
+		statuses[guestOnlyMod] = ModVerificationStatus::EXCESSIVE;
+		const auto planFromHost = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
 		ASSERT_TRUE(planFromHost.has_value());
 		localOnly = *planFromHost;
+		EXPECT_EQ(localOnly.deactivate.count(guestOnlyMod), 1);
 	}
 	else
 		localOnly.activate.insert(stagedModId);
@@ -3146,6 +3169,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(resumedTarget->approvedHostModsSha256, savedHost.approvedHostModsSha256);
 	const auto & activeAfterRelaunch = relaunchedGuest.getActiveMods();
 	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
+	if(requiredMod)
+		EXPECT_EQ(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), guestOnlyMod), activeAfterRelaunch.end())
+			<< "LAN guest must not load private gameplay mods absent from the host";
 	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, activeAfterRelaunch))
 		<< "Reloaded client did not resolve the gameplay mods required by the live host";
 
