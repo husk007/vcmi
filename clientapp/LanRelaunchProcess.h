@@ -60,11 +60,11 @@ inline std::filesystem::path executableForRelaunch(
 }
 
 /// A successful return means the replacement was started, not that it finished initialization.
-inline std::uint64_t spawn(const std::filesystem::path & executable, const std::string & token)
+inline std::uint64_t spawnImpl(const std::filesystem::path & executable, const std::string * token)
 {
 	if(executable.empty())
 		throw std::invalid_argument("LAN relaunch executable path is empty");
-	if(!isValidToken(token))
+	if(token && !isValidToken(*token))
 		throw std::invalid_argument("LAN relaunch token must contain 64 lowercase hexadecimal characters");
 
 	#if defined(__linux__)
@@ -75,8 +75,12 @@ inline std::uint64_t spawn(const std::filesystem::path & executable, const std::
 #ifdef _WIN32
 	const std::wstring binary = absoluteExecutable.native();
 	// Windows executable paths cannot contain double quotes. The token contains only hex digits.
-	std::wstring command = L"\"" + binary + L"\" --lan-relaunch-token ";
-	command.append(token.begin(), token.end());
+	std::wstring command = L"\"" + binary + L"\"";
+	if(token)
+	{
+		command += L" --lan-relaunch-token ";
+		command.append(token->begin(), token->end());
+	}
 	std::vector<wchar_t> writable(command.begin(), command.end());
 	writable.push_back(L'\0');
 
@@ -94,14 +98,26 @@ inline std::uint64_t spawn(const std::filesystem::path & executable, const std::
 #else
 	std::string binary = absoluteExecutable.native();
 	std::string option = "--lan-relaunch-token";
-	std::string marker = token;
-	char * arguments[] = {binary.data(), option.data(), marker.data(), nullptr};
+	std::string marker = token ? *token : std::string{};
+	char * withToken[] = {binary.data(), option.data(), marker.data(), nullptr};
+	char * noToken[] = {binary.data(), nullptr};
 	pid_t pid{};
-	const int result = ::posix_spawn(&pid, binary.c_str(), nullptr, nullptr, arguments, environ);
+	const int result = ::posix_spawn(&pid, binary.c_str(), nullptr, nullptr, token ? withToken : noToken, environ);
 	if(result != 0)
 		throw std::system_error(result, std::generic_category(), "Unable to spawn LAN relaunch client");
 	return static_cast<std::uint64_t>(pid);
 #endif
+}
+
+inline std::uint64_t spawn(const std::filesystem::path & executable, const std::string & token)
+{
+	return spawnImpl(executable, &token);
+}
+
+/// The original mod preset is already restored; pass no one-shot LAN rejoin token.
+inline std::uint64_t spawnRestoredPreset(const std::filesystem::path & executable)
+{
+	return spawnImpl(executable, nullptr);
 }
 
 /// Persist the one-shot marker before spawning; restore the player's preset if handoff fails.

@@ -97,6 +97,18 @@ bool CModHandler::consumeLanRelaunchRequest()
 	return lanRelaunchRequested.exchange(false, std::memory_order_acq_rel);
 }
 
+void CModHandler::requestLanRestoreRelaunch()
+{
+	if(modManager->getActivePreset() == LanModSessionState::temporaryPresetName())
+		throw std::runtime_error("Cannot restart personal mods before restoring the LAN preset");
+	lanRestoreRelaunchRequested.store(true, std::memory_order_release);
+}
+
+bool CModHandler::consumeLanRestoreRelaunchRequest()
+{
+	return lanRestoreRelaunchRequested.exchange(false, std::memory_order_acq_rel);
+}
+
 std::string CModHandler::prepareControlledLanRelaunch()
 {
 	return modManager->prepareControlledRelaunch();

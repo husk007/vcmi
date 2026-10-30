@@ -71,6 +71,23 @@
 
 #include <vcmi/events/EventBus.h>
 
+// The LAN preset is already restored on disk. Exit the old asset-loading process
+// through the GUI loop, then launch the normal client with no rejoin token.
+static void restartAfterRestoringLanMods()
+{
+	if(!ENGINE || !LIBRARY || !LIBRARY->modh)
+		return;
+#if !defined(VCMI_MOBILE)
+	LIBRARY->modh->requestLanRestoreRelaunch();
+	ENGINE->dispatchMainThread([]()
+	{
+		GAME->onShutdownRequested(false);
+	});
+#else
+	CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+#endif
+}
+
 
 CServerHandler::~CServerHandler()
 {
@@ -282,7 +299,8 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 		{
 			try
 			{
-				LIBRARY->modh->restoreLanSession();
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
 			}
 			catch(const std::exception & e)
 			{
@@ -308,7 +326,8 @@ void CServerHandler::onTimer()
 		{
 			try
 			{
-				LIBRARY->modh->restoreLanSession();
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
 			}
 			catch(const std::exception & e)
 			{
@@ -507,7 +526,7 @@ void CServerHandler::sendClientDisconnecting()
 		try
 		{
 			if(LIBRARY->modh->restoreLanSession())
-				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+				restartAfterRestoringLanMods();
 		}
 		catch(const std::exception & e)
 		{
@@ -1161,7 +1180,8 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		{
 			try
 			{
-				LIBRARY->modh->restoreLanSession();
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
 			}
 			catch(const std::exception & e)
 			{
@@ -1196,7 +1216,7 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 			// A lobby disconnect can restore the preset on disk while the loaded resources
 			// still belong to the LAN host. Make the required reload visible to the player.
 			if(LIBRARY->modh->restoreLanSession())
-				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+				restartAfterRestoringLanMods();
 		}
 		catch(const std::exception & e)
 		{
@@ -1400,7 +1420,8 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			{
 				try
 				{
-					LIBRARY->modh->restoreLanSession();
+					if(LIBRARY->modh->restoreLanSession())
+						restartAfterRestoringLanMods();
 				}
 				catch(const std::exception & e)
 				{
@@ -1429,7 +1450,8 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 				// Do not leave the temporary LAN preset active after a rejected rejoin.
 				try
 				{
-					LIBRARY->modh->restoreLanSession();
+					if(LIBRARY->modh->restoreLanSession())
+						restartAfterRestoringLanMods();
 				}
 				catch(const std::exception & e)
 				{

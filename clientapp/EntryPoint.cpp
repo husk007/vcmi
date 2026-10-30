@@ -529,6 +529,18 @@ int main(int argc, char * argv[])
 					logGlobal->error("Controlled LAN client relaunch failed: %s", e.what());
 				}
 			}
+			else if(LIBRARY && LIBRARY->modh && LIBRARY->modh->consumeLanRestoreRelaunchRequest())
+			{
+				try
+				{
+					const auto pid = LanRelaunchProcess::spawnRestoredPreset(lanRelaunchExecutable);
+					logGlobal->info("Restarted client with personal mods, process ID: %llu", static_cast<unsigned long long>(pid));
+				}
+				catch(const std::exception & error)
+				{
+					logGlobal->error("Unable to restart client with personal mods: %s", error.what());
+				}
+			}
 #endif
 
 			// Restore personal mod settings only after the game has released its resources.

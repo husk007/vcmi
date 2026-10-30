@@ -28,6 +28,7 @@ class DLL_LINKAGE CModHandler final : boost::noncopyable
 {
 	std::unique_ptr<ModManager> modManager;
 	std::atomic_bool lanRelaunchRequested{false};
+	std::atomic_bool lanRestoreRelaunchRequested{false};
 	std::map<std::string, uint32_t> modChecksums;
 	std::set<std::string> validationPassed;
 
@@ -96,6 +97,9 @@ public:
 	/// Request a one-shot relaunch after gameplay resources are released.
 	void requestLanRelaunch();
 	bool consumeLanRelaunchRequest();
+	/// Restart a desktop client with its restored personal preset, without rejoining the LAN host.
+	void requestLanRestoreRelaunch();
+	bool consumeLanRestoreRelaunchRequest();
 	std::string prepareControlledLanRelaunch();
 	/// Restore the player's original preset on a clean shutdown, unless relaunch is pending.
 	void restoreLanSessionOnShutdown();

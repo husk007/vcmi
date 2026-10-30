@@ -1962,6 +1962,33 @@ TEST(LanModSyncTest, DesktopRelaunchUsesOriginalAppImageInsteadOfTemporaryMount)
 }
 #endif
 
+#if !defined(VCMI_MOBILE) && !defined(_WIN32)
+TEST(LanModSyncTest, RestoredPersonalPresetRestartDoesNotPassLanRejoinToken)
+{
+	namespace fs = std::filesystem;
+	const auto directory = fs::temp_directory_path() / ("vcmi-lan-personal-restart-" + LanRelaunchToken::generate());
+	fs::create_directories(directory);
+	const auto cleanup = vstd::makeScopeGuard([&]()
+	{
+		std::error_code ignored;
+		fs::remove_all(directory, ignored);
+	});
+
+	const auto executable = directory / "check-no-lan-token.sh";
+	{
+		std::ofstream script(executable);
+		ASSERT_TRUE(script.good());
+		script << "#!/bin/sh\n[ \"$#\" -eq 0 ]\n";
+	}
+	fs::permissions(executable, fs::perms::owner_exec, fs::perm_options::add);
+	const auto pid = LanRelaunchProcess::spawnRestoredPreset(executable);
+	int status = 0;
+	ASSERT_EQ(::waitpid(static_cast<pid_t>(pid), &status, 0), static_cast<pid_t>(pid));
+	ASSERT_TRUE(WIFEXITED(status));
+	EXPECT_EQ(WEXITSTATUS(status), 0);
+}
+#endif
+
 #ifndef VCMI_MOBILE
 TEST(LanModSyncTest, DesktopRelaunchResolvesActualExecutablePath)
 {
