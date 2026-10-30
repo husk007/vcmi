@@ -1,1 +1,1 @@
-M2 fix actual CI #41051813021 (91/92): process crash-recovery fixture now persists original settings and durable LAN backup before relaunch; code b0158efad1f7beb3827cf80dabe0eab1df50a2ce, status c6f242e58f0d5166562910caf7276ccc5350f1df
+M2 CI #41058914568 failed 1/92 after crash restoration: original process fixture omitted VCMI auto-normalized built-in core mod. Seed core in the original personal preset and validate exact restoration; base a0e53debaba0be63bbf287fdfdaea31d9edc4e16

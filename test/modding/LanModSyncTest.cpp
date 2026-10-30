@@ -2158,6 +2158,8 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 	JsonNode original;
 	original["activePreset"].String() = "personal";
 	original["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	// The real client persists the built-in core mod in every normalized preset.
+	original["presets"]["personal"]["mods"].Vector().emplace_back("core");
 	original["presets"]["personal"]["settings"].Struct();
 	JsonNode session = original;
 	LanModSessionState::begin(session);
