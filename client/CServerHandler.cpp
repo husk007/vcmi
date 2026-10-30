@@ -1318,6 +1318,7 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		networkConnection.reset();
 	}
 	logicConnection.reset();
+	setState(EClientState::NONE);
 
 	GlobalLobbyRoom roomDescription;
 	roomDescription.gameVersion = pack.vcmiVersion;
@@ -1392,6 +1393,26 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	if(resumeApprovedJoin)
 	{
 		if(auto room = ENGINE->windows().topWindow<GlobalLobbyRoomWindow>())
-			room->joinIfCompatible();
+		{
+			if(!room->joinIfCompatible())
+			{
+				// The approved host may have changed while the client was restarting.
+				// Do not leave the temporary LAN preset active after a rejected rejoin.
+				try
+				{
+					LIBRARY->modh->restoreLanSession();
+				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to restore LAN mod preset after rejected automatic rejoin: %s", e.what());
+				}
+				ENGINE->windows().popWindows(1);
+				if(ENGINE->windows().topWindow<CSimpleJoinScreen>())
+					ENGINE->windows().popWindows(1);
+				onLobbyPreviewJoin = {};
+				CInfoWindow::showInfoDialog(
+					LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRejoinRejected"), {});
+			}
+		}
 	}
 }
