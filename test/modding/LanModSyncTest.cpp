@@ -3142,6 +3142,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
 		const auto found = statuses.find(stagedModId);
 		ASSERT_NE(found, statuses.end());
+		// Test mode always injects vcmi-test into the resolved mod list, even
+		// when a temporary LAN preset disables it. It is not a player mod.
+		statuses.erase("vcmi-test");
 		statuses[guestOnlyMod] = ModVerificationStatus::EXCESSIVE;
 		const auto planFromHost = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
 		ASSERT_TRUE(planFromHost.has_value());
