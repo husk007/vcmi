@@ -1,1 +1,1 @@
-M1/M2 CI regression fix: 0c111f1c60af65bd23e98e8c843218c8aa4b5763 - host lobby listener retains own assigned connection ID when guest connect notifications are broadcast; retry failed real-vcmiserver integration test
+M2 AppImage LAN relaunch: 8fea8ebdf6d413108aba7e8f52792d18e066d737 - build real client and run vcmitest with Linux AppImage executable selection regression test
