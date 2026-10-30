@@ -2797,5 +2797,72 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		EXPECT_EQ(found->second.name, mod.name);
 	}
 	EXPECT_TRUE(syncedMods->acceptingPlayers);
+
+	// A compatible guest must be able to join the same live server after
+	// inspecting the opt-in host mod list. Preview-only sockets stay unregistered.
+	struct JoinGuest final : INetworkClientListener
+	{
+		NetworkConnectionPtr connection;
+		std::unique_ptr<GameConnection> peer;
+		std::string error;
+		bool joined = false;
+		GameConnectionID assignedClientId = GameConnectionID::INVALID;
+		GameConnectionID assignedHostId = GameConnectionID::INVALID;
+
+		void onConnectionFailed(const std::string & reason) override { error = reason; }
+		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
+		{
+			connection = ready;
+			peer = std::make_unique<GameConnection>(ready);
+			peer->enterLobbyConnectionMode();
+			LobbyClientConnected join;
+			join.uuid = "00000000-0000-4000-8000-000000000002";
+			join.names = {"LAN integration guest"};
+			join.mode = EStartMode::NEW_GAME;
+			peer->sendPack(join);
+		}
+		void onDisconnected(const NetworkConnectionPtr &, const std::string & reason) override
+		{
+			if(!joined)
+				error = reason;
+		}
+		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
+		{
+			auto packet = peer->retrievePack(bytes);
+			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
+			{
+				if(accepted->clientId == GameConnectionID::INVALID)
+					return;
+				assignedClientId = accepted->clientId;
+				assignedHostId = accepted->hostClientId;
+				peer->connectionID = accepted->clientId;
+				peer->setSerializationVersion(accepted->version);
+				joined = true;
+			}
+		}
+	} guest;
+
+	network->getContext().restart();
+	network->connectToRemote(guest, "127.0.0.1", static_cast<std::uint16_t>(port));
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(guest.joined) << "Real VCMI server rejected guest after compatible LAN preview: " << guest.error;
+	EXPECT_NE(guest.assignedClientId, host.peer->connectionID);
+	EXPECT_EQ(guest.assignedHostId, host.peer->connectionID);
+
+	PreviewGuest afterJoin(true);
+	network->getContext().restart();
+	network->connectToRemote(afterJoin, "127.0.0.1", static_cast<std::uint16_t>(port));
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(afterJoin.error.empty()) << afterJoin.error;
+	const auto * occupiedLobby = dynamic_cast<LobbyModSyncPreview *>(afterJoin.response.get());
+	ASSERT_NE(occupiedLobby, nullptr);
+	EXPECT_TRUE(occupiedLobby->acceptingPlayers);
+	EXPECT_EQ(occupiedLobby->mods.size(), syncedMods->mods.size());
+	ASSERT_EQ(occupiedLobby->participantNames.size(), 2);
+	EXPECT_NE(std::find(occupiedLobby->participantNames.begin(), occupiedLobby->participantNames.end(),
+		"LAN integration host"), occupiedLobby->participantNames.end());
+	EXPECT_NE(std::find(occupiedLobby->participantNames.begin(), occupiedLobby->participantNames.end(),
+		"LAN integration guest"), occupiedLobby->participantNames.end());
+
 	network->stop();
 }
