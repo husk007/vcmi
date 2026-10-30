@@ -437,6 +437,7 @@ TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 	EXPECT_EQ(availabilityBefore.at("hostmod"), LanArchivePreviewState::OFFERED_BY_HOST);
 	EXPECT_EQ(availabilityBefore.at("unknown"), LanArchivePreviewState::UNAVAILABLE);
 	EXPECT_FALSE(availabilityBefore.contains("disabled"));
+	EXPECT_EQ(ModVerificationInfo::estimateUncachedArchiveBytes(availabilityBefore, manifest), 3);
 
 	const ModArchiveHashes hashes = {{"hostmod", offered.sha256}};
 	const auto before = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
@@ -445,6 +446,7 @@ TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 	const auto availabilityAfter = ModVerificationInfo::inspectHostArchiveAvailability(previewStatuses, manifest, guestData);
 	EXPECT_EQ(availabilityAfter.at("hostmod"), LanArchivePreviewState::VERIFIED_IN_CACHE);
 	EXPECT_EQ(availabilityAfter.at("unknown"), LanArchivePreviewState::UNAVAILABLE);
+	EXPECT_EQ(ModVerificationInfo::estimateUncachedArchiveBytes(availabilityAfter, manifest), 0);
 	const auto after = ModVerificationInfo::buildSyncPlanFromPersistentCache(missing, hashes, guestData);
 	EXPECT_TRUE(after.downloadOrUpdate.empty());
 	EXPECT_EQ(after.reuseCachedArchive, std::set<TModID>({"hostmod"}));

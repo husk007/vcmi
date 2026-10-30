@@ -251,6 +251,10 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 			joinStatusText.appendRawString("\n");
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanArchiveAvailability");
 			joinStatusText.appendRawString(" " + std::to_string(offered) + " / " + std::to_string(cached));
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanArchiveUncached");
+			const auto uncachedBytes = ModVerificationInfo::estimateUncachedArchiveBytes(archiveAvailability, hostArchives);
+			joinStatusText.appendRawString(" " + std::to_string((uncachedBytes + 1023) / 1024) + " KiB");
 		}
 	}
 

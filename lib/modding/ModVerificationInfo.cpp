@@ -269,6 +269,21 @@ LanArchivePreview ModVerificationInfo::inspectHostArchiveAvailability(
 	return availability;
 }
 
+std::uint64_t ModVerificationInfo::estimateUncachedArchiveBytes(
+	const LanArchivePreview & availability, const ModArchiveManifest & hostArchives)
+{
+	std::uint64_t total = 0;
+	for(const auto & [rootId, state] : availability)
+	{
+		if(state != LanArchivePreviewState::OFFERED_BY_HOST)
+			continue;
+		const auto found = hostArchives.find(rootId);
+		if(found != hostArchives.end() && found->second.bytes > 0)
+			total += static_cast<std::uint64_t>(found->second.bytes);
+	}
+	return total;
+}
+
 std::optional<ModSyncPlan> ModVerificationInfo::buildInstalledOnlyPlan(const ModListVerificationStatus & statuses)
 {
 	ModSyncPlan plan;
