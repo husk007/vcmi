@@ -14,10 +14,10 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41058914568](https://github.com/husk007/vcmi/actions/runs/41058914568) compiled real `vcmitest`, `vcmiserver`, `vcmiclient`, but **91/92 LAN tests passed**. Crash recovery restored the personal preset; test baseline omitted VCMI's automatic `core` mod. Fixture corrected; CI pending. No two-GUI-client LAN match. | BUILD_PASS; TEST_FAIL (1) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41093067134](https://github.com/husk007/vcmi/actions/runs/41093067134) completed real `vcmitest`, `vcmiserver`, `vcmiclient` build and **93/93 LAN GoogleTests PASS** on `313f2be`. Latest two-join host regression awaits [CI #41110957126](https://github.com/husk007/vcmi/actions/runs/41110957126); no two-GUI-client match. | BUILD_PASS; TEST_PASS (prior commit) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
-| M2 guest join with installed disabled mods | Earlier real CI passed installed-only staging, restart/rejoin, host-required disabled mod preview and live TCP rejoin (91/91 in CI #41044274620). Separate `vcmiclient` processes resume and recover after a crash, but CI #41058914568 fails its assertion on the auto-normalized `core` mod. Fixture corrected; CI pending. No actual two-GUI-client game or end-of-game restore evidence. | CODE_ONLY (new); TEST_PASS (earlier) |
+| M2 guest join with installed disabled mods | Installed-only temporary activation, rejoin and crash restore have passed prior real CI. Commit `91729ab6` now checks two successive joins to an independent running host and exact personal preset restoration after each; [new CI #41110957126](https://github.com/husk007/vcmi/actions/runs/41110957126) queued. GUI test still needs licensed full Heroes III sprites absent from public fixture. | CODE_ONLY (new); TEST_PASS (prior) |
 | M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate the corrected process crash-recovery baseline in scoped CI; if passing, test the actual graphical LAN join/rejoin and restoration.
-2. Exercise an installed-but-disabled mod through restart, rejoin and exact restoration with two actual LAN clients.
+1. Verify CI #41110957126 for two independent-host rejoin cycles and exact restoration; if failure, fix the specific test or product bug.
+2. Run the existing graphical auto-rejoin test with complete, legally obtained Heroes III assets; do not equate headless integration tests with LAN_PASS.
 3. Add explicit first-use trust and license checks before any host archive transfer; keep proprietary game assets excluded.
 4. Bind M3 cache reuse and M4 host transfer after host package identity/version validation.
 
