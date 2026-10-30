@@ -475,7 +475,7 @@ int main(int argc, char * argv[])
 		const auto & cleanupEngine = [&]()
 		{
 			if(settings["session"]["headless"].Bool() && GAME->server().client)
-				GAME->server().endGameplay();
+				GAME->server().endGameplay(CServerHandler::EGameplayExitMode::APPLICATION_EXIT);
 
 			if(ENGINE)
 			{
@@ -491,7 +491,7 @@ int main(int argc, char * argv[])
 			if(!settings["session"]["headless"].Bool())
 			{
 				if(GAME->server().client)
-					GAME->server().endGameplay();
+					GAME->server().endGameplay(CServerHandler::EGameplayExitMode::APPLICATION_EXIT);
 
 				if (ENGINE)
 					ENGINE->windows().clear();

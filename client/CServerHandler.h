@@ -232,7 +232,8 @@ public:
 	void stopNetwork();
 	void waitForNetworkThread();
 	void endNetwork();
-	void endGameplay();
+	enum class EGameplayExitMode { NORMAL, SHOW_RESULTS, APPLICATION_EXIT };
+	void endGameplay(EGameplayExitMode mode = EGameplayExitMode::NORMAL);
 	void restartGameplay();
 	void startCampaignScenario(HighScoreParameter param, std::shared_ptr<CampaignState> cs, const StatisticDataSet & statistic);
 	void showServerError(const std::string & txt) const;
