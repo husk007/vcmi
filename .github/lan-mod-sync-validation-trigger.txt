@@ -1,1 +1,1 @@
-M2 real desktop vcmiclient process relaunch + SIGKILL crash-restoration test added at c63801773ce7b18aa049a77d2e7b5ce31d09fdc7; validate actual client and vcmitest against public CI fixture
+M2 fix actual CI #41051813021 (91/92): process crash-recovery fixture now persists original settings and durable LAN backup before relaunch; code b0158efad1f7beb3827cf80dabe0eab1df50a2ce, status c6f242e58f0d5166562910caf7276ccc5350f1df
