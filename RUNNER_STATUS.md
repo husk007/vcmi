@@ -19,7 +19,7 @@
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). Host ZIP transfer and staging are already implemented under M4. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41186278138 passed the real TCP ZIP test: verified staging and zero bytes on the repeated fetch. Full GUI rejoin with cached mods is not yet tested. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | CI #41203192308 built vcmitest/vcmiserver/vcmiclient but failed 1/101 LAN tests: linked client did not load the staged ZIP. Root cause: mount existed in "initial" discovery but not the already-built "core" content loader. CI #41212455075 still fails the linked-client cached ZIP startup test (100/101) despite dual-view mounting. A core filesystem with only one loader is not a CFilesystemList; the new correction makes core extensible in every data layout and emits controlled-client logs if the test still fails. | CODE_ONLY (fix pending CI); BUILD_PASS (prior SHA) |
+| M4 host-to-guest transfer | CI [#41221898234](https://github.com/husk007/vcmi/actions/runs/41221898234) compiled vcmitest, client and server; 100/101 LAN tests passed. The failing linked-client ZIP test stopped at incomplete public `H3Sprite.lod` **before mod content parsing**, so neither a staging failure nor a successful ZIP load was established. A corrected real-client regression now checks verified ZIP mounting and crash recovery with the public fixture; full mod parsing additionally requires `VCMI_LAN_TEST_COMPLETE_H3_DATA=1` and complete licensed game assets. | BUILD_PASS (prior SHA); CODE_ONLY (corrected regression pending CI) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Verify the real linked-client ZIP startup after making the core view always mountable; inspect controlled-client logs if CI still fails.
+1. Verify the corrected real-client cached ZIP mount and crash-restore regression in the next checkpoint; distinguish the public H3Sprite fixture limit from actual LAN failures.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
 3. Run two GUI clients with licensed Heroes III data to check cache-only rejoin, no transfer and full restoration.
 

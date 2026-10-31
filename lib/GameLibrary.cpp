@@ -184,6 +184,11 @@ void GameLibrary::loadModFilesystem(bool useTestPreset, const std::string & lanR
 					const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
 					if(!initial || !core || !LanModPackageStage::mountControlledStagedMods(*initial, *core, userData, staged))
 						logGlobal->warn("Approved LAN staging could not be mounted; rejoin will require recovery");
+					else
+					{
+						for(const auto & entry : staged)
+							logGlobal->info("Mounted verified LAN host mod: %s", entry.first);
+					}
 				}
 			}
 		}

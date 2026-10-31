@@ -2748,11 +2748,11 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 	}
 }
 
-TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPreset)
+TEST(LanModSyncTest, RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset)
 {
-	// Exercise the linked client with an actual cached ZIP and one-shot LAN
-	// mount, not just a CFilesystemList test double. Public CI test data suffice
-	// for headless startup; a graphical two-player match is a separate gate.
+	// Exercise the linked client with an actual cached ZIP and one-shot LAN mount.
+	// The public fixture cannot parse all commercial H3Sprite data, so verify
+	// the real mount before gameplay loading. Full data also verifies mod parsing.
 	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
 	if(!requiredMod || std::string(requiredMod) != "lan-ci-fixture")
 		GTEST_SKIP() << "Requires the public LAN CI fixture";
@@ -2761,6 +2761,7 @@ TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPres
 	const fs::path executable = fs::current_path() / "vcmiclient";
 	if(!fs::is_regular_file(executable))
 		GTEST_SKIP() << "Requires the linked desktop client";
+	const bool fullGameData = std::getenv("VCMI_LAN_TEST_COMPLETE_H3_DATA") != nullptr;
 
 	const fs::path sandbox = fs::temp_directory_path() / ("vcmi-lan-staged-process-" + LanRelaunchToken::generate());
 	const fs::path dataHome = sandbox / "data";
@@ -2905,13 +2906,14 @@ TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPres
 		return state && (*state)["activePreset"].isString()
 			&& (*state)["activePreset"].String() == LanModSessionState::temporaryPresetName()
 			&& (*state)["lanSession"]["relaunchToken"].isNull()
-			&& logContains(resumedLog, "Loading mod: OK (" + rootId + ")");
+			&& logContains(resumedLog, "Mounted verified LAN host mod: " + rootId)
+			&& (!fullGameData || logContains(resumedLog, "Loading mod: OK (" + rootId + ")"));
 	});
 	stop(first);
 	std::ifstream controlledOutput(resumedLog, std::ios::binary);
 	const std::string controlledLog((std::istreambuf_iterator<char>(controlledOutput)),
 		std::istreambuf_iterator<char>());
-	ASSERT_TRUE(loaded) << "Controlled vcmiclient never loaded the cached host mod into its temporary LAN preset"
+	ASSERT_TRUE(loaded) << "Controlled vcmiclient failed to mount the cached host mod (or parse it with complete game data)"
 		<< "\nControlled process output:\n" << controlledLog.substr(0, 16384);
 
 	// A crashed client must recover exactly the previous preset on the next
@@ -2924,10 +2926,12 @@ TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPres
 		return state && (*state)["lanSession"].isNull()
 			&& (*state)["activePreset"].isString() && (*state)["activePreset"].String() == "personal"
 			&& (*state)["presets"]["personal"].toCompactString() == original["presets"]["personal"].toCompactString()
-			&& logContains(recoveryLog, "Loading mod: OK (vcmi)");
+			&& (!fullGameData || logContains(recoveryLog, "Loading mod: OK (vcmi)"));
 	});
 	stop(second);
 	EXPECT_TRUE(recovered) << "Ordinary vcmiclient startup failed to restore the original preset";
+	EXPECT_FALSE(logContains(recoveryLog, "Mounted verified LAN host mod: " + rootId))
+		<< "Staged LAN mount leaked into the recovered personal process";
 	EXPECT_FALSE(logContains(recoveryLog, "Loading mod: OK (" + rootId + ")"))
 		<< "Staged LAN mod leaked into the recovered personal process";
 	EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(userData, rootId, *digest));
