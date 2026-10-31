@@ -220,6 +220,39 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
 	directJoinAllowed = errorMessage.empty();
 	bool allowInstalledOnlyPreparation = false;
+	bool allowCachedPreparation = false;
+#if !defined(VCMI_MOBILE)
+	// A missing root already prepared in the LAN archive cache can be enabled
+	// only after explicit trust approval. The Join callback enforces that
+	// approval and prepares the token-gated temporary preset; do not offer this
+	// for conflicting private root versions or incomplete host packages.
+	if(lanPreview && onDownloadCallback && errorMessage == "vcmi.lobby.preview.error.mods")
+	{
+		const auto installed = LIBRARY->modh->getAllMods();
+		bool hasMissingRoot = false;
+		allowCachedPreparation = true;
+		for(const auto & [modId, status] : modStatuses)
+		{
+			if(status == ModVerificationStatus::VERSION_MISMATCH)
+			{
+				allowCachedPreparation = false;
+				break;
+			}
+			if(status != ModVerificationStatus::NOT_INSTALLED)
+				continue;
+			hasMissingRoot = true;
+			const auto rootId = modId.substr(0, modId.find('.'));
+			const auto offered = archiveAvailability.find(rootId);
+			if(vstd::contains(installed, rootId) || offered == archiveAvailability.end()
+				|| offered->second == LanArchivePreviewState::UNAVAILABLE)
+			{
+				allowCachedPreparation = false;
+				break;
+			}
+		}
+		allowCachedPreparation = allowCachedPreparation && hasMissingRoot;
+	}
+#endif
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
@@ -233,6 +266,10 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
 			joinStatusText.appendRawString("\n+" + std::to_string(localPlan->activate.size())
 				+ " / -" + std::to_string(localPlan->deactivate.size()));
+		}
+		else if(allowCachedPreparation)
+		{
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanStagedJoinHint");
 		}
 		else
 		{
@@ -293,7 +330,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 
-	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation);
+	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation && !allowCachedPreparation);
 	filledBackground->setPlayerColor(PlayerColor(1));
 	center();
 }
