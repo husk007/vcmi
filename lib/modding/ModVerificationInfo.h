@@ -65,6 +65,17 @@ enum class LanArchivePreviewState
 };
 using LanArchivePreview = std::map<TModID, LanArchivePreviewState>;
 
+/// The action shown to the guest before any LAN-only mod changes are applied.
+enum class LanModPreviewAction
+{
+	NONE,
+	ENABLE,
+	DISABLE,
+	USE_CACHE,
+	DOWNLOAD,
+	MANUAL
+};
+
 /// Operations required to match the host's mod set without changing the player's normal preset.
 struct DLL_LINKAGE ModSyncPlan
 {
@@ -119,6 +130,9 @@ struct DLL_LINKAGE ModVerificationInfo
 	/// button and the real download entry point must use this same eligibility gate.
 	static bool canPrepareMissingHostArchives(const ModListVerificationStatus & statuses,
 		const LanArchivePreview & availability, const std::vector<TModID> & installedMods);
+	/// Label one host/guest mismatch with the action actually available in the LAN preview.
+	static LanModPreviewAction getLanPreviewAction(ModVerificationStatus status,
+		LanArchivePreviewState archiveState, bool completeUsableHostOffer);
 	/// Total bytes of host archives not already verified in the guest cache, counted once per root mod.
 	static std::uint64_t estimateUncachedArchiveBytes(const LanArchivePreview & availability, const ModArchiveManifest & hostArchives);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.

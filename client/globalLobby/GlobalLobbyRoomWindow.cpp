@@ -144,17 +144,43 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		? ModVerificationInfo::inspectHostArchiveAvailability(modStatuses, hostArchives,
 			std::filesystem::path(VCMIDirs::get().userDataPath().native()))
 		: LanArchivePreview{};
+	bool completeHostOffer = false;
+#if !defined(VCMI_MOBILE)
+	if(lanPreview && onDownloadCallback)
+		completeHostOffer = ModVerificationInfo::canPrepareMissingHostArchives(
+			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
+#endif
 	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
 		modInfo.modId = modEntry.first;
 		modInfo.status = modEntry.second;
-		if(localPlan)
+		if(lanPreview)
 		{
-			if(localPlan->activate.contains(modEntry.first))
-				modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionEnable";
-			else if(localPlan->deactivate.contains(modEntry.first))
-				modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDisable";
+			const auto rootId = modEntry.first.substr(0, modEntry.first.find('.'));
+			const auto found = archiveAvailability.find(rootId);
+			const auto archiveState = found == archiveAvailability.end()
+				? LanArchivePreviewState::UNAVAILABLE : found->second;
+			switch(ModVerificationInfo::getLanPreviewAction(modEntry.second, archiveState, completeHostOffer))
+			{
+				case LanModPreviewAction::ENABLE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionEnable";
+					break;
+				case LanModPreviewAction::DISABLE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDisable";
+					break;
+				case LanModPreviewAction::USE_CACHE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionUseCache";
+					break;
+				case LanModPreviewAction::DOWNLOAD:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDownload";
+					break;
+				case LanModPreviewAction::MANUAL:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionManual";
+					break;
+				case LanModPreviewAction::NONE:
+					break;
+			}
 		}
 		if(modEntry.second == ModVerificationStatus::NOT_INSTALLED || modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
 		{
@@ -218,10 +244,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	// approval and prepares the token-gated temporary preset; do not offer this
 	// for conflicting private root versions or incomplete host packages.
 	if(lanPreview && onDownloadCallback && errorMessage == "vcmi.lobby.preview.error.mods")
-	{
-		allowCachedPreparation = ModVerificationInfo::canPrepareMissingHostArchives(
-			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
-	}
+		allowCachedPreparation = completeHostOffer;
 #endif
 	cachedLanJoinCandidate = allowCachedPreparation;
 	if(cachedLanJoinCandidate)

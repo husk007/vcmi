@@ -476,6 +476,24 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 }
 
 
+TEST(LanModSyncTest, LanLobbyPreviewShowsOnlyActionsActuallyAvailableToGuest)
+{
+	using Action = LanModPreviewAction;
+	using Status = ModVerificationStatus;
+	using Archive = LanArchivePreviewState;
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::FULL_MATCH, Archive::UNAVAILABLE, false), Action::NONE);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::DISABLED, Archive::UNAVAILABLE, false), Action::ENABLE);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::EXCESSIVE, Archive::UNAVAILABLE, false), Action::DISABLE);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::NOT_INSTALLED, Archive::VERIFIED_IN_CACHE, true), Action::USE_CACHE);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::NOT_INSTALLED, Archive::OFFERED_BY_HOST, true), Action::DOWNLOAD);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::NOT_INSTALLED, Archive::UNAVAILABLE, true), Action::MANUAL);
+	// An incomplete offer cannot be presented as a usable download or cached Join path.
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::NOT_INSTALLED, Archive::OFFERED_BY_HOST, false), Action::MANUAL);
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::NOT_INSTALLED, Archive::VERIFIED_IN_CACHE, false), Action::MANUAL);
+	// Private versions are never silently replaced by host archives.
+	EXPECT_EQ(ModVerificationInfo::getLanPreviewAction(Status::VERSION_MISMATCH, Archive::OFFERED_BY_HOST, true), Action::MANUAL);
+}
+
 TEST(LanModSyncTest, GuestPreparesOnlyCompleteHostArchiveOffersWithoutPrivateVersionConflicts)
 {
 	const ModListVerificationStatus required = {

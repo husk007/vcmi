@@ -343,6 +343,31 @@ bool ModVerificationInfo::canPrepareMissingHostArchives(const ModListVerificatio
 	return needsAnArchive;
 }
 
+LanModPreviewAction ModVerificationInfo::getLanPreviewAction(
+	ModVerificationStatus status, LanArchivePreviewState archiveState, bool completeUsableHostOffer)
+{
+	switch(status)
+	{
+		case ModVerificationStatus::FULL_MATCH:
+			return LanModPreviewAction::NONE;
+		case ModVerificationStatus::DISABLED:
+			return LanModPreviewAction::ENABLE;
+		case ModVerificationStatus::EXCESSIVE:
+			return LanModPreviewAction::DISABLE;
+		case ModVerificationStatus::VERSION_MISMATCH:
+			return LanModPreviewAction::MANUAL; // Never overlay a private installed version.
+		case ModVerificationStatus::NOT_INSTALLED:
+			if(!completeUsableHostOffer)
+				return LanModPreviewAction::MANUAL;
+			if(archiveState == LanArchivePreviewState::VERIFIED_IN_CACHE)
+				return LanModPreviewAction::USE_CACHE;
+			if(archiveState == LanArchivePreviewState::OFFERED_BY_HOST)
+				return LanModPreviewAction::DOWNLOAD;
+			return LanModPreviewAction::MANUAL;
+	}
+	return LanModPreviewAction::MANUAL;
+}
+
 std::uint64_t ModVerificationInfo::estimateUncachedArchiveBytes(
 	const LanArchivePreview & availability, const ModArchiveManifest & hostArchives)
 {
