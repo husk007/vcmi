@@ -573,6 +573,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 	const auto directory = fs::temp_directory_path() / ("vcmi-lan-chunk-transport-" + LanRelaunchToken::generate());
 	const auto shares = directory / "host" / "lan-mod-shares";
 	const auto guestData = directory / "guest";
+	const auto concurrentGuestData = directory / "guest-concurrent";
 	ASSERT_TRUE(fs::create_directories(shares));
 	// A real, redistributable ZIP must pass the whole host TCP -> guest cache ->
 	// isolated mod discovery path. Store the payload without compression so the
@@ -694,6 +695,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 		fs::path userData;
 		ModArchiveHashes hashes;
 		std::string failure;
+		std::string uuid = "11111111-1111-4111-8111-111111111111";
 		std::size_t receivedBytes = 0;
 		std::size_t expectedBytes = 0;
 		std::string receivedArchive;
@@ -730,7 +732,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 			peer = std::make_unique<GameConnection>(ready);
 			peer->enterLobbyConnectionMode();
 			LobbyClientConnected join;
-			join.uuid = "11111111-1111-4111-8111-111111111111";
+			join.uuid = uuid;
 			join.names = {"LAN guest"};
 			join.mode = EStartMode::NEW_GAME;
 			peer->sendPack(join);
@@ -779,7 +781,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 					peer->sendPack(request);
 					return;
 				}
-				const auto staged = userData.parent_path() / "staged.zip";
+				const auto staged = userData.parent_path() / (userData.filename().string() + "-staged.zip");
 				std::ofstream output(staged, std::ios::binary);
 				output.write(receivedArchive.data(), static_cast<std::streamsize>(receivedArchive.size()));
 				output.close();
@@ -800,15 +802,28 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 	first.userData = guestData;
 	first.hashes = hashes;
 	first.expectedBytes = archiveBytes;
+	Guest concurrent;
+	concurrent.userData = concurrentGuestData;
+	concurrent.hashes = hashes;
+	concurrent.expectedBytes = archiveBytes;
+	concurrent.uuid = "22222222-2222-4222-8222-222222222222";
+	// Both real TCP guests request the same host ZIP at once. Each registered
+	// connection must have its own stream offset and verified cache.
 	network->connectToRemote(first, "127.0.0.1", port);
+	network->connectToRemote(concurrent, "127.0.0.1", port);
 	network->getContext().run_for(std::chrono::milliseconds(1500));
 	EXPECT_TRUE(first.failure.empty()) << first.failure;
+	EXPECT_TRUE(concurrent.failure.empty()) << concurrent.failure;
 	ASSERT_TRUE(first.done);
+	ASSERT_TRUE(concurrent.done);
 	EXPECT_EQ(first.receivedBytes, archiveBytes);
-	EXPECT_EQ(host.requests, 2); // Cross the 64 KiB TCP packet boundary.
-	EXPECT_EQ(host.sentBytes, archiveBytes);
+	EXPECT_EQ(concurrent.receivedBytes, archiveBytes);
+	EXPECT_EQ(host.requests, 4); // Each guest crosses the 64 KiB boundary independently.
+	EXPECT_EQ(host.sentBytes, archiveBytes * 2);
 	ASSERT_TRUE(LanModArchiveCache::findVerifiedArchive(guestData, "hostmod", digest));
+	ASSERT_TRUE(LanModArchiveCache::findVerifiedArchive(concurrentGuestData, "hostmod", digest));
 	first.connection->close();
+	concurrent.connection->close();
 
 	Guest second;
 	second.userData = guestData;
@@ -820,8 +835,8 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 	EXPECT_TRUE(second.failure.empty()) << second.failure;
 	EXPECT_TRUE(second.done);
 	EXPECT_EQ(second.receivedBytes, 0);
-	EXPECT_EQ(host.requests, 2); // Repeated join never requests cached bytes.
-	EXPECT_EQ(host.sentBytes, archiveBytes);
+	EXPECT_EQ(host.requests, 4); // Repeated join never requests cached bytes.
+	EXPECT_EQ(host.sentBytes, archiveBytes * 2);
 	network->stop();
 	std::error_code cleanup;
 	fs::remove_all(directory, cleanup);
