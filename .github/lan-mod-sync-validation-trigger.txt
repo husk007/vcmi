@@ -1,3 +1,1 @@
-M4 checkpoint: only show and execute host ZIP preparation for complete, usable LAN mod offers.
-Base feature commit: 38f09a718bcc09d550c4e3dc620e85f866cb38a2
-Compile real vcmitest/vcmiserver/vcmiclient and run LanModSyncTest.* including GuestPreparesOnlyCompleteHostArchiveOffersWithoutPrivateVersionConflicts; recheck existing UDP/TCP lobby and approved cached Join paths. Do not claim GUI LAN_PASS with the public test fixture.
+M4/M5 checkpoint: real linked vcmiclient process loads a digest-selected cached ZIP only during controlled LAN relaunch, then restores the original preset after a simulated crash. Validate the new RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPreset under actual vcmitest, plus 100 existing LAN regressions and full client/server builds. Earlier baseline: e065d70796bc11aa0204a30c5e61f21670d4c7ff (CI #41198370293 success). Real two-client GUI gameplay still requires complete licensed Heroes III assets.

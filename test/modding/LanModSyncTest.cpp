@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cerrno>
 #include <cstdlib>
 #include <filesystem>
@@ -49,6 +50,7 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/VCMIDirs.h"
 #include "../../lib/ScopeGuard.h"
 
 TEST(LanModSyncTest, RealUdpDiscoveryKeepsLegacyReplyAndNegotiatesLanPreviewOnLoopback)
@@ -2716,6 +2718,189 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 			<< "Final mod settings: " << finalBytes;
 	}
 }
+
+TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPreset)
+{
+	// Exercise the linked client with an actual cached ZIP and one-shot LAN
+	// mount, not just a CFilesystemList test double. Public CI test data suffice
+	// for headless startup; a graphical two-player match is a separate gate.
+	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
+	if(!requiredMod || std::string(requiredMod) != "lan-ci-fixture")
+		GTEST_SKIP() << "Requires the public LAN CI fixture";
+
+	namespace fs = std::filesystem;
+	const fs::path executable = fs::current_path() / "vcmiclient";
+	if(!fs::is_regular_file(executable))
+		GTEST_SKIP() << "Requires the linked desktop client";
+
+	const fs::path sandbox = fs::temp_directory_path() / ("vcmi-lan-staged-process-" + LanRelaunchToken::generate());
+	const fs::path dataHome = sandbox / "data";
+	const fs::path userData = dataHome / "vcmi";
+	const fs::path configHome = sandbox / "config";
+	const fs::path modSettings = configHome / "vcmi" / "modSettings.json";
+	ASSERT_TRUE(fs::create_directories(userData));
+	ASSERT_TRUE(fs::create_directories(modSettings.parent_path()));
+	pid_t first = -1;
+	pid_t second = -1;
+	const auto stop = [](pid_t & pid)
+	{
+		if(pid <= 0)
+			return;
+		::kill(pid, SIGKILL);
+		int status = 0;
+		while(::waitpid(pid, &status, 0) == -1 && errno == EINTR) {}
+		pid = -1;
+	};
+	const auto cleanup = vstd::makeScopeGuard([&]()
+	{
+		stop(first);
+		stop(second);
+		std::error_code error;
+		fs::remove_all(sandbox, error);
+	});
+
+	// Keep the public fixture available without writing to the user's
+	// installation. Only the temporary LAN cache lives in the sandbox.
+	const fs::path installedData(VCMIDirs::get().userDataPath().native());
+	for(const char * folder : {"Data", "Maps", "Mp3", "Mods"})
+	{
+		if(fs::is_directory(installedData / folder))
+			fs::create_directory_symlink(fs::absolute(installedData / folder), userData / folder);
+	}
+	const std::string rootId = "lan-ci-staged";
+	ASSERT_FALSE(fs::exists(userData / "Mods" / rootId));
+
+	const fs::path archive = sandbox / "host.zip";
+	zipFile writer = zipOpen(archive.string().c_str(), APPEND_STATUS_CREATE);
+	ASSERT_NE(writer, nullptr);
+	const std::string definition = R"({"name":"LAN staged startup test","author":"VCMI test","version":"1.0","modType":"Mechanics","settings":{}})";
+	ASSERT_EQ(zipOpenNewFileInZip(writer, "lan-ci-staged/mod.json", nullptr,
+		nullptr, 0, nullptr, 0, nullptr, Z_DEFLATED, Z_DEFAULT_COMPRESSION), ZIP_OK);
+	ASSERT_EQ(zipWriteInFileInZip(writer, definition.data(), static_cast<unsigned int>(definition.size())), ZIP_OK);
+	ASSERT_EQ(zipCloseFileInZip(writer), ZIP_OK);
+	ASSERT_EQ(zipClose(writer, nullptr), ZIP_OK);
+	const auto digest = ModArchiveDigest::sha256File(archive, LanModArchiveCache::maxArchiveBytes);
+	ASSERT_TRUE(digest);
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(userData, rootId, *digest, archive));
+	ASSERT_TRUE(LanModPackageStage::stageVerifiedArchive(userData, rootId, *digest));
+
+	JsonNode original;
+	original["activePreset"].String() = "personal";
+	auto & personal = original["presets"]["personal"];
+	personal["mods"].Vector().emplace_back("vcmi");
+	personal["mods"].Vector().emplace_back("core");
+	personal["settings"].Struct();
+	JsonNode session = original;
+	LanModSessionState::begin(session);
+	ModSyncPlan plan;
+	plan.activate.insert(rootId);
+	LanModSessionState::applyInstalledOnlyPlan(session, plan);
+	LanModSessionState::setStagedMods(session, {{rootId, *digest}});
+	LanModSessionState::setRejoinTarget(session, {"127.0.0.1", 3030, true, {"Guest"}, false, {}});
+	const std::string token = LanRelaunchToken::generate();
+	LanModSessionState::prepareControlledRelaunch(session, token);
+	const std::string originalBytes = original.toCompactString();
+	ASSERT_TRUE(AtomicModSettings::replace(modSettings, originalBytes));
+	ASSERT_TRUE(LanModRecoveryJournal::persist(modSettings, originalBytes));
+	ASSERT_TRUE(AtomicModSettings::replace(modSettings, session.toCompactString()));
+
+	const fs::path resumedLog = sandbox / "controlled.log";
+	const fs::path recoveryLog = sandbox / "recovered.log";
+	const auto launch = [&](bool controlled, const fs::path & output) -> pid_t
+	{
+		const pid_t child = ::fork();
+		if(child == 0)
+		{
+			if(::setenv("XDG_CONFIG_HOME", configHome.c_str(), 1) != 0
+				|| ::setenv("XDG_DATA_HOME", dataHome.c_str(), 1) != 0
+				|| ::setenv("XDG_CACHE_HOME", (sandbox / "cache").c_str(), 1) != 0)
+				::_exit(126);
+			::setenv("SDL_VIDEODRIVER", "dummy", 1);
+			::setenv("SDL_AUDIODRIVER", "dummy", 1);
+			FILE * log = std::freopen(output.c_str(), "w", stdout);
+			if(!log || ::dup2(::fileno(log), STDERR_FILENO) < 0)
+				::_exit(126);
+			if(controlled)
+				::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
+					"--lan-relaunch-token", token.c_str(), static_cast<char *>(nullptr));
+			else
+				::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
+					static_cast<char *>(nullptr));
+			::_exit(127);
+		}
+		return child;
+	};
+	const auto logContains = [](const fs::path & path, const std::string & needle)
+	{
+		std::ifstream file(path, std::ios::binary);
+		if(!file)
+			return false;
+		const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		return content.find(needle) != std::string::npos;
+	};
+	const auto settingsState = [&]() -> std::optional<JsonNode>
+	{
+		try
+		{
+			std::ifstream file(modSettings, std::ios::binary);
+			const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+			return JsonNode(bytes.data(), bytes.size(), "real staged LAN client settings");
+		}
+		catch(const std::exception &)
+		{
+			return std::nullopt; // A separate process may be replacing the file.
+		}
+	};
+	const auto waitFor = [&](pid_t & pid, const std::function<bool()> & predicate)
+	{
+		for(int attempt = 0; attempt < 160; ++attempt)
+		{
+			if(predicate())
+				return true;
+			int status = 0;
+			if(::waitpid(pid, &status, WNOHANG) == pid)
+			{
+				pid = -1;
+				return predicate();
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(25));
+		}
+		return false;
+	};
+
+	first = launch(true, resumedLog);
+	ASSERT_GT(first, 0);
+	const bool loaded = waitFor(first, [&]()
+	{
+		const auto state = settingsState();
+		return state && (*state)["activePreset"].isString()
+			&& (*state)["activePreset"].String() == LanModSessionState::temporaryPresetName()
+			&& (*state)["lanSession"]["relaunchToken"].isNull()
+			&& logContains(resumedLog, "Loading mod: OK (" + rootId + ")");
+	});
+	stop(first);
+	ASSERT_TRUE(loaded) << "Controlled vcmiclient never loaded the cached host mod into its temporary LAN preset";
+
+	// A crashed client must recover exactly the previous preset on the next
+	// ordinary startup. The ZIP stays cached, but must no longer be mounted.
+	second = launch(false, recoveryLog);
+	ASSERT_GT(second, 0);
+	const bool recovered = waitFor(second, [&]()
+	{
+		const auto state = settingsState();
+		return state && (*state)["lanSession"].isNull()
+			&& (*state)["activePreset"].isString() && (*state)["activePreset"].String() == "personal"
+			&& (*state)["presets"]["personal"].toCompactString() == original["presets"]["personal"].toCompactString()
+			&& logContains(recoveryLog, "Loading mod: OK (vcmi)");
+	});
+	stop(second);
+	EXPECT_TRUE(recovered) << "Ordinary vcmiclient startup failed to restore the original preset";
+	EXPECT_FALSE(logContains(recoveryLog, "Loading mod: OK (" + rootId + ")"))
+		<< "Staged LAN mod leaked into the recovered personal process";
+	EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(userData, rootId, *digest));
+	EXPECT_FALSE(fs::exists(userData / "Mods" / rootId));
+}
+
 #endif
 
 TEST(LanModSyncTest, ArchiveDigestRejectsBytesBeyondDeclaredLimit)
