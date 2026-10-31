@@ -1,2 +1,3 @@
-M3/M4: first-use content approval is recorded for the exact host offer, enabling direct Join with previously approved verified cached ZIPs.
-Compile real vcmitest, vcmiserver, vcmiclient and run LanModSyncTest.* including HostOfferConsentPersistsForIdenticalContentOnly. Recheck ZIP TCP transfer, no repeated bytes, and preset rollback. A true two-client GUI LAN_PASS still needs full legally owned Heroes III assets.
+M4 checkpoint: only show and execute host ZIP preparation for complete, usable LAN mod offers.
+Base feature commit: 38f09a718bcc09d550c4e3dc620e85f866cb38a2
+Compile real vcmitest/vcmiserver/vcmiclient and run LanModSyncTest.* including GuestPreparesOnlyCompleteHostArchiveOffersWithoutPrivateVersionConflicts; recheck existing UDP/TCP lobby and approved cached Join paths. Do not claim GUI LAN_PASS with the public test fixture.
