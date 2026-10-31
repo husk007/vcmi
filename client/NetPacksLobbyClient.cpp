@@ -59,6 +59,12 @@ void ApplyOnLobbyHandlerNetPackVisitor::visitLobbyClientConnected(LobbyClientCon
 	{
 		handler.logicConnection->setSerializationVersion(pack.version);
 		handler.logicConnection->connectionID = pack.clientId;
+		if(handler.isLanArchiveDownloading())
+		{
+			handler.setState(EClientState::LOBBY);
+			handler.onLanArchiveGuestRegistered();
+			return;
+		}
 		if(handler.mapToStart)
 		{
 			handler.setMapInfo(handler.mapToStart);
@@ -174,6 +180,11 @@ void ApplyOnLobbyHandlerNetPackVisitor::visitLobbyPrepareStartGame(LobbyPrepareS
 
 void ApplyOnLobbyHandlerNetPackVisitor::visitLobbyStartGame(LobbyStartGame & pack)
 {
+	if(handler.isLanArchiveDownloading())
+	{
+		handler.cancelLanArchiveDownload();
+		return; // Missing mod must not enter gameplay.
+	}
 	handler.setState(EClientState::STARTING);
 	if(handler.si->mode != EStartMode::LOAD_GAME)
 	{
@@ -207,6 +218,12 @@ void ApplyOnLobbyScreenNetPackVisitor::visitLobbyLoadProgress(LobbyLoadProgress 
 
 void ApplyOnLobbyHandlerNetPackVisitor::visitLobbyModsCheck(LobbyModsCheck & pack)
 {
+	if(auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(&pack))
+	{
+		handler.onLanArchiveChunk(*chunk);
+		result = false;
+		return;
+	}
 	handler.onLobbyPreviewResponse(pack);
 }
 

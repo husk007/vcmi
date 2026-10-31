@@ -14,12 +14,12 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41156884574](https://github.com/husk007/vcmi/actions/runs/41156884574) passed on `35d7122`: actual `vcmitest`, `vcmiserver` and `vcmiclient` built, **94/94 LanModSyncTest PASS** including independent-host TCP rejoin. GUI campaign flow remains untested with full proprietary assets. | BUILD_PASS / TEST_PASS (prior code) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41166113836](https://github.com/husk007/vcmi/actions/runs/41166113836) passed on `423a7b3`: actual `vcmitest`, `vcmiserver`, `vcmiclient` built and LAN tests passed, including real TCP archive chunk transfer. GUI play remains untested with full legal assets. | BUILD_PASS / TEST_PASS (prior code) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Existing persistent verified SHA-256 cache and host archive manifest are available in read-only preview. New implementation binds the approved automatic rejoin to **both** host mod metadata and advertised archive SHA-256/size; archive replacements require re-approval. No real transfer/activation from archive or zero-byte network counter yet. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | Added a separate opt-in 64 KiB archive-chunk packet path in an existing registered lobby session. The host serves only explicitly staged active root mods whose SHA-256 matches its offer. New real-TCP serializer/cache reuse regression awaits CI; **production guest UI has no request/consent/install flow yet**. | CODE_ONLY (transport slice) |
+| M4 host-to-guest transfer | Host TCP chunks passed CI #41166113836. LAN preview now offers explicit consent and temporary registered guest download of all chunks into the persistent verified SHA-256 cache, skipping valid cache hits. No automatic install/activation yet. GUI proof pending. | CODE_ONLY (guest download) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -33,7 +33,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 1. Validate SHA-256 host-offer binding in the real VCMI build/test checkpoint, then review the guest's actual opt-in rejoin path.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
-3. Wire the new registered-session chunk transport into the actual guest preview with first-use consent, exact SHA-256 cache reuse, and safe side-by-side installation; current TCP test guest is only a fixture.
+3. Validate opt-in GUI transfer with legal assets, then install cached redistributable mods side by side without overwriting private versions.
 
 ## Evidence/reporting discipline
 

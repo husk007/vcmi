@@ -61,6 +61,10 @@
 #include "../lib/mapObjects/MiscObjects.h"
 #include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModIncompatibility.h"
+#include "../lib/modding/LanModArchiveCache.h"
+#include "../lib/modding/LanRelaunchToken.h"
+
+#include <fstream>
 #include "../lib/rmg/CMapGenOptions.h"
 #include "../lib/serializer/GameConnection.h"
 #include "../lib/UnlockGuard.h"
@@ -284,6 +288,11 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 	else
 	{
 		// remote server refused connection - show error message
+		if(lanArchiveDownloading)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
 		setState(EClientState::NONE);
 		if(lobbyPreviewMode)
 		{
@@ -1186,6 +1195,11 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		return;
 	}
 
+	if(lanArchiveDownloading)
+	{
+		finishLanArchiveDownload(false);
+		return;
+	}
 	if(lobbyPreviewMode)
 	{
 		// The query connection has no game lobby screen. An unexpected disconnect
@@ -1366,6 +1380,167 @@ void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std:
 	connectToServer(addr, port);
 }
 
+
+bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives)
+{
+	if(lanArchiveDownloading || getState() != EClientState::NONE || networkConnection
+		|| !LIBRARY || !LIBRARY->modh || serverHostname.empty() || serverPort == 0)
+		return false;
+	const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, archives, userData);
+	std::deque<PendingLanArchive> pending;
+	for(const auto & [rootId, state] : available)
+	{
+		if(state != LanArchivePreviewState::OFFERED_BY_HOST)
+			continue; // Valid SHA-256 cache hit: skip any network request.
+		const auto & offer = archives.at(rootId);
+		pending.push_back({rootId, offer.sha256, offer.bytes});
+	}
+	if(pending.empty())
+		return false;
+	lanArchivePending = std::move(pending);
+	lanArchiveStaging.clear();
+	lanArchiveOffset = 0;
+	lanArchiveCachedCount = 0;
+	lanArchiveDownloading = true;
+	// The existing server requires a registered lobby guest for archive chunks.
+	// This temporary connection never starts gameplay or changes installed mods.
+	connectToServer(serverHostname, serverPort);
+	return true;
+}
+
+void CServerHandler::onLanArchiveGuestRegistered()
+{
+	if(lanArchiveDownloading)
+		requestNextLanArchiveChunk();
+}
+
+void CServerHandler::requestNextLanArchiveChunk()
+{
+	if(!lanArchiveDownloading)
+		return;
+	if(lanArchivePending.empty())
+	{
+		finishLanArchiveDownload(true);
+		return;
+	}
+	if(!logicConnection || logicConnection->connectionID == GameConnectionID::INVALID)
+	{
+		finishLanArchiveDownload(false);
+		return;
+	}
+	if(lanArchiveOffset == 0)
+	{
+		try
+		{
+			lanArchiveStaging = std::filesystem::temp_directory_path()
+				/ ("vcmi-lan-" + LanRelaunchToken::generate() + ".part");
+			std::ofstream stage(lanArchiveStaging, std::ios::binary | std::ios::trunc);
+			if(!stage)
+			{
+				finishLanArchiveDownload(false);
+				return;
+			}
+		}
+		catch(const std::filesystem::filesystem_error &)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+	}
+	const auto & next = lanArchivePending.front();
+	LobbyQueryLanModArchiveChunk query;
+	query.rootId = next.rootId;
+	query.sha256 = next.sha256;
+	query.offset = lanArchiveOffset;
+	logicConnection->sendPack(query);
+}
+
+void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
+{
+	if(!lanArchiveDownloading || lanArchivePending.empty())
+		return;
+	const auto & current = lanArchivePending.front();
+	if(!chunk.granted || chunk.rootId != current.rootId
+		|| !ModArchiveDigest::sameSha256(chunk.sha256, current.sha256)
+		|| chunk.offset != lanArchiveOffset || chunk.totalBytes != current.totalBytes
+		|| chunk.data.empty() || chunk.data.size() > 64 * 1024
+		|| current.totalBytes <= 0
+		|| static_cast<std::uintmax_t>(current.totalBytes) > LanModArchiveCache::maxArchiveBytes
+		|| static_cast<std::int64_t>(chunk.data.size()) > current.totalBytes - lanArchiveOffset)
+	{
+		finishLanArchiveDownload(false);
+		return;
+	}
+	{
+		std::ofstream stage(lanArchiveStaging, std::ios::binary | std::ios::app);
+		stage.write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+		stage.flush();
+		if(!stage)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+	}
+	lanArchiveOffset += static_cast<std::int64_t>(chunk.data.size());
+	if(lanArchiveOffset == current.totalBytes)
+	{
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(!LanModArchiveCache::publishVerifiedArchive(userData, current.rootId, current.sha256, lanArchiveStaging))
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+		std::error_code cleanup;
+		std::filesystem::remove(lanArchiveStaging, cleanup);
+		lanArchiveStaging.clear();
+		lanArchiveOffset = 0;
+		lanArchivePending.pop_front();
+		++lanArchiveCachedCount;
+	}
+	requestNextLanArchiveChunk();
+}
+
+void CServerHandler::cancelLanArchiveDownload()
+{
+	if(lanArchiveDownloading)
+		finishLanArchiveDownload(false);
+}
+
+void CServerHandler::finishLanArchiveDownload(bool success)
+{
+	if(!lanArchiveDownloading)
+		return;
+	const auto cachedCount = lanArchiveCachedCount;
+	lanArchiveDownloading = false;
+	lanArchivePending.clear();
+	lanArchiveOffset = 0;
+	std::error_code error;
+	if(!lanArchiveStaging.empty())
+		std::filesystem::remove(lanArchiveStaging, error);
+	lanArchiveStaging.clear();
+	if(logicConnection && logicConnection->connectionID != GameConnectionID::INVALID)
+	{
+		LobbyClientDisconnected leaving;
+		leaving.clientId = logicConnection->connectionID;
+		logicConnection->sendPack(leaving);
+	}
+	const auto oldConnection = std::move(networkConnection);
+	logicConnection.reset();
+	setState(EClientState::NONE);
+	if(oldConnection)
+		oldConnection->close();
+	if(ENGINE)
+	{
+		std::string message = LIBRARY->generaltexth->translate(
+			success ? "vcmi.lobby.preview.lanArchiveDownloadDone" : "vcmi.lobby.preview.lanArchiveDownloadFailed");
+		if(success)
+			message += " (" + std::to_string(cachedCount) + ")";
+		CInfoWindow::showInfoDialog(message, {});
+	}
+}
+
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 {
 	const auto * extendedPreview = dynamic_cast<LobbyModSyncPreview *>(&pack);
@@ -1435,8 +1610,9 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			if(onLobbyPreviewJoin)
 				onLobbyPreviewJoin();
 		},
-		[]()
+		[this]()
 		{
+			cancelLanArchiveDownload();
 			// A cancelled post-relaunch preview must not leave the temporary LAN preset active.
 			if(LIBRARY && LIBRARY->modh)
 			{
@@ -1455,7 +1631,22 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
 		},
-		canPreviewLocalPreparation, hostArchives);
+		canPreviewLocalPreparation, hostArchives,
+		[this, hostMods, hostArchives]()
+		{
+			const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+			const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, hostArchives,
+				std::filesystem::path(VCMIDirs::get().userDataPath().native()));
+			const auto bytes = ModVerificationInfo::estimateUncachedArchiveBytes(available, hostArchives);
+			const auto question = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadConsent")
+				+ "\n" + std::to_string((bytes + 1023) / 1024) + " KiB";
+			CInfoWindow::showYesNoDialog(question, {},
+				[this, hostMods, hostArchives]()
+				{
+					if(!beginLanArchiveDownload(hostMods, hostArchives))
+						CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadFailed"), {});
+				}, []() {});
+		});
 
 	// The player approved this LAN room before relaunch. The host may have changed.
 	// Continue only if the fresh preview permits joining without further changes.

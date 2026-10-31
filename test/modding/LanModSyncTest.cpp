@@ -405,7 +405,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 	ASSERT_TRUE(fs::create_directories(shares));
 	{
 		std::ofstream file(shares / "hostmod.zip", std::ios::binary);
-		file << "abc";
+		file << std::string(64 * 1024 + 37, 'a');
 	}
 	ModCompatibilityInfo activeMods;
 	ModVerificationInfo root;
@@ -489,6 +489,8 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 		ModArchiveHashes hashes;
 		std::string failure;
 		std::size_t receivedBytes = 0;
+		const std::size_t expectedBytes = 64 * 1024 + 37;
+		std::string receivedArchive;
 		bool done = false;
 
 		void onConnectionFailed(const std::string & error) override { failure = error; }
@@ -527,22 +529,33 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 			}
 			else if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
 			{
-				if(!chunk->granted || chunk->data != "abc" || chunk->totalBytes != 3
-					|| chunk->sha256 != hashes.at("hostmod") || chunk->offset != 0)
+				if(!chunk->granted || chunk->data.empty() || chunk->data.size() > 64 * 1024
+					|| chunk->totalBytes != expectedBytes || chunk->sha256 != hashes.at("hostmod")
+					|| chunk->offset != receivedArchive.size())
 				{
 					failure = "Host returned an invalid archive chunk";
 					return;
 				}
+				receivedArchive += chunk->data;
+				receivedBytes += chunk->data.size();
+				if(receivedArchive.size() < expectedBytes)
+				{
+					LobbyQueryLanModArchiveChunk request;
+					request.rootId = "hostmod";
+					request.sha256 = hashes.at("hostmod");
+					request.offset = receivedArchive.size();
+					peer->sendPack(request);
+					return;
+				}
 				const auto staged = userData.parent_path() / "staged.zip";
 				std::ofstream output(staged, std::ios::binary);
-				output.write(chunk->data.data(), static_cast<std::streamsize>(chunk->data.size()));
+				output.write(receivedArchive.data(), static_cast<std::streamsize>(receivedArchive.size()));
 				output.close();
 				if(!LanModArchiveCache::publishVerifiedArchive(userData, "hostmod", chunk->sha256, staged))
 				{
 					failure = "Could not verify and publish the received archive";
 					return;
 				}
-				receivedBytes += chunk->data.size();
 				done = true;
 			}
 		}
@@ -558,9 +571,9 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 	network->getContext().run_for(std::chrono::milliseconds(1500));
 	EXPECT_TRUE(first.failure.empty()) << first.failure;
 	ASSERT_TRUE(first.done);
-	EXPECT_EQ(first.receivedBytes, 3);
-	EXPECT_EQ(host.requests, 1);
-	EXPECT_EQ(host.sentBytes, 3);
+	EXPECT_EQ(first.receivedBytes, 64 * 1024 + 37);
+	EXPECT_EQ(host.requests, 2); // Cross the 64 KiB TCP packet boundary.
+	EXPECT_EQ(host.sentBytes, 64 * 1024 + 37);
 	ASSERT_TRUE(LanModArchiveCache::findVerifiedArchive(guestData, "hostmod", digest));
 	first.connection->close();
 
@@ -573,8 +586,8 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 	EXPECT_TRUE(second.failure.empty()) << second.failure;
 	EXPECT_TRUE(second.done);
 	EXPECT_EQ(second.receivedBytes, 0);
-	EXPECT_EQ(host.requests, 1);
-	EXPECT_EQ(host.sentBytes, 3);
+	EXPECT_EQ(host.requests, 2); // Repeated join never requests cached bytes.
+	EXPECT_EQ(host.sentBytes, 64 * 1024 + 37);
 	network->stop();
 	std::error_code cleanup;
 	fs::remove_all(directory, cleanup);

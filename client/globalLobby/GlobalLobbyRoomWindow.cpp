@@ -125,10 +125,11 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 }
 
 GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel,
-	bool lanPreview, ModArchiveManifest hostArchives)
+	bool lanPreview, ModArchiveManifest hostArchives, std::function<void()> onDownload)
 	: CWindowObject(BORDERED)
 	, onJoinCallback(onJoin)
 	, onCancelCallback(onCancel)
+	, onDownloadCallback(onDownload)
 {
 	OBJECT_CONSTRUCTION;
 
@@ -206,6 +207,14 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	buttonJoin = std::make_shared<CButton>(Point(10, 360), AnimationPath::builtin("MuBchck"), CButton::tooltip(), [this](){ this->onJoin(); }, EShortcut::GLOBAL_ACCEPT);
 	buttonClose = std::make_shared<CButton>(Point(100, 360), AnimationPath::builtin("MuBcanc"), CButton::tooltip(), [this](){ this->onClose(); }, EShortcut::GLOBAL_CANCEL);
+	if(lanPreview && onDownloadCallback && std::any_of(archiveAvailability.begin(), archiveAvailability.end(),
+		[](const auto & entry){ return entry.second == LanArchivePreviewState::OFFERED_BY_HOST; }))
+	{
+		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
+			CButton::tooltip(), [this](){ onDownloadCallback(); });
+		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
+	}
 
 	MetaString joinStatusText;
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);

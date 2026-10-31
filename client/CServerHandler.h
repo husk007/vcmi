@@ -12,6 +12,10 @@
 #include "Translator.h"
 
 #include "../lib/CStopWatch.h"
+#include "../lib/modding/ModVerificationInfo.h"
+
+#include <deque>
+#include <filesystem>
 
 #include "../lib/network/NetworkInterface.h"
 #include "../lib/StartInfo.h"
@@ -31,6 +35,7 @@ struct CPackForLobby;
 struct CPackForServer;
 struct CPackForClient;
 struct LobbyModsCheck;
+struct LobbyLanModArchiveChunk;
 
 class HighScoreParameter;
 
@@ -126,6 +131,21 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 	bool lobbyPreviewAutoJoinAfterRelaunch = false;
 	std::string lobbyPreviewExpectedHostModsSha256;
 	std::function<void()> onLobbyPreviewJoin;
+
+	// Explicitly approved registered guest transfer. Cache only; no installation.
+	struct PendingLanArchive
+	{
+		TModID rootId;
+		std::string sha256;
+		std::int64_t totalBytes = 0;
+	};
+	std::deque<PendingLanArchive> lanArchivePending;
+	std::filesystem::path lanArchiveStaging;
+	std::int64_t lanArchiveOffset = 0;
+	std::size_t lanArchiveCachedCount = 0;
+	bool lanArchiveDownloading = false;
+	void requestNextLanArchiveChunk();
+	void finishLanArchiveDownload(bool success);
 
 	void threadRunNetwork();
 	void waitForServerShutdown();
@@ -254,4 +274,9 @@ public:
 
 	void startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 	void onLobbyPreviewResponse(LobbyModsCheck & pack);
+	bool beginLanArchiveDownload(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives);
+	bool isLanArchiveDownloading() const { return lanArchiveDownloading; }
+	void onLanArchiveGuestRegistered();
+	void onLanArchiveChunk(LobbyLanModArchiveChunk & chunk);
+	void cancelLanArchiveDownload();
 };
