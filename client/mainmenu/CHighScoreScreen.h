@@ -53,8 +53,9 @@ private:
 	const int screenRows = 11;
 
 	int highlighted;
+	std::function<void()> afterClose;
 public:
-	CHighScoreScreen(HighScorePage highscorepage, int highlighted = -1);
+	CHighScoreScreen(HighScorePage highscorepage, int highlighted = -1, std::function<void()> afterClose = {});
 };
 
 class CHighScoreInput : public CWindowObject
@@ -85,11 +86,12 @@ class CHighScoreInputScreen : public CWindowObject, public IVideoHolder
 	bool won;
 	HighScoreCalculation calc;
 	StatisticDataSet stat;
+	std::function<void()> afterClose;
 
 	void stopMusicAndClose();
 	void onVideoPlaybackFinished() override;
 public:
-	CHighScoreInputScreen(bool won, HighScoreCalculation calc, const StatisticDataSet & statistic);
+	CHighScoreInputScreen(bool won, HighScoreCalculation calc, const StatisticDataSet & statistic, std::function<void()> afterClose = {});
 
 	int addEntry(std::string text);
 

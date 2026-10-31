@@ -829,14 +829,21 @@ void CServerHandler::showHighScoresAndEndGameplay(PlayerColor player, bool victo
 		scenarioHighScores.parameters.push_back(param);
 		scenarioHighScores.isCampaign = false;
 
-		endGameplay(EGameplayExitMode::SHOW_RESULTS);
+		const bool restoreAfterResults = endGameplay(EGameplayExitMode::DEFER_RESULTS_RESTART);
 		GAME->mainmenu()->menu->switchToTab("main");
 		if(!ENGINE->isDemoData())
-			ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(victory, scenarioHighScores, statistic);
+		{
+			// Keep victory/defeat and the optional high-score list visible before
+			// reloading the restored personal mod resources.
+			ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(victory, scenarioHighScores, statistic,
+				restoreAfterResults ? std::function<void()>([]() { restartAfterRestoringLanMods(); }) : std::function<void()>{});
+		}
+		else if(restoreAfterResults)
+			restartAfterRestoringLanMods();
 	}
 }
 
-void CServerHandler::endGameplay(EGameplayExitMode mode)
+bool CServerHandler::endGameplay(EGameplayExitMode mode)
 {
 	// a running replay holds the live session hostage - it has to be gone before anything is torn down.
 	// Every caller of this method owns the interface mutex, which the replay thread needs to finish.
@@ -900,8 +907,10 @@ void CServerHandler::endGameplay(EGameplayExitMode mode)
 			restartAfterRestoringLanMods();
 		else if(mode == EGameplayExitMode::SHOW_RESULTS)
 			CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+		// DEFER_RESULTS_RESTART lets the result screens finish before the reload;
 		// APPLICATION_EXIT restores the preset but must never reopen VCMI.
 	}
+	return restoredPersonalLanMods;
 }
 
 std::optional<std::string> CServerHandler::canQuickLoadGame(const std::string & path) const
