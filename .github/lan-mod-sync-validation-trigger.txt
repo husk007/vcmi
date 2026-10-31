@@ -1,3 +1,2 @@
-M2 implementation checkpoint: a624d9dd041b57dfd967c9212c403361e4b9fc38
-Verify full VCMI desktop build and LanModSyncTest.* after connecting lobby and preview rollback to a controlled, argument-free relaunch with restored personal mods.
-Previous Linux CI #41126748632 passed 93/93 tests on 9302d1a. New test checks a spawned replacement receives no LAN rejoin token. No proprietary game data included.
+M2 functional checkpoint: c07d2190bb7ea7f839cb272c7b617586b1ee6ce0
+Build real desktop VCMI and run LanModSyncTest.* after deferring restored-personal-preset relaunch until scenario results, optional score submission and high-score list close. Verify previous successful M2 lobby relaunch paths remain intact. GUI acceptance still requires complete legally held Heroes III resources.
