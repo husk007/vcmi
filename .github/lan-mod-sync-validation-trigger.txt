@@ -1,2 +1,2 @@
-M4 milestone checkpoint: 9b08c89200b541fd1705e860bbae5fc6ef9a2c50
-Build real vcmitest, vcmiserver and vcmiclient; run LanModSyncTest.* including VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod. Verify bounded ZIP entry sizes, traversal rejection, versioned LAN-only unpacking of SHA-256 cached mods, cache-hit preparation without retransmission and untouched userData/Mods. Does not prove automatic activation or LAN_PASS.
+M4 vertical-slice checkpoint after 66dde68a7dcb229625375c7c22ccade2572cf1fb.
+Build actual vcmitest, vcmiserver and vcmiclient; execute LanModSyncTest.* including RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp. The network test now streams a valid ZIP >64 KiB over production packets, verifies SHA-256, stages and mounts the root mod on the guest and asserts a second join transmits zero bytes. Also validate token-gated staged mod discovery and previous LAN UI changes. This is not a two-client GUI game or LAN_PASS.

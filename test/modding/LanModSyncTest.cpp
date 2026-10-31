@@ -489,17 +489,37 @@ TEST(LanModSyncTest, OnlyMatchingControlledRelaunchMountsSelectedLANRoot)
 	EXPECT_EQ(settings.toCompactString(), original);
 }
 
-TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTcp)
+TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 {
 	namespace fs = std::filesystem;
 	const auto directory = fs::temp_directory_path() / ("vcmi-lan-chunk-transport-" + LanRelaunchToken::generate());
 	const auto shares = directory / "host" / "lan-mod-shares";
 	const auto guestData = directory / "guest";
 	ASSERT_TRUE(fs::create_directories(shares));
+	// A real, redistributable ZIP must pass the whole host TCP -> guest cache ->
+	// isolated mod discovery path. Store the payload without compression so the
+	// production chunk transport necessarily crosses the 64 KiB boundary.
+	const auto archivePath = shares / "hostmod.zip";
 	{
-		std::ofstream file(shares / "hostmod.zip", std::ios::binary);
-		file << std::string(64 * 1024 + 37, 'a');
+		zipFile writer = zipOpen(archivePath.string().c_str(), APPEND_STATUS_CREATE);
+		ASSERT_NE(writer, nullptr);
+		const auto addStoredFile = [writer](const std::string & name, const std::string & data)
+		{
+			if(zipOpenNewFileInZip(writer, name.c_str(), nullptr,
+				nullptr, 0, nullptr, 0, nullptr, 0, 0) != ZIP_OK)
+				return false;
+			const bool written = zipWriteInFileInZip(writer, data.data(),
+				static_cast<unsigned int>(data.size())) == ZIP_OK;
+			return zipCloseFileInZip(writer) == ZIP_OK && written;
+		};
+		ASSERT_TRUE(addStoredFile("hostmod/mod.json",
+			R"({"name":"LAN test host mod","version":"1.0","author":"VCMI test","modType":"Mechanics","settings":{}})"));
+		ASSERT_TRUE(addStoredFile("hostmod/assets/payload.bin", std::string(64 * 1024 + 37, 'a')));
+		ASSERT_EQ(zipClose(writer, nullptr), ZIP_OK);
 	}
+	const auto archiveBytes = fs::file_size(archivePath);
+	ASSERT_GT(archiveBytes, 64U * 1024U);
+	ASSERT_LT(archiveBytes, 128U * 1024U);
 	ModCompatibilityInfo activeMods;
 	ModVerificationInfo root;
 	root.name = "LAN test host mod";
@@ -582,9 +602,30 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 		ModArchiveHashes hashes;
 		std::string failure;
 		std::size_t receivedBytes = 0;
-		const std::size_t expectedBytes = 64 * 1024 + 37;
+		std::size_t expectedBytes = 0;
 		std::string receivedArchive;
 		bool done = false;
+
+		bool canMountVerifiedHostRoot()
+		{
+			const auto staged = LanModPackageStage::stageVerifiedArchive(
+				userData, "hostmod", hashes.at("hostmod"));
+			CFilesystemList discovery;
+			const ResourcePath definition("MODS/HOSTMOD/MOD", EResType::JSON);
+			if(!staged || !LanModPackageStage::mountControlledStagedMods(discovery, userData, hashes)
+				|| !discovery.existsResource(definition))
+			{
+				failure = "Verified host archive is not visible to LAN mod discovery";
+				return false;
+			}
+			const auto path = discovery.getResourceName(definition);
+			if(!path || fs::path(path->native()) != *staged / "mod.json")
+			{
+				failure = "Staged host mod resolves to an unexpected path";
+				return false;
+			}
+			return true;
+		}
 
 		void onConnectionFailed(const std::string & error) override { failure = error; }
 		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
@@ -612,7 +653,9 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 					{{"hostmod", ModVerificationStatus::NOT_INSTALLED}}, hashes, userData);
 				if(plan.reuseCachedArchive.contains("hostmod"))
 				{
-					done = true; // No request, therefore zero archive bytes on the second join.
+					// The second join must actually mount the cached ZIP, not just
+					// skip downloading it based on its digest.
+					done = canMountVerifiedHostRoot();
 					return;
 				}
 				LobbyQueryLanModArchiveChunk request;
@@ -649,7 +692,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 					failure = "Could not verify and publish the received archive";
 					return;
 				}
-				done = true;
+				done = canMountVerifiedHostRoot();
 			}
 		}
 	};
@@ -660,19 +703,21 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 	Guest first;
 	first.userData = guestData;
 	first.hashes = hashes;
+	first.expectedBytes = archiveBytes;
 	network->connectToRemote(first, "127.0.0.1", port);
 	network->getContext().run_for(std::chrono::milliseconds(1500));
 	EXPECT_TRUE(first.failure.empty()) << first.failure;
 	ASSERT_TRUE(first.done);
-	EXPECT_EQ(first.receivedBytes, 64 * 1024 + 37);
+	EXPECT_EQ(first.receivedBytes, archiveBytes);
 	EXPECT_EQ(host.requests, 2); // Cross the 64 KiB TCP packet boundary.
-	EXPECT_EQ(host.sentBytes, 64 * 1024 + 37);
+	EXPECT_EQ(host.sentBytes, archiveBytes);
 	ASSERT_TRUE(LanModArchiveCache::findVerifiedArchive(guestData, "hostmod", digest));
 	first.connection->close();
 
 	Guest second;
 	second.userData = guestData;
 	second.hashes = hashes;
+	second.expectedBytes = archiveBytes;
 	network->getContext().restart();
 	network->connectToRemote(second, "127.0.0.1", port);
 	network->getContext().run_for(std::chrono::milliseconds(1500));
@@ -680,7 +725,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTc
 	EXPECT_TRUE(second.done);
 	EXPECT_EQ(second.receivedBytes, 0);
 	EXPECT_EQ(host.requests, 2); // Repeated join never requests cached bytes.
-	EXPECT_EQ(host.sentBytes, 64 * 1024 + 37);
+	EXPECT_EQ(host.sentBytes, archiveBytes);
 	network->stop();
 	std::error_code cleanup;
 	fs::remove_all(directory, cleanup);
