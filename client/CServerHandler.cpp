@@ -1457,7 +1457,9 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 	lanArchiveStaging.clear();
 	lanArchiveOffset = 0;
 	lanArchiveCachedCount = prepared;
+	lanArchiveLastProgressPercent = 101;
 	lanArchiveDownloading = true;
+	reportLanArchiveProgress();
 	// The existing server requires a registered lobby guest for archive chunks.
 	// This temporary connection never starts gameplay or changes installed mods.
 	connectToServer(serverHostname, serverPort);
@@ -1468,6 +1470,23 @@ void CServerHandler::onLanArchiveGuestRegistered()
 {
 	if(lanArchiveDownloading)
 		requestNextLanArchiveChunk();
+}
+
+void CServerHandler::reportLanArchiveProgress()
+{
+	if(!lanArchiveDownloading || lanArchivePending.empty() || !ENGINE)
+		return;
+	const auto & current = lanArchivePending.front();
+	if(current.totalBytes <= 0)
+		return;
+	const auto percent = static_cast<std::size_t>(
+		(static_cast<std::uint64_t>(lanArchiveOffset) * 100) / static_cast<std::uint64_t>(current.totalBytes));
+	if(percent == lanArchiveLastProgressPercent)
+		return; // Avoid repainting the lobby on every 64 KiB TCP chunk.
+	lanArchiveLastProgressPercent = percent;
+	for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+		room->showLanArchiveProgress(lanArchiveRequestedHostOffer, lanArchiveCachedCount,
+			lanArchiveCachedCount + lanArchivePending.size(), percent);
 }
 
 void CServerHandler::requestNextLanArchiveChunk()
@@ -1553,21 +1572,24 @@ void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
 		lanArchiveOffset = 0;
 		lanArchivePending.pop_front();
 		++lanArchiveCachedCount;
+		lanArchiveLastProgressPercent = 101; // Show 0% at the start of the next archive.
 	}
+	reportLanArchiveProgress();
 	requestNextLanArchiveChunk();
 }
 
 void CServerHandler::cancelLanArchiveDownload()
 {
 	if(lanArchiveDownloading)
-		finishLanArchiveDownload(false);
+		finishLanArchiveDownload(false, true);
 }
 
-void CServerHandler::finishLanArchiveDownload(bool success)
+void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlayer)
 {
 	if(!lanArchiveDownloading)
 		return;
 	const auto cachedCount = lanArchiveCachedCount;
+	const auto requestedOffer = lanArchiveRequestedHostOffer;
 	if(success)
 	{
 		lanArchiveApprovedHostOffer = lanArchiveRequestedHostOffer;
@@ -1581,6 +1603,10 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 	lanArchiveDownloading = false;
 	lanArchivePending.clear();
 	lanArchiveOffset = 0;
+	lanArchiveLastProgressPercent = 101;
+	if(!success && ENGINE)
+		for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+			room->resetLanArchiveProgress(requestedOffer);
 	std::error_code error;
 	if(!lanArchiveStaging.empty())
 		std::filesystem::remove(lanArchiveStaging, error);
@@ -1598,7 +1624,7 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 		oldConnection->close();
 	if(success)
 		showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, cachedCount);
-	else if(ENGINE)
+	else if(!cancelledByPlayer && ENGINE)
 		CInfoWindow::showInfoDialog(
 			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadFailed"), {});
 }

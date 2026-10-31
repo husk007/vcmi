@@ -143,11 +143,13 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 	std::filesystem::path lanArchiveStaging;
 	std::int64_t lanArchiveOffset = 0;
 	std::size_t lanArchiveCachedCount = 0;
+	std::size_t lanArchiveLastProgressPercent = 101;
 	bool lanArchiveDownloading = false;
 	std::string lanArchiveRequestedHostOffer;
 	std::string lanArchiveApprovedHostOffer;
 	void requestNextLanArchiveChunk();
-	void finishLanArchiveDownload(bool success);
+	void reportLanArchiveProgress();
+	void finishLanArchiveDownload(bool success, bool cancelledByPlayer = false);
 
 	void threadRunNetwork();
 	void waitForServerShutdown();

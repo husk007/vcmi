@@ -68,6 +68,8 @@ class GlobalLobbyRoomWindow : public CWindowObject
 	bool cachedLanJoinCandidate = false;
 	bool cachedLanJoinPrepared = false;
 	std::string cachedLanHostFingerprint;
+	std::string lanTransferOriginalStatus;
+	bool lanTransferInProgress = false;
 
 	std::shared_ptr<FilledTexturePlayerColored> filledBackground;
 	std::shared_ptr<CLabel> labelTitle;
@@ -103,4 +105,9 @@ public:
 	bool approvePreparedLanJoin(const std::string & hostFingerprint);
 	/// Continue the approved Join flow from a GUI confirmation after staging completes.
 	void joinApprovedLanSession(const std::string & hostFingerprint);
+	/// Show actual TCP download progress and prevent duplicate Prepare requests.
+	void showLanArchiveProgress(const std::string & hostFingerprint, std::size_t prepared,
+		std::size_t total, std::size_t currentPercent);
+	/// Restore the preview and enable retry after a failed or cancelled transfer.
+	void resetLanArchiveProgress(const std::string & hostFingerprint);
 };

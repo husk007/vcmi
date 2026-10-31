@@ -296,7 +296,8 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		}
 	}
 
-	labelJoinStatus = std::make_shared<CTextBox>(joinStatusText.toString(&GAME->translator()), Rect(10, 280, 150, 70), 0, FONT_SMALL, ETextAlignment::TOPLEFT, Colors::WHITE);
+	lanTransferOriginalStatus = joinStatusText.toString(&GAME->translator());
+	labelJoinStatus = std::make_shared<CTextBox>(lanTransferOriginalStatus, Rect(10, 280, 150, 70), 0, FONT_SMALL, ETextAlignment::TOPLEFT, Colors::WHITE);
 
 	const auto & createAccountCardCallback = [participants = roomDescription.participants](size_t index) -> std::shared_ptr<CIntObject>
 	{
@@ -349,8 +350,33 @@ bool GlobalLobbyRoomWindow::approvePreparedLanJoin(const std::string & hostFinge
 	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint)
 		return false;
 	cachedLanJoinPrepared = true;
+	lanTransferInProgress = false;
+	if(buttonDownload)
+		buttonDownload->block(true);
 	buttonJoin->block(false);
 	return true;
+}
+
+void GlobalLobbyRoomWindow::showLanArchiveProgress(const std::string & hostFingerprint,
+	std::size_t prepared, std::size_t total, std::size_t currentPercent)
+{
+	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint || !buttonDownload)
+		return;
+	lanTransferInProgress = true;
+	buttonDownload->block(true);
+	labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
+		+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
+		+ " (" + std::to_string(currentPercent) + "%)");
+}
+
+void GlobalLobbyRoomWindow::resetLanArchiveProgress(const std::string & hostFingerprint)
+{
+	if(!lanTransferInProgress || cachedLanHostFingerprint != hostFingerprint)
+		return;
+	lanTransferInProgress = false;
+	if(buttonDownload)
+		buttonDownload->block(false);
+	labelJoinStatus->setText(lanTransferOriginalStatus);
 }
 
 void GlobalLobbyRoomWindow::joinApprovedLanSession(const std::string & hostFingerprint)
