@@ -208,7 +208,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	buttonJoin = std::make_shared<CButton>(Point(10, 360), AnimationPath::builtin("MuBchck"), CButton::tooltip(), [this](){ this->onJoin(); }, EShortcut::GLOBAL_ACCEPT);
 	buttonClose = std::make_shared<CButton>(Point(100, 360), AnimationPath::builtin("MuBcanc"), CButton::tooltip(), [this](){ this->onClose(); }, EShortcut::GLOBAL_CANCEL);
 	if(lanPreview && onDownloadCallback && std::any_of(archiveAvailability.begin(), archiveAvailability.end(),
-		[](const auto & entry){ return entry.second == LanArchivePreviewState::OFFERED_BY_HOST; }))
+		[](const auto & entry){ return entry.second != LanArchivePreviewState::UNAVAILABLE; }))
 	{
 		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
 			CButton::tooltip(), [this](){ onDownloadCallback(); });

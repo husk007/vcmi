@@ -34,6 +34,8 @@
 #include "../../clientapp/LanRelaunchProcess.h"
 #include "../../lib/modding/ModArchiveDigest.h"
 #include "../../lib/modding/LanModArchiveCache.h"
+#include "../../lib/modding/LanModPackageStage.h"
+#include "../../lib/filesystem/MinizipExtensions.h"
 
 #include "../../lib/serializer/CMemorySerializer.h"
 #include "../../lib/serializer/GameConnection.h"
@@ -394,6 +396,56 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	EXPECT_EQ(guestPreset.toCompactString(), originalPreset);
 
 	network->stop();
+}
+
+
+TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
+{
+	namespace fs = std::filesystem;
+	const fs::path base = fs::temp_directory_path() / ("vcmi-lan-stage-" + LanRelaunchToken::generate());
+	ASSERT_TRUE(fs::create_directories(base));
+	const auto cleanup = vstd::makeScopeGuard([&](){ std::error_code ec; fs::remove_all(base, ec); });
+	const auto privateDefinition = base / "guest" / "Mods" / "hostmod" / "mod.json";
+	ASSERT_TRUE(fs::create_directories(privateDefinition.parent_path()));
+	{
+		std::ofstream original(privateDefinition);
+		original << "PRIVATE_VERSION";
+	}
+	const auto makeZip = [](const fs::path & path, const std::string & definitionPath) -> bool
+	{
+		zipFile writer = zipOpen(path.string().c_str(), APPEND_STATUS_CREATE);
+		if(!writer)
+			return false;
+		const std::string payload = "{\\"name\\":\\"LAN test\\",\\"version\\":\\"1.0\\"}";
+		const bool valid = zipOpenNewFileInZip(writer, definitionPath.c_str(), nullptr,
+			nullptr, 0, nullptr, 0, nullptr, Z_DEFLATED, Z_DEFAULT_COMPRESSION) == ZIP_OK
+			&& zipWriteInFileInZip(writer, payload.data(), static_cast<unsigned int>(payload.size())) == ZIP_OK
+			&& zipCloseFileInZip(writer) == ZIP_OK;
+		return zipClose(writer, nullptr) == ZIP_OK && valid;
+	};
+	const auto good = base / "good.zip";
+	ASSERT_TRUE(makeZip(good, "hostmod/mod.json"));
+	const auto digest = ModArchiveDigest::sha256File(good, LanModArchiveCache::maxArchiveBytes);
+	ASSERT_TRUE(digest);
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(base / "guest", "hostmod", *digest, good));
+	const auto staged = LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", *digest);
+	ASSERT_TRUE(staged);
+	EXPECT_TRUE(fs::is_regular_file(*staged / "mod.json"));
+	EXPECT_NE(staged->parent_path().parent_path().parent_path(), privateDefinition.parent_path());
+	std::ifstream stillPrivate(privateDefinition);
+	std::string value;
+	std::getline(stillPrivate, value);
+	EXPECT_EQ(value, "PRIVATE_VERSION");
+	EXPECT_EQ(LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", *digest), staged);
+	EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(base / "guest", "hostmod", *digest));
+
+	const auto malicious = base / "traversal.zip";
+	ASSERT_TRUE(makeZip(malicious, "../mod.json"));
+	const auto badDigest = ModArchiveDigest::sha256File(malicious, LanModArchiveCache::maxArchiveBytes);
+	ASSERT_TRUE(badDigest);
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(base / "guest", "hostmod", *badDigest, malicious));
+	EXPECT_FALSE(LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", *badDigest));
+	EXPECT_FALSE(fs::exists(base / "guest" / "lan-mod-staged" / "mod.json"));
 }
 
 TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTcp)

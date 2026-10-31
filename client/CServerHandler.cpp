@@ -62,6 +62,7 @@
 #include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModIncompatibility.h"
 #include "../lib/modding/LanModArchiveCache.h"
+#include "../lib/modding/LanModPackageStage.h"
 #include "../lib/modding/LanRelaunchToken.h"
 
 #include <fstream>
@@ -1390,19 +1391,31 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
 	const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, archives, userData);
 	std::deque<PendingLanArchive> pending;
+	std::size_t prepared = 0;
 	for(const auto & [rootId, state] : available)
 	{
-		if(state != LanArchivePreviewState::OFFERED_BY_HOST)
-			continue; // Valid SHA-256 cache hit: skip any network request.
 		const auto & offer = archives.at(rootId);
-		pending.push_back({rootId, offer.sha256, offer.bytes});
+		if(state == LanArchivePreviewState::VERIFIED_IN_CACHE)
+		{
+			if(!LanModPackageStage::stageVerifiedArchive(userData, rootId, offer.sha256))
+				return false;
+			++prepared; // Already cached: zero bytes requested from the host.
+		}
+		else if(state == LanArchivePreviewState::OFFERED_BY_HOST)
+			pending.push_back({rootId, offer.sha256, offer.bytes});
 	}
 	if(pending.empty())
-		return false;
+	{
+		if(prepared && ENGINE)
+			CInfoWindow::showInfoDialog(
+				LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
+					+ " (" + std::to_string(prepared) + ")", {});
+		return prepared != 0;
+	}
 	lanArchivePending = std::move(pending);
 	lanArchiveStaging.clear();
 	lanArchiveOffset = 0;
-	lanArchiveCachedCount = 0;
+	lanArchiveCachedCount = prepared;
 	lanArchiveDownloading = true;
 	// The existing server requires a registered lobby guest for archive chunks.
 	// This temporary connection never starts gameplay or changes installed mods.
@@ -1487,7 +1500,8 @@ void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
 	if(lanArchiveOffset == current.totalBytes)
 	{
 		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
-		if(!LanModArchiveCache::publishVerifiedArchive(userData, current.rootId, current.sha256, lanArchiveStaging))
+		if(!LanModArchiveCache::publishVerifiedArchive(userData, current.rootId, current.sha256, lanArchiveStaging)
+			|| !LanModPackageStage::stageVerifiedArchive(userData, current.rootId, current.sha256))
 		{
 			finishLanArchiveDownload(false);
 			return;

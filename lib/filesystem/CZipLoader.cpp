@@ -13,6 +13,8 @@
 #include "../ScopeGuard.h"
 #include "../texts/TextOperations.h"
 
+#include <limits>
+
 namespace
 {
 /// Performance optimization: every unzOpen scans up to 64 KB at the end of the archive for its central directory.
@@ -175,9 +177,10 @@ std::time_t CZipLoader::getLastWriteTime(const ResourcePath& resourceName) const
 }
 
 /// extracts currently selected file from zip into stream "where"
-static bool extractCurrent(unzFile file, std::ostream & where)
+static bool extractCurrent(unzFile file, std::ostream & where, std::uint64_t maximumBytes)
 {
 	std::array<char, 8 * 1024> buffer{};
+	std::uint64_t extractedBytes = 0;
 
 	unzOpenCurrentFile(file);
 
@@ -193,6 +196,9 @@ static bool extractCurrent(unzFile file, std::ostream & where)
 
 		if (readSize > 0) // successful read
 		{
+			if(static_cast<std::uint64_t>(readSize) > maximumBytes - extractedBytes)
+				break;
+			extractedBytes += static_cast<std::uint64_t>(readSize);
 			where.write(buffer.data(), readSize);
 			if (!where.good())
 				break;
@@ -244,6 +250,29 @@ std::vector<std::string> ZipArchive::listFiles()
 	return ret;
 }
 
+
+std::vector<ZipArchive::FileEntry> ZipArchive::listEntries()
+{
+	std::vector<FileEntry> entries;
+	int result = unzGoToFirstFile(archive);
+	while(result == UNZ_OK)
+	{
+		unz_file_info64 info{};
+		if(unzGetCurrentFileInfo64(archive, &info, nullptr, 0, nullptr, 0, nullptr, 0) != UNZ_OK)
+			throw std::runtime_error("Invalid ZIP central directory");
+		std::vector<char> filename(info.size_filename);
+		if(unzGetCurrentFileInfo64(archive, &info, filename.data(),
+			static_cast<uLong>(filename.size()), nullptr, 0, nullptr, 0) != UNZ_OK)
+			throw std::runtime_error("Invalid ZIP filename");
+		entries.push_back({std::string(filename.data(), filename.size()),
+			info.uncompressed_size, info.external_fa, info.version});
+		result = unzGoToNextFile(archive);
+	}
+	if(result != UNZ_END_OF_LIST_OF_FILE)
+		throw std::runtime_error("Incomplete ZIP central directory");
+	return entries;
+}
+
 ZipArchive::ZipArchive(const boost::filesystem::path & from)
 {
 	CDefaultIOApi zipAPI;
@@ -276,11 +305,18 @@ bool ZipArchive::extract(const boost::filesystem::path & where, const std::vecto
 
 bool ZipArchive::extract(const boost::filesystem::path & where, const std::string & file)
 {
+	return extractLimited(where, file, std::numeric_limits<std::uint64_t>::max());
+}
+
+bool ZipArchive::extractLimited(const boost::filesystem::path & where, const std::string & file, std::uint64_t maximumBytes)
+{
 	if (unzLocateFile(archive, file.c_str(), 1) != UNZ_OK)
 		return false;
 
 	unz_file_info64 info;
-	unzGetCurrentFileInfo64(archive, &info, nullptr, 0, nullptr, 0, nullptr, 0);
+	if(unzGetCurrentFileInfo64(archive, &info, nullptr, 0, nullptr, 0, nullptr, 0) != UNZ_OK
+		|| info.uncompressed_size > maximumBytes)
+		return false;
 
 	constexpr uLong ZIP_UTF8_FILENAME_FLAG = 1 << 11;
 	const bool isUtf8Filename = (info.flag & ZIP_UTF8_FILENAME_FLAG) != 0;
@@ -310,7 +346,7 @@ bool ZipArchive::extract(const boost::filesystem::path & where, const std::strin
 		return false;
 	}
 
-	if (!extractCurrent(archive, destFile))
+	if (!extractCurrent(archive, destFile, maximumBytes))
 		return false;
 	return true;
 }
