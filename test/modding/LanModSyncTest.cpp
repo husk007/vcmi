@@ -3724,6 +3724,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		std::unique_ptr<LobbyLanModArchiveChunk> archiveChunk;
 		GameConnectionID assignedClientId = GameConnectionID::INVALID;
 		GameConnectionID assignedHostId = GameConnectionID::INVALID;
 
@@ -3747,6 +3748,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
 		{
 			auto packet = peer->retrievePack(bytes);
+			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
+			{
+				archiveChunk = std::make_unique<LobbyLanModArchiveChunk>(*chunk);
+				return;
+			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
 			{
 				if(accepted->clientId == GameConnectionID::INVALID)
@@ -3767,6 +3773,66 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_NE(guest.assignedClientId, host.peer->connectionID);
 	EXPECT_EQ(guest.assignedHostId, originalHostId);
 	EXPECT_EQ(host.peer->connectionID, originalHostId) << "Guest-join notification changed the host's identity";
+
+	// Ask the independently running production server for its shared ZIP.
+	// This crosses the real host lobby permission gate and packet handler,
+	// unlike the loopback transfer fixture above.
+	if(requiredMod)
+	{
+		namespace fs = std::filesystem;
+		const auto offered = syncedMods->archives.find(requiredMod);
+		ASSERT_NE(offered, syncedMods->archives.end()) << "Host did not advertise its explicitly shared ZIP";
+		const auto & archive = offered->second;
+		ASSERT_GT(archive.bytes, 64U * 1024U);
+		const fs::path isolated = fs::temp_directory_path() / ("vcmi-real-host-zip-" + LanRelaunchToken::generate());
+		ASSERT_TRUE(fs::create_directories(isolated));
+		const auto cleanup = vstd::makeScopeGuard([&]()
+		{
+			std::error_code error;
+			fs::remove_all(isolated, error);
+		});
+		const auto receivedPath = isolated / "downloaded.zip";
+		const auto isolatedGuestData = isolated / "guest";
+		std::ofstream output(receivedPath, std::ios::binary);
+		ASSERT_TRUE(output.good());
+		std::uint64_t receivedBytes = 0;
+		while(receivedBytes < archive.bytes)
+		{
+			LobbyQueryLanModArchiveChunk request;
+			request.rootId = requiredMod;
+			request.sha256 = archive.sha256;
+			request.offset = static_cast<std::int64_t>(receivedBytes);
+			guest.peer->sendPack(request);
+			network->getContext().restart();
+			network->getContext().run_for(std::chrono::seconds(2));
+			ASSERT_NE(guest.archiveChunk, nullptr) << "Real VCMI host did not return a requested ZIP chunk";
+			const auto & chunk = *guest.archiveChunk;
+			ASSERT_TRUE(chunk.granted) << "Real host refused a registered guest's shared ZIP";
+			ASSERT_EQ(chunk.rootId, requiredMod);
+			ASSERT_EQ(chunk.sha256, archive.sha256);
+			ASSERT_EQ(chunk.offset, receivedBytes);
+			ASSERT_EQ(chunk.totalBytes, archive.bytes);
+			ASSERT_FALSE(chunk.data.empty());
+			ASSERT_LE(chunk.data.size(), 64U * 1024U);
+			ASSERT_LE(chunk.data.size(), archive.bytes - receivedBytes);
+			output.write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+			ASSERT_TRUE(output.good());
+			receivedBytes += chunk.data.size();
+			guest.archiveChunk.reset();
+		}
+		output.close();
+		ASSERT_EQ(receivedBytes, archive.bytes);
+		ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
+			isolatedGuestData, requiredMod, archive.sha256, receivedPath));
+		ASSERT_TRUE(LanModPackageStage::stageVerifiedArchive(isolatedGuestData, requiredMod, archive.sha256));
+		const ModListVerificationStatus missing = {{requiredMod, ModVerificationStatus::NOT_INSTALLED}};
+		const ModArchiveHashes expected = {{requiredMod, archive.sha256}};
+		const auto secondJoinPlan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+			missing, expected, isolatedGuestData);
+		EXPECT_TRUE(secondJoinPlan.reuseCachedArchive.contains(requiredMod))
+			<< "Second join must reuse the actual host ZIP without requesting any bytes";
+		EXPECT_TRUE(secondJoinPlan.downloadOrUpdate.empty());
+	}
 
 	PreviewGuest afterJoin(true);
 	network->getContext().restart();

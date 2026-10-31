@@ -109,6 +109,17 @@ jobs:
             "settings": {}
           }
           JSON
+          # Share only a generated redistributable test mod, never original H3 files.
+          # Store >64 KiB to exercise production host archive chunking.
+          mkdir -p "$HOME/.local/share/vcmi/lan-mod-shares"
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_STORED, ZipFile
+          data = Path.home() / ".local/share/vcmi"
+          with ZipFile(data / "lan-mod-shares/lan-ci-fixture.zip", "w", compression=ZIP_STORED) as archive:
+              archive.write(data / "Mods/lan-ci-fixture/mod.json", "lan-ci-fixture/mod.json")
+              archive.writestr("lan-ci-fixture/assets/payload.bin", b"L" * (64 * 1024 + 89))
+          PY
           # Keep host-specific settings separate from the vcmitest guest settings.
           mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
           cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'

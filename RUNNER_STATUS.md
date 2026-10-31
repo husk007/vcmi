@@ -19,7 +19,7 @@
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). Host ZIP transfer and staging are already implemented under M4. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41186278138 passed the real TCP ZIP test: verified staging and zero bytes on the repeated fetch. Full GUI rejoin with cached mods is not yet tested. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | [CI #41231284670](https://github.com/husk007/vcmi/actions/runs/41231284670) succeeded on `6592cf3`: full client/server/vcmitest build and **102/102 LanModSyncTest** passed, including public-fixture real-client ZIP mount and crash recovery. New per-guest pinned host stream (`09becd7`) and simultaneous two-guest TCP transfer/cache-rejoin fixture await CI. Full licensed-asset GUI play still untested. | BUILD_PASS / TEST_PASS (prior code); CODE_ONLY (new) |
+| M4 host-to-guest transfer | [CI #41240570890](https://github.com/husk007/vcmi/actions/runs/41240570890) succeeded on `fba7182`: full client/server/vcmitest build and **102/102 LanModSyncTest** passed, including pinned host ZIP streams for two concurrent real TCP guests and a cache-only rejoin. Next checkpoint adds transfer from an independently launched production VCMI server (not a test host) with a redistributable generated ZIP. Full licensed-asset GUI play remains untested. | BUILD_PASS / TEST_PASS (prior code); CODE_ONLY (new) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Run one checkpoint for the pinned host ZIP stream and two simultaneous independent TCP guests, including zero-byte rejoin from persistent cache.
+1. Validate transfer of a multi-chunk redistributable ZIP from the independently launched production VCMI server through a registered guest socket to a verified, reusable local cache.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
 3. Run two GUI clients with licensed Heroes III data to check cache-only rejoin, no transfer and full restoration.
 
