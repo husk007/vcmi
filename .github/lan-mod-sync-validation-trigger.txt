@@ -1,2 +1,2 @@
-M2 functional checkpoint: c07d2190bb7ea7f839cb272c7b617586b1ee6ce0
-Build real desktop VCMI and run LanModSyncTest.* after deferring restored-personal-preset relaunch until scenario results, optional score submission and high-score list close. Verify previous successful M2 lobby relaunch paths remain intact. GUI acceptance still requires complete legally held Heroes III resources.
+M2 functional checkpoint: 0ac4cf148a7cdabd1a0c78a6632b882f479cd3fd
+Build real desktop VCMI and run LanModSyncTest.* after integrating deferred personal-preset restoration with completed LAN campaign epilogue, optional outro video and final high-score closure. Keep the original notice for unfinished campaign flow and never respawn on explicit app exit. Previous validation #41152286176 passed 94/94 tests on 61034a4. GUI acceptance still requires full legally owned Heroes III assets.
