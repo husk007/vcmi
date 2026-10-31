@@ -355,12 +355,19 @@ void GlobalLobbyRoomWindow::onJoin()
 		onJoinCallback();
 }
 
-void GlobalLobbyRoomWindow::approvePreparedLanJoin(const std::string & hostFingerprint)
+bool GlobalLobbyRoomWindow::approvePreparedLanJoin(const std::string & hostFingerprint)
 {
 	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint)
-		return;
+		return false;
 	cachedLanJoinPrepared = true;
 	buttonJoin->block(false);
+	return true;
+}
+
+void GlobalLobbyRoomWindow::joinApprovedLanSession(const std::string & hostFingerprint)
+{
+	if(cachedLanJoinCandidate && cachedLanJoinPrepared && cachedLanHostFingerprint == hostFingerprint)
+		onJoin();
 }
 
 bool GlobalLobbyRoomWindow::joinIfCompatible()

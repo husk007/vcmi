@@ -42,6 +42,7 @@
 
 #include "windows/InfoWindows.h"
 #include "windows/GUIClasses.h"
+#include "widgets/Buttons.h"
 
 #include "../lib/CConfigHandler.h"
 #include "../lib/GameLibrary.h"
@@ -93,6 +94,37 @@ static void restartAfterRestoringLanMods()
 #endif
 }
 
+
+// Continue the normal LAN Join path from the GUI after the user acknowledges
+// successful staging. Running the callback from the network chunk handler
+// would throw GameShutdownException on the wrong thread.
+static void showLanArchiveReadyForJoin(const std::string & fingerprint, std::size_t preparedCount)
+{
+	if(!ENGINE)
+		return;
+
+	std::string message = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
+		+ " (" + std::to_string(preparedCount) + ")";
+	for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+	{
+		if(!room->approvePreparedLanJoin(fingerprint))
+			continue;
+
+		message = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadAutoJoin")
+			+ " (" + std::to_string(preparedCount) + ")";
+		auto dialog = CInfoWindow::create(message);
+		std::weak_ptr<GlobalLobbyRoomWindow> weakRoom(room);
+		dialog->buttons.front()->addCallback([weakRoom, fingerprint]()
+		{
+			if(auto openRoom = weakRoom.lock())
+				openRoom->joinApprovedLanSession(fingerprint);
+		});
+		ENGINE->windows().pushWindow(dialog);
+		return;
+	}
+
+	CInfoWindow::showInfoDialog(message, {});
+}
 
 CServerHandler::~CServerHandler()
 {
@@ -1410,14 +1442,8 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 		if(prepared)
 		{
 			lanArchiveApprovedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
-			if(ENGINE)
-				for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
-					room->approvePreparedLanJoin(lanArchiveApprovedHostOffer);
+			showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, prepared);
 		}
-		if(prepared && ENGINE)
-			CInfoWindow::showInfoDialog(
-				LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
-					+ " (" + std::to_string(prepared) + ")", {});
 		return prepared != 0;
 	}
 	lanArchivePending = std::move(pending);
@@ -1559,17 +1585,11 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 	setState(EClientState::NONE);
 	if(oldConnection)
 		oldConnection->close();
-	if(success && ENGINE)
-		for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
-			room->approvePreparedLanJoin(lanArchiveApprovedHostOffer);
-	if(ENGINE)
-	{
-		std::string message = LIBRARY->generaltexth->translate(
-			success ? "vcmi.lobby.preview.lanArchiveDownloadDone" : "vcmi.lobby.preview.lanArchiveDownloadFailed");
-		if(success)
-			message += " (" + std::to_string(cachedCount) + ")";
-		CInfoWindow::showInfoDialog(message, {});
-	}
+	if(success)
+		showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, cachedCount);
+	else if(ENGINE)
+		CInfoWindow::showInfoDialog(
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadFailed"), {});
 }
 
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)

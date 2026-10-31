@@ -100,5 +100,7 @@ public:
 	/// Complete an approved LAN join only if the fresh preview is compatible.
 	bool joinIfCompatible();
 	/// Unlock Join only after the matching host archives were explicitly approved and fully staged.
-	void approvePreparedLanJoin(const std::string & hostFingerprint);
+	bool approvePreparedLanJoin(const std::string & hostFingerprint);
+	/// Continue the approved Join flow from a GUI confirmation after staging completes.
+	void joinApprovedLanSession(const std::string & hostFingerprint);
 };
