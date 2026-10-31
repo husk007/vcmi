@@ -836,7 +836,20 @@ void CSimpleJoinScreen::leaveScreen()
 	{
 		try
 		{
-			LIBRARY->modh->restoreLanSession();
+			// Restoring the preset on disk does not unload LAN assets already
+			// loaded by the current process. Cancel must return to personal mods.
+			if(LIBRARY->modh->restoreLanSession())
+			{
+#ifndef VCMI_MOBILE
+				LIBRARY->modh->requestLanRestoreRelaunch();
+				ENGINE->dispatchMainThread([]()
+				{
+					GAME->onShutdownRequested(false);
+				});
+#else
+				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+#endif
+			}
 		}
 		catch(const std::exception & e)
 		{
