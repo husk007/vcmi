@@ -1405,7 +1405,7 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	const ModCompatibilityInfo hostMods = pack.mods;
 	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation,
 		localPlayerNames, screenType == ESelectionScreen::loadGame,
-		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintHostMods(hostMods) : std::string{}};
+		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) : std::string{}};
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
 		[this, hostMods, canPreviewLocalPreparation, selectedHost]()
@@ -1465,7 +1465,7 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		{
 			const bool unchangedHostMods = approvedHostModsSha256.empty()
 				|| (canPreviewLocalPreparation
-					&& ModVerificationInfo::fingerprintHostMods(hostMods) == approvedHostModsSha256);
+					&& ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) == approvedHostModsSha256);
 			if(!unchangedHostMods || !room->joinIfCompatible())
 			{
 				// The approved host may have changed while the client was restarting.

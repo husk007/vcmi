@@ -93,6 +93,9 @@ struct DLL_LINKAGE ModVerificationInfo
 	static ModListVerificationStatus verifyListAgainstLocalMods(const ModCompatibilityInfo & input);
 	/// Stable fingerprint of the host mod list approved before a LAN relaunch.
 	static std::string fingerprintHostMods(const ModCompatibilityInfo & input);
+	/// Bind a previously approved automatic LAN rejoin to the host's gameplay mods
+	/// AND the exact advertised archive digests/sizes, not just mod versions.
+	static std::string fingerprintLanHostOffer(const ModCompatibilityInfo & mods, const ModArchiveManifest & archives);
 	/// Advertise only active root mods with archives deliberately placed in userData/lan-mod-shares.
 	static ModArchiveManifest buildHostArchiveManifest(const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath);
 	/// Classify each missing/mismatched root once, using the negotiated host manifest

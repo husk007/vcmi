@@ -552,6 +552,35 @@ TEST(LanModSyncTest, ApprovedHostModListDetectsChangesBeforeAutomaticRejoin)
 	EXPECT_NE(approved, ModVerificationInfo::fingerprintHostMods(hostMods));
 }
 
+TEST(LanModSyncTest, ApprovedLanRejoinRejectsChangedHostArchiveWithoutModVersionChange)
+{
+	ModCompatibilityInfo hostMods;
+	ModVerificationInfo gameplayMod;
+	gameplayMod.version = CModVersion::fromString("1.0");
+	gameplayMod.impactsGameplay = true;
+	hostMods["lan-ci-fixture"] = gameplayMod;
+	ModArchiveManifest archives;
+	archives.emplace("lan-ci-fixture", ModArchiveManifestEntry{std::string(64, 'a'), 42});
+	const auto approved = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
+	EXPECT_EQ(approved.size(), 64U);
+	EXPECT_EQ(approved, ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives));
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintLanHostOffer(hostMods, {}));
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintHostMods(hostMods));
+
+	// The advertised gameplay mod is unchanged, but the archive offered by the
+	// real host has been replaced while the guest is restarting to activate it.
+	archives.at("lan-ci-fixture").sha256 = std::string(64, 'b');
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives));
+	archives.at("lan-ci-fixture").sha256 = std::string(64, 'a');
+	archives.at("lan-ci-fixture").bytes = 43;
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives));
+	archives.at("lan-ci-fixture").bytes = 42;
+
+	gameplayMod.version = CModVersion::fromString("1.1");
+	hostMods["lan-ci-fixture"] = gameplayMod;
+	EXPECT_NE(approved, ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives));
+}
+
 TEST(LanModSyncTest, AutomaticLanRejoinRequiresTheOriginalOneShotToken)
 {
 	JsonNode config;
@@ -3186,7 +3215,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_EQ(localOnly.activate.count(stagedModId), 1);
 	const LanRejoinTarget savedHost{"127.0.0.1", static_cast<std::uint16_t>(port),
 		true, {"LAN integration guest"}, false,
-		ModVerificationInfo::fingerprintHostMods(syncedMods->mods)};
+		ModVerificationInfo::fingerprintLanHostOffer(syncedMods->mods, syncedMods->archives)};
 	beforeRelaunch.prepareInstalledOnlyLanSession(localOnly, savedHost);
 	const auto token = LanRelaunchToken::generate();
 	beforeRelaunch.prepareControlledRelaunch(token);
@@ -3218,7 +3247,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_NE(freshLobby, nullptr);
 	EXPECT_TRUE(freshLobby->acceptingPlayers);
 	EXPECT_EQ(freshLobby->mods.size(), syncedMods->mods.size());
-	EXPECT_EQ(ModVerificationInfo::fingerprintHostMods(freshLobby->mods),
+	EXPECT_EQ(ModVerificationInfo::fingerprintLanHostOffer(freshLobby->mods, freshLobby->archives),
 		resumedTarget->approvedHostModsSha256);
 	if(requiredMod)
 	{
@@ -3266,7 +3295,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	ASSERT_TRUE(repeatedPreview.error.empty()) << repeatedPreview.error;
 	const auto * repeatedHost = dynamic_cast<LobbyModSyncPreview *>(repeatedPreview.response.get());
 	ASSERT_NE(repeatedHost, nullptr);
-	EXPECT_EQ(ModVerificationInfo::fingerprintHostMods(repeatedHost->mods),
+	EXPECT_EQ(ModVerificationInfo::fingerprintLanHostOffer(repeatedHost->mods, repeatedHost->archives),
 		repeatedTarget->approvedHostModsSha256);
 
 	JoinGuest repeatedConnection;
@@ -3316,7 +3345,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const std::string guiGuestName = "LAN GUI relaunch guest";
 		LanModSessionState::setRejoinTarget(staged,
 			{"127.0.0.1", static_cast<std::uint16_t>(port), true, {guiGuestName}, false,
-				ModVerificationInfo::fingerprintHostMods(syncedMods->mods)});
+				ModVerificationInfo::fingerprintLanHostOffer(syncedMods->mods, syncedMods->archives)});
 		const std::string token = LanRelaunchToken::generate();
 		LanModSessionState::prepareControlledRelaunch(staged, token);
 		const std::string originalBytes = original.toCompactString();

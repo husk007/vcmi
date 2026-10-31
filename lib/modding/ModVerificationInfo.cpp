@@ -80,6 +80,27 @@ std::string ModVerificationInfo::fingerprintHostMods(const ModCompatibilityInfo 
 	return digest.finish();
 }
 
+std::string ModVerificationInfo::fingerprintLanHostOffer(const ModCompatibilityInfo & mods, const ModArchiveManifest & archives)
+{
+	// The host may change a shared archive while the guest restarts. A mod-list
+	// fingerprint alone would approve the new package without a fresh consent.
+	std::string representation = "lan-mod-sync-host-offer-v1";
+	const auto append = [&representation](const std::string & field)
+	{
+		representation += std::to_string(field.size()) + ":" + field;
+	};
+	append(fingerprintHostMods(mods));
+	for(const auto & [rootId, archive] : archives)
+	{
+		append(rootId);
+		append(archive.sha256);
+		append(std::to_string(archive.bytes));
+	}
+	ModArchiveDigest::Sha256 digest;
+	digest.update(representation.data(), representation.size());
+	return digest.finish();
+}
+
 ModListVerificationStatus ModVerificationInfo::verifyListAgainstLocalMods(const ModCompatibilityInfo & modList)
 {
 	ModListVerificationStatus result;

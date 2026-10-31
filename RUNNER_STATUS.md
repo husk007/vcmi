@@ -14,11 +14,11 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41152286176](https://github.com/husk007/vcmi/actions/runs/41152286176) passed on `61034a4`: real `vcmitest`, `vcmiserver`, `vcmiclient` build and **94/94 LanModSyncTest PASS**, including independent host TCP rejoin. Completed-campaign relaunch patch `0ac4cf1` awaits its own CI. | BUILD_PASS / TEST_PASS (previous code); CODE_ONLY (new restart) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41156884574](https://github.com/husk007/vcmi/actions/runs/41156884574) passed on `35d7122`: actual `vcmitest`, `vcmiserver` and `vcmiclient` built, **94/94 LanModSyncTest PASS** including independent-host TCP rejoin. GUI campaign flow remains untested with full proprietary assets. | BUILD_PASS / TEST_PASS (prior code) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
-| M2 guest join with installed disabled mods | Independent-host double rejoin passed in CI #41126748632, including required-mod activation, guest-only deactivation and exact preset rollback. New commit `a624d9d` uses the GUI shutdown path and argument-free desktop relaunch after restoring mods on lobby exit, connection failure, cancelled preview or rejected rejoin. Returning from gameplay to the menu now requests a token-free desktop relaunch after restoring the personal preset. A new scenario-results path defers LAN preset reload until victory/defeat screens and the optional high-score list are dismissed; campaign epilogues still retain the manual notice. Explicit application shutdown never relaunches. Scenario-result relaunch now passed build/tests on `61034a4`; completed campaign epilogue/outro/high-score relaunch was added in `0ac4cf1` and awaits CI/real GUI validation. | TEST_PASS (prior); CODE_ONLY (new campaign path) |
-| M3 repeated-session cache reuse | Persistent verified cache helpers and read-only preflight exist; host manifest and real join/transfer counters are missing. | PARTIAL / NOT TESTED |
+| M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
+| M3 repeated-session cache reuse | Existing persistent verified SHA-256 cache and host archive manifest are available in read-only preview. New implementation binds the approved automatic rejoin to **both** host mod metadata and advertised archive SHA-256/size; archive replacements require re-approval. No real transfer/activation from archive or zero-byte network counter yet. | CODE_ONLY (new rejoin binding) |
 | M4 host-to-guest transfer | No verified authenticated network transfer of missing archives or integrated install path. | NOT IMPLEMENTED |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
@@ -31,8 +31,8 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Check scoped CI after `0ac4cf1` for the completed-campaign deferred relaunch compile and 94 committed LAN tests.
-2. Verify epilogue → outro → score closure and personal-preset relaunch in a graphical two-client LAN session using legally owned Heroes III assets; CI fixture cannot establish LAN_PASS.
+1. Validate SHA-256 host-offer binding in the real VCMI build/test checkpoint, then review the guest's actual opt-in rejoin path.
+2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
 3. Wire host manifest and verified cache to real guest archive transfer/activation (M3/M4), with first-use consent and no private mod overwrite.
 
 ## Evidence/reporting discipline
