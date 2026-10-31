@@ -466,6 +466,38 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 }
 
 
+TEST(LanModSyncTest, GuestPreparesOnlyCompleteHostArchiveOffersWithoutPrivateVersionConflicts)
+{
+	const ModListVerificationStatus required = {
+		{"disabledlocal", ModVerificationStatus::DISABLED},
+		{"missingone", ModVerificationStatus::NOT_INSTALLED},
+		{"missingtwo.submod", ModVerificationStatus::NOT_INSTALLED},
+		{"personalonly", ModVerificationStatus::EXCESSIVE}
+	};
+	const std::vector<TModID> installed = {"disabledlocal", "personalonly"};
+	LanArchivePreview available = {
+		{"missingone", LanArchivePreviewState::OFFERED_BY_HOST},
+		{"missingtwo", LanArchivePreviewState::UNAVAILABLE}
+	};
+	// A partial host offer must not expose Prepare or start any TCP transfer.
+	EXPECT_FALSE(ModVerificationInfo::canPrepareMissingHostArchives(required, available, installed));
+	available["missingtwo"] = LanArchivePreviewState::VERIFIED_IN_CACHE;
+	// One downloaded root and one previously verified root can be prepared together.
+	EXPECT_TRUE(ModVerificationInfo::canPrepareMissingHostArchives(required, available, installed));
+	available["missingone"] = LanArchivePreviewState::VERIFIED_IN_CACHE;
+	EXPECT_TRUE(ModVerificationInfo::canPrepareMissingHostArchives(required, available, installed));
+	// A private root with a missing submod must never be shadowed.
+	auto withPrivateRoot = installed;
+	withPrivateRoot.push_back("missingtwo");
+	EXPECT_FALSE(ModVerificationInfo::canPrepareMissingHostArchives(required, available, withPrivateRoot));
+	// Available host packages cannot solve an installed version conflict.
+	auto withWrongVersion = required;
+	withWrongVersion["missingone"] = ModVerificationStatus::VERSION_MISMATCH;
+	EXPECT_FALSE(ModVerificationInfo::canPrepareMissingHostArchives(withWrongVersion, available, installed));
+	EXPECT_FALSE(ModVerificationInfo::canPrepareMissingHostArchives(
+		{{"disabledlocal", ModVerificationStatus::DISABLED}}, available, installed));
+}
+
 TEST(LanModSyncTest, HostOfferConsentPersistsForIdenticalContentOnly)
 {
 	namespace fs = std::filesystem;

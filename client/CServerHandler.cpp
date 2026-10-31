@@ -1423,6 +1423,10 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 	const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
 	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
 	const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, archives, userData);
+	// Enforce the same complete-offer gate as the preview. Never download a
+	// subset of host mods when joining would still be impossible afterwards.
+	if(!ModVerificationInfo::canPrepareMissingHostArchives(statuses, available, LIBRARY->modh->getAllMods()))
+		return false;
 	std::deque<PendingLanArchive> pending;
 	std::size_t prepared = 0;
 	for(const auto & [rootId, state] : available)

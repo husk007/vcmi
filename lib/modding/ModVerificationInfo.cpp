@@ -320,6 +320,29 @@ LanArchivePreview ModVerificationInfo::inspectHostArchiveAvailability(
 	return availability;
 }
 
+bool ModVerificationInfo::canPrepareMissingHostArchives(const ModListVerificationStatus & statuses,
+	const LanArchivePreview & availability, const std::vector<TModID> & installedMods)
+{
+	bool needsAnArchive = false;
+	for(const auto & [modId, status] : statuses)
+	{
+		// Private installed versions must not be overlaid by host archive contents.
+		if(status == ModVerificationStatus::VERSION_MISMATCH)
+			return false;
+		if(status != ModVerificationStatus::NOT_INSTALLED)
+			continue;
+		if(!isValidLanModId(modId))
+			return false;
+		needsAnArchive = true;
+		const auto rootId = modId.substr(0, modId.find('.'));
+		const auto found = availability.find(rootId);
+		if(std::find(installedMods.begin(), installedMods.end(), rootId) != installedMods.end()
+			|| found == availability.end() || found->second == LanArchivePreviewState::UNAVAILABLE)
+			return false;
+	}
+	return needsAnArchive;
+}
+
 std::uint64_t ModVerificationInfo::estimateUncachedArchiveBytes(
 	const LanArchivePreview & availability, const ModArchiveManifest & hostArchives)
 {

@@ -114,6 +114,11 @@ struct DLL_LINKAGE ModVerificationInfo
 	/// and existing persistent SHA-256 verification. Does not install or trust archives.
 	static LanArchivePreview inspectHostArchiveAvailability(const ModListVerificationStatus & statuses,
 		const ModArchiveManifest & hostArchives, const std::filesystem::path & userDataPath);
+	/// True only when every missing host root has an offered or verified archive,
+	/// and none would shadow a locally installed private mod. Both the preview
+	/// button and the real download entry point must use this same eligibility gate.
+	static bool canPrepareMissingHostArchives(const ModListVerificationStatus & statuses,
+		const LanArchivePreview & availability, const std::vector<TModID> & installedMods);
 	/// Total bytes of host archives not already verified in the guest cache, counted once per root mod.
 	static std::uint64_t estimateUncachedArchiveBytes(const LanArchivePreview & availability, const ModArchiveManifest & hostArchives);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.

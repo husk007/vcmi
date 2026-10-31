@@ -207,15 +207,6 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	buttonJoin = std::make_shared<CButton>(Point(10, 360), AnimationPath::builtin("MuBchck"), CButton::tooltip(), [this](){ this->onJoin(); }, EShortcut::GLOBAL_ACCEPT);
 	buttonClose = std::make_shared<CButton>(Point(100, 360), AnimationPath::builtin("MuBcanc"), CButton::tooltip(), [this](){ this->onClose(); }, EShortcut::GLOBAL_CANCEL);
-	if(lanPreview && onDownloadCallback && std::any_of(archiveAvailability.begin(), archiveAvailability.end(),
-		[](const auto & entry){ return entry.second != LanArchivePreviewState::UNAVAILABLE; }))
-	{
-		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
-			CButton::tooltip(), [this](){ onDownloadCallback(); });
-		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
-			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
-	}
-
 	MetaString joinStatusText;
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
 	directJoinAllowed = errorMessage.empty();
@@ -228,29 +219,8 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	// for conflicting private root versions or incomplete host packages.
 	if(lanPreview && onDownloadCallback && errorMessage == "vcmi.lobby.preview.error.mods")
 	{
-		const auto installed = LIBRARY->modh->getAllMods();
-		bool hasMissingRoot = false;
-		allowCachedPreparation = true;
-		for(const auto & [modId, status] : modStatuses)
-		{
-			if(status == ModVerificationStatus::VERSION_MISMATCH)
-			{
-				allowCachedPreparation = false;
-				break;
-			}
-			if(status != ModVerificationStatus::NOT_INSTALLED)
-				continue;
-			hasMissingRoot = true;
-			const auto rootId = modId.substr(0, modId.find('.'));
-			const auto offered = archiveAvailability.find(rootId);
-			if(vstd::contains(installed, rootId) || offered == archiveAvailability.end()
-				|| offered->second == LanArchivePreviewState::UNAVAILABLE)
-			{
-				allowCachedPreparation = false;
-				break;
-			}
-		}
-		allowCachedPreparation = allowCachedPreparation && hasMissingRoot;
+		allowCachedPreparation = ModVerificationInfo::canPrepareMissingHostArchives(
+			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
 	}
 #endif
 	cachedLanJoinCandidate = allowCachedPreparation;
@@ -263,6 +233,15 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		cachedLanJoinPrepared = LanModArchiveCache::hasApprovedHostOffer(userData, cachedLanHostFingerprint)
 			&& std::all_of(archiveAvailability.begin(), archiveAvailability.end(),
 				[](const auto & entry){ return entry.second == LanArchivePreviewState::VERIFIED_IN_CACHE; });
+	}
+	// Never offer a partial download that cannot lead to a usable LAN preset.
+	// A previously approved, verified offer already has a direct Join action.
+	if(allowCachedPreparation && !cachedLanJoinPrepared)
+	{
+		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
+			CButton::tooltip(), [this](){ onDownloadCallback(); });
+		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
 	}
 	if (!errorMessage.empty())
 	{
