@@ -1,2 +1,2 @@
-M4 guest preview / cache integration checkpoint: e987871c0c5bba4cb0398449227a98558753d07b
-Build real vcmitest, vcmiserver and vcmiclient and run LanModSyncTest.*, including the >64 KiB multi-chunk TCP transfer and zero-byte second join. New opt-in UI asks permission before temporarily registering a lobby guest, fetching only archive cache misses, verifying SHA-256 and retaining the package in the persistent cache. No install/activation or LAN_PASS is claimed.
+M4 milestone checkpoint: 9b08c89200b541fd1705e860bbae5fc6ef9a2c50
+Build real vcmitest, vcmiserver and vcmiclient; run LanModSyncTest.* including VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod. Verify bounded ZIP entry sizes, traversal rejection, versioned LAN-only unpacking of SHA-256 cached mods, cache-hit preparation without retransmission and untouched userData/Mods. Does not prove automatic activation or LAN_PASS.
