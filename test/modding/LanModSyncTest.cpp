@@ -416,7 +416,7 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 		zipFile writer = zipOpen(path.string().c_str(), APPEND_STATUS_CREATE);
 		if(!writer)
 			return false;
-		const std::string payload = "{\\"name\\":\\"LAN test\\",\\"version\\":\\"1.0\\"}";
+		const std::string payload = R"({"name":"LAN test","version":"1.0"})";
 		const bool valid = zipOpenNewFileInZip(writer, definitionPath.c_str(), nullptr,
 			nullptr, 0, nullptr, 0, nullptr, Z_DEFLATED, Z_DEFAULT_COMPRESSION) == ZIP_OK
 			&& zipWriteInFileInZip(writer, payload.data(), static_cast<unsigned int>(payload.size())) == ZIP_OK
