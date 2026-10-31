@@ -180,8 +180,9 @@ void GameLibrary::loadModFilesystem(bool useTestPreset, const std::string & lanR
 				if(!staged.empty())
 				{
 					auto * initial = dynamic_cast<CFilesystemList *>(CResourceHandler::get("initial"));
+					auto * core = dynamic_cast<CFilesystemList *>(CResourceHandler::get("core"));
 					const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
-					if(!initial || !LanModPackageStage::mountControlledStagedMods(*initial, userData, staged))
+					if(!initial || !core || !LanModPackageStage::mountControlledStagedMods(*initial, *core, userData, staged))
 						logGlobal->warn("Approved LAN staging could not be mounted; rejoin will require recovery");
 				}
 			}

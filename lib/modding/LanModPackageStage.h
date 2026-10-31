@@ -21,6 +21,8 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace LanModPackageStage
 {
@@ -172,13 +174,14 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
  * locally can be mounted: overlaying a private version would accidentally
  * mix files missing from the guest archive with the player's own mod.
  *
- * Call after createInitial(), but before ModManager scans mod definitions.
- * No file in the player's Mods directory is changed.
+ * Discovery scans the initial loader, but runtime mod.json is read through the
+ * already-created core filesystem. Both views must expose approved staged mods
+ * before ModManager is constructed, without touching private Mods files.
  */
-inline bool mountControlledStagedMods(CFilesystemList & initial,
+inline bool mountControlledStagedMods(CFilesystemList & initial, CFilesystemList & core,
 	const std::filesystem::path & userData, const ModArchiveHashes & selected)
 {
-	std::vector<std::unique_ptr<CFilesystemLoader>> toMount;
+	std::vector<std::pair<std::unique_ptr<CFilesystemLoader>, std::unique_ptr<CFilesystemLoader>>> toMount;
 	for(const auto & [rootId, digest] : selected)
 	{
 		if(rootId.empty() || rootId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") != rootId.npos
@@ -190,20 +193,25 @@ inline bool mountControlledStagedMods(CFilesystemList & initial,
 			[](unsigned char c){ return static_cast<char>(std::toupper(c)); });
 		const std::string prefix = "MODS/" + upperId + "/";
 		const ResourcePath definition(prefix + "MOD", EResType::JSON);
-		if(initial.existsResource(definition))
+		if(initial.existsResource(definition) || core.existsResource(definition))
 			return false; // Never shadow an installed private root mod.
 
 		const auto staged = stageVerifiedArchive(userData, rootId, digest);
 		if(!staged)
 			return false;
-		auto loader = std::make_unique<CFilesystemLoader>(prefix,
-			boost::filesystem::path(staged->native()), 64, true);
-		if(!loader->existsResource(definition))
+		const boost::filesystem::path stagedPath(staged->native());
+		auto discoveryLoader = std::make_unique<CFilesystemLoader>(prefix, stagedPath, 64, true);
+		auto contentLoader = std::make_unique<CFilesystemLoader>(prefix, stagedPath, 64, true);
+		if(!discoveryLoader->existsResource(definition) || !contentLoader->existsResource(definition))
 			return false;
-		toMount.emplace_back(std::move(loader));
+		toMount.emplace_back(std::move(discoveryLoader), std::move(contentLoader));
 	}
-	for(auto & loader : toMount)
-		initial.addLoader(std::move(loader), false);
+	// Validate the entire selection before exposing any package to either view.
+	for(auto & [discoveryLoader, contentLoader] : toMount)
+	{
+		initial.addLoader(std::move(discoveryLoader), false);
+		core.addLoader(std::move(contentLoader), false);
+	}
 	return true;
 }
 

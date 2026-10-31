@@ -445,17 +445,25 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 
 	// A private version must never be shadowed, not even by a fully cached ZIP.
 	CFilesystemList privateView;
+	CFilesystemList privateContent;
 	privateView.addLoader(std::make_unique<CFilesystemLoader>("MODS/HOSTMOD/",
 		boost::filesystem::path(privateDefinition.parent_path().native()), 64, true), false);
-	EXPECT_FALSE(LanModPackageStage::mountControlledStagedMods(privateView, base / "guest", {{"hostmod", *digest}}));
+	EXPECT_FALSE(LanModPackageStage::mountControlledStagedMods(privateView, privateContent,
+		base / "guest", {{"hostmod", *digest}}));
 
 	// Without a private version the same staged package participates in actual
 	// VCMI mod discovery under its canonical MODS/<ROOT>/MOD resource name.
 	CFilesystemList guestView;
-	ASSERT_TRUE(LanModPackageStage::mountControlledStagedMods(guestView, base / "guest", {{"hostmod", *digest}}));
-	const auto definition = guestView.getResourceName(ResourcePath("MODS/HOSTMOD/MOD", EResType::JSON));
+	CFilesystemList guestContent;
+	ASSERT_TRUE(LanModPackageStage::mountControlledStagedMods(guestView, guestContent,
+		base / "guest", {{"hostmod", *digest}}));
+	const ResourcePath modDefinition("MODS/HOSTMOD/MOD", EResType::JSON);
+	const auto definition = guestView.getResourceName(modDefinition);
+	const auto contentDefinition = guestContent.getResourceName(modDefinition);
 	ASSERT_TRUE(definition);
+	ASSERT_TRUE(contentDefinition);
 	EXPECT_EQ(fs::path(definition->native()), *staged / "mod.json");
+	EXPECT_EQ(fs::path(contentDefinition->native()), *staged / "mod.json");
 	EXPECT_FALSE(guestView.existsResource(ResourcePath("MODS/UNRELATED/MOD", EResType::JSON)));
 
 	const auto malicious = base / "traversal.zip";
@@ -662,15 +670,18 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 			const auto staged = LanModPackageStage::stageVerifiedArchive(
 				userData, "hostmod", hashes.at("hostmod"));
 			CFilesystemList discovery;
+			CFilesystemList content;
 			const ResourcePath definition("MODS/HOSTMOD/MOD", EResType::JSON);
-			if(!staged || !LanModPackageStage::mountControlledStagedMods(discovery, userData, hashes)
-				|| !discovery.existsResource(definition))
+			if(!staged || !LanModPackageStage::mountControlledStagedMods(discovery, content, userData, hashes)
+				|| !discovery.existsResource(definition) || !content.existsResource(definition))
 			{
 				failure = "Verified host archive is not visible to LAN mod discovery";
 				return false;
 			}
 			const auto path = discovery.getResourceName(definition);
-			if(!path || fs::path(path->native()) != *staged / "mod.json")
+			const auto contentPath = content.getResourceName(definition);
+			if(!path || !contentPath || fs::path(path->native()) != *staged / "mod.json"
+				|| fs::path(contentPath->native()) != *staged / "mod.json")
 			{
 				failure = "Staged host mod resolves to an unexpected path";
 				return false;
