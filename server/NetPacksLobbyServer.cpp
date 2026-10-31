@@ -70,14 +70,29 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 		ModCompatibilityInfo activeMods;
 		for(const auto & modId : LIBRARY->modh->getActiveMods())
 			activeMods.emplace(modId, LIBRARY->modh->getModInfo(modId).getVerificationInfo());
-		const auto chunk = ModVerificationInfo::readHostArchiveChunk(activeMods,
-			std::filesystem::path(VCMIDirs::get().userDataPath().native()),
-			request->rootId, request->sha256, request->offset);
-		if(chunk)
+		// A 64 KiB request must not trigger another full ZIP SHA-256 pass.
+		// Bind the verified, pinned source to this registered guest until EOF.
+		if(request->offset == 0)
 		{
-			response.totalBytes = chunk->totalBytes;
-			response.data = chunk->data;
-			response.granted = true;
+			srv.lanHostArchiveTransfers.erase(connection->connectionID);
+			auto transfer = LanHostArchiveTransfer::open(activeMods,
+				std::filesystem::path(VCMIDirs::get().userDataPath().native()),
+				request->rootId, request->sha256);
+			if(transfer)
+				srv.lanHostArchiveTransfers.emplace(connection->connectionID, std::move(transfer));
+		}
+		const auto found = srv.lanHostArchiveTransfers.find(connection->connectionID);
+		if(found != srv.lanHostArchiveTransfers.end())
+		{
+			const auto chunk = found->second->next(request->rootId, request->sha256, request->offset);
+			if(chunk)
+			{
+				response.totalBytes = chunk->totalBytes;
+				response.data = chunk->data;
+				response.granted = true;
+			}
+			if(!chunk || found->second->complete())
+				srv.lanHostArchiveTransfers.erase(found);
 		}
 		connection->sendPack(response);
 		result = false;

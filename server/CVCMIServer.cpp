@@ -161,6 +161,8 @@ void CVCMIServer::setState(EServerState value)
 		startDiscoveryListener();
 	if(state == EServerState::LOBBY && value != EServerState::LOBBY && discoveryListener)
 		stopDiscoveryListener();
+	if(state == EServerState::LOBBY && value != EServerState::LOBBY)
+		lanHostArchiveTransfers.clear();
 
 	state = value;
 
@@ -543,6 +545,7 @@ void CVCMIServer::clientDisconnected(std::shared_ptr<GameConnection> connection)
 {
 	assert(vstd::contains(activeConnections, connection));
 	logGlobal->trace("Received disconnection request");
+	lanHostArchiveTransfers.erase(connection->connectionID);
 	vstd::erase(activeConnections, connection);
 
 	std::vector<PlayerConnectionID> disconnectedPlayerIds;

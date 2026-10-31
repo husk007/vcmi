@@ -36,6 +36,7 @@
 #include "../../lib/modding/ModArchiveDigest.h"
 #include "../../lib/modding/LanModArchiveCache.h"
 #include "../../lib/modding/LanModPackageStage.h"
+#include "../../lib/modding/LanHostArchiveTransfer.h"
 #include "../../lib/filesystem/MinizipExtensions.h"
 #include "../../lib/filesystem/AdapterLoaders.h"
 #include "../../lib/filesystem/CFilesystemLoader.h"
@@ -620,6 +621,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 	struct Host final : INetworkServerListener
 	{
 		std::map<NetworkConnectionPtr, std::unique_ptr<GameConnection>> peers;
+		std::map<NetworkConnectionPtr, std::unique_ptr<LanHostArchiveTransfer>> transfers;
 		ModCompatibilityInfo mods;
 		fs::path userData;
 		int requests = 0;
@@ -632,6 +634,7 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 		}
 		void onDisconnected(const NetworkConnectionPtr & connection, const std::string &) override
 		{
+			transfers.erase(connection);
 			peers.erase(connection);
 		}
 		void onPacketReceived(const NetworkConnectionPtr & connection, const std::vector<std::byte> & buffer) override
@@ -656,13 +659,26 @@ TEST(LanModSyncTest, RegisteredLobbyGuestFetchesAndMountsRealZipOnlyOnceOverTcp)
 				response.rootId = request->rootId;
 				response.sha256 = request->sha256;
 				response.offset = request->offset;
-				if(const auto chunk = ModVerificationInfo::readHostArchiveChunk(mods, userData,
-					request->rootId, request->sha256, request->offset))
+				if(request->offset == 0)
 				{
-					response.granted = true;
-					response.totalBytes = chunk->totalBytes;
-					response.data = chunk->data;
-					sentBytes += response.data.size();
+					transfers.erase(connection);
+					if(auto transfer = LanHostArchiveTransfer::open(mods, userData,
+						request->rootId, request->sha256))
+						transfers.emplace(connection, std::move(transfer));
+				}
+				const auto transfer = transfers.find(connection);
+				if(transfer != transfers.end())
+				{
+					const auto chunk = transfer->second->next(request->rootId, request->sha256, request->offset);
+					if(chunk)
+					{
+						response.granted = true;
+						response.totalBytes = chunk->totalBytes;
+						response.data = chunk->data;
+						sentBytes += response.data.size();
+					}
+					if(!chunk || transfer->second->complete())
+						transfers.erase(transfer);
 				}
 				peer.sendPack(response);
 			}
