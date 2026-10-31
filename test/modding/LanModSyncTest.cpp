@@ -396,6 +396,190 @@ TEST(LanModSyncTest, RealTcpLobbyPreviewTransportsLegacyAndOptInPacketsOnLoopbac
 	network->stop();
 }
 
+TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTcp)
+{
+	namespace fs = std::filesystem;
+	const auto directory = fs::temp_directory_path() / ("vcmi-lan-chunk-transport-" + LanRelaunchToken::generate());
+	const auto shares = directory / "host" / "lan-mod-shares";
+	const auto guestData = directory / "guest";
+	ASSERT_TRUE(fs::create_directories(shares));
+	{
+		std::ofstream file(shares / "hostmod.zip", std::ios::binary);
+		file << "abc";
+	}
+	ModCompatibilityInfo activeMods;
+	ModVerificationInfo root;
+	root.name = "LAN test host mod";
+	activeMods.emplace("hostmod", root);
+	const auto manifest = ModVerificationInfo::buildHostArchiveManifest(activeMods, directory / "host");
+	ASSERT_EQ(manifest.size(), 1);
+	const auto digest = manifest.at("hostmod").sha256;
+	const ModArchiveHashes hashes = {{"hostmod", digest}};
+	const ModListVerificationStatus missing = {{"hostmod", ModVerificationStatus::NOT_INSTALLED}};
+
+	// The new packet IDs must travel through VCMI's production serializer,
+	// independently of the old lobby preview packet layouts.
+	LobbyQueryLanModArchiveChunk sample;
+	sample.rootId = "hostmod";
+	sample.sha256 = digest;
+	auto roundTrip = CMemorySerializer::deepCopy<CPack>(sample);
+	ASSERT_NE(dynamic_cast<LobbyQueryLanModArchiveChunk *>(roundTrip.get()), nullptr);
+	EXPECT_EQ(dynamic_cast<LobbyQueryLanModArchiveChunk *>(roundTrip.get())->sha256, digest);
+
+	auto network = INetworkHandler::createHandler();
+	struct Host final : INetworkServerListener
+	{
+		std::map<NetworkConnectionPtr, std::unique_ptr<GameConnection>> peers;
+		ModCompatibilityInfo mods;
+		fs::path userData;
+		int requests = 0;
+		std::size_t sentBytes = 0;
+
+		void onNewConnection(const NetworkConnectionPtr & connection) override
+		{
+			auto & peer = peers[connection] = std::make_unique<GameConnection>(connection);
+			peer->enterLobbyConnectionMode();
+		}
+		void onDisconnected(const NetworkConnectionPtr & connection, const std::string &) override
+		{
+			peers.erase(connection);
+		}
+		void onPacketReceived(const NetworkConnectionPtr & connection, const std::vector<std::byte> & buffer) override
+		{
+			auto & peer = *peers.at(connection);
+			auto packet = peer.retrievePack(buffer);
+			if(auto * join = dynamic_cast<LobbyClientConnected *>(packet.get()))
+			{
+				peer.connectionID = GameConnectionID::FIRST_CONNECTION;
+				LobbyClientConnected accepted = *join;
+				accepted.clientId = peer.connectionID;
+				accepted.hostClientId = peer.connectionID;
+				peer.sendPack(accepted);
+				return;
+			}
+			if(auto * request = dynamic_cast<LobbyQueryLanModArchiveChunk *>(packet.get()))
+			{
+				if(peer.connectionID == GameConnectionID::INVALID)
+					return;
+				++requests;
+				LobbyLanModArchiveChunk response;
+				response.rootId = request->rootId;
+				response.sha256 = request->sha256;
+				response.offset = request->offset;
+				if(const auto chunk = ModVerificationInfo::readHostArchiveChunk(mods, userData,
+					request->rootId, request->sha256, request->offset))
+				{
+					response.granted = true;
+					response.totalBytes = chunk->totalBytes;
+					response.data = chunk->data;
+					sentBytes += response.data.size();
+				}
+				peer.sendPack(response);
+			}
+		}
+	} host;
+	host.mods = activeMods;
+	host.userData = directory / "host";
+
+	struct Guest final : INetworkClientListener
+	{
+		NetworkConnectionPtr connection;
+		std::unique_ptr<GameConnection> peer;
+		fs::path userData;
+		ModArchiveHashes hashes;
+		std::string failure;
+		std::size_t receivedBytes = 0;
+		bool done = false;
+
+		void onConnectionFailed(const std::string & error) override { failure = error; }
+		void onConnectionEstablished(const NetworkConnectionPtr & ready) override
+		{
+			connection = ready;
+			peer = std::make_unique<GameConnection>(ready);
+			peer->enterLobbyConnectionMode();
+			LobbyClientConnected join;
+			join.uuid = "11111111-1111-4111-8111-111111111111";
+			join.names = {"LAN guest"};
+			join.mode = EStartMode::NEW_GAME;
+			peer->sendPack(join);
+		}
+		void onDisconnected(const NetworkConnectionPtr &, const std::string & error) override
+		{
+			if(!done)
+				failure = error;
+		}
+		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & buffer) override
+		{
+			auto packet = peer->retrievePack(buffer);
+			if(dynamic_cast<LobbyClientConnected *>(packet.get()))
+			{
+				const auto plan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+					{{"hostmod", ModVerificationStatus::NOT_INSTALLED}}, hashes, userData);
+				if(plan.reuseCachedArchive.contains("hostmod"))
+				{
+					done = true; // No request, therefore zero archive bytes on the second join.
+					return;
+				}
+				LobbyQueryLanModArchiveChunk request;
+				request.rootId = "hostmod";
+				request.sha256 = hashes.at("hostmod");
+				peer->sendPack(request);
+			}
+			else if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
+			{
+				if(!chunk->granted || chunk->data != "abc" || chunk->totalBytes != 3
+					|| chunk->sha256 != hashes.at("hostmod") || chunk->offset != 0)
+				{
+					failure = "Host returned an invalid archive chunk";
+					return;
+				}
+				const auto staged = userData.parent_path() / "staged.zip";
+				std::ofstream output(staged, std::ios::binary);
+				output.write(chunk->data.data(), static_cast<std::streamsize>(chunk->data.size()));
+				output.close();
+				if(!LanModArchiveCache::publishVerifiedArchive(userData, "hostmod", chunk->sha256, staged))
+				{
+					failure = "Could not verify and publish the received archive";
+					return;
+				}
+				receivedBytes += chunk->data.size();
+				done = true;
+			}
+		}
+	};
+
+	auto server = network->createServerTCP(host);
+	const auto port = server->start(0);
+	ASSERT_NE(port, 0);
+	Guest first;
+	first.userData = guestData;
+	first.hashes = hashes;
+	network->connectToRemote(first, "127.0.0.1", port);
+	network->getContext().run_for(std::chrono::milliseconds(1500));
+	EXPECT_TRUE(first.failure.empty()) << first.failure;
+	ASSERT_TRUE(first.done);
+	EXPECT_EQ(first.receivedBytes, 3);
+	EXPECT_EQ(host.requests, 1);
+	EXPECT_EQ(host.sentBytes, 3);
+	ASSERT_TRUE(LanModArchiveCache::findVerifiedArchive(guestData, "hostmod", digest));
+	first.connection->close();
+
+	Guest second;
+	second.userData = guestData;
+	second.hashes = hashes;
+	network->getContext().restart();
+	network->connectToRemote(second, "127.0.0.1", port);
+	network->getContext().run_for(std::chrono::milliseconds(1500));
+	EXPECT_TRUE(second.failure.empty()) << second.failure;
+	EXPECT_TRUE(second.done);
+	EXPECT_EQ(second.receivedBytes, 0);
+	EXPECT_EQ(host.requests, 1);
+	EXPECT_EQ(host.sentBytes, 3);
+	network->stop();
+	std::error_code cleanup;
+	fs::remove_all(directory, cleanup);
+}
+
 TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 {
 	namespace fs = std::filesystem;

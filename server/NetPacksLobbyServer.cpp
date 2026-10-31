@@ -47,12 +47,43 @@ void ApplyOnServerAfterAnnounceNetPackVisitor::visitForLobby(CPackForLobby & pac
 
 void ClientPermissionsCheckerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 {
-	// Anyone can query lobby state without being a registered player
+	// Archive bytes are available only to a server-registered player in this
+	// still-running lobby. Anonymous compatibility previews remain read-only.
+	if(dynamic_cast<LobbyQueryLanModArchiveChunk *>(&pack))
+	{
+		result = srv.getState() == EServerState::LOBBY
+			&& connection->connectionID != GameConnectionID::INVALID;
+		return;
+	}
+	// Anyone can query compatibility metadata without joining as a player.
 	result = true;
 }
 
 void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 {
+	if(auto * request = dynamic_cast<LobbyQueryLanModArchiveChunk *>(&pack))
+	{
+		LobbyLanModArchiveChunk response;
+		response.rootId = request->rootId;
+		response.sha256 = request->sha256;
+		response.offset = request->offset;
+		ModCompatibilityInfo activeMods;
+		for(const auto & modId : LIBRARY->modh->getActiveMods())
+			activeMods.emplace(modId, LIBRARY->modh->getModInfo(modId).getVerificationInfo());
+		const auto chunk = ModVerificationInfo::readHostArchiveChunk(activeMods,
+			std::filesystem::path(VCMIDirs::get().userDataPath().native()),
+			request->rootId, request->sha256, request->offset);
+		if(chunk)
+		{
+			response.totalBytes = chunk->totalBytes;
+			response.data = chunk->data;
+			response.granted = true;
+		}
+		connection->sendPack(response);
+		result = false;
+		return;
+	}
+
 	LobbyModsCheck lms;
 	lms.vcmiVersion = VCMI_VERSION_STRING;
 

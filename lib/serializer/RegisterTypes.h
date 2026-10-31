@@ -320,4 +320,6 @@ void registerTypes(Serializer &s)
 	s.template registerType<DisableMapEvent>(272);
 	s.template registerType<LobbyQueryModSync>(273);
 	s.template registerType<LobbyModSyncPreview>(274);
+	s.template registerType<LobbyQueryLanModArchiveChunk>(275);
+	s.template registerType<LobbyLanModArchiveChunk>(276);
 }

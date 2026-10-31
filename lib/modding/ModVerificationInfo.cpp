@@ -12,6 +12,8 @@
 #include "ModArchiveDigest.h"
 #include "LanModArchiveCache.h"
 
+#include <fstream>
+
 #include "CModHandler.h"
 #include "ModDescription.h"
 #include "ModIncompatibility.h"
@@ -259,6 +261,34 @@ ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
 		manifest.emplace(modId, ModArchiveManifestEntry{*digest, static_cast<std::uint64_t>(size)});
 	}
 	return manifest;
+}
+
+std::optional<ModArchiveChunk> ModVerificationInfo::readHostArchiveChunk(
+	const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath,
+	const TModID & rootId, const std::string & expectedSha256, std::int64_t offset)
+{
+	if(offset < 0 || !ModArchiveDigest::isSha256(expectedSha256))
+		return std::nullopt;
+
+	// Only an active root mod with an explicitly staged ZIP can be shared.
+	// Verify the complete archive before serving any bytes. The receiving client
+	// must also verify the full SHA-256 before publishing anything to its cache.
+	const auto offers = buildHostArchiveManifest(activeMods, userDataPath);
+	const auto offered = offers.find(rootId);
+	if(offered == offers.end() || !ModArchiveDigest::sameSha256(offered->second.sha256, expectedSha256)
+		|| offset >= offered->second.bytes)
+		return std::nullopt;
+
+	constexpr std::int64_t maxChunkBytes = 64 * 1024;
+	const auto chunkSize = std::min(maxChunkBytes, offered->second.bytes - offset);
+	std::ifstream archive(userDataPath / "lan-mod-shares" / (rootId + ".zip"), std::ios::binary);
+	if(!archive.seekg(offset, std::ios::beg))
+		return std::nullopt;
+	std::string data(static_cast<std::size_t>(chunkSize), '\0');
+	archive.read(data.data(), static_cast<std::streamsize>(chunkSize));
+	if(archive.gcount() != static_cast<std::streamsize>(chunkSize))
+		return std::nullopt;
+	return ModArchiveChunk{offered->second.bytes, std::move(data)};
 }
 
 LanArchivePreview ModVerificationInfo::inspectHostArchiveAvailability(

@@ -48,6 +48,13 @@ struct DLL_LINKAGE ModArchiveManifestEntry
 
 using ModArchiveManifest = std::map<TModID, ModArchiveManifestEntry>;
 
+/// One bounded read from a host-approved LAN share. This is not an installable mod.
+struct DLL_LINKAGE ModArchiveChunk
+{
+	std::int64_t totalBytes = 0;
+	std::string data;
+};
+
 /// Read-only package availability for incompatible mods in the existing LAN room preview.
 /// A cache hit does not mean the mod is installed or safe to activate.
 enum class LanArchivePreviewState
@@ -98,6 +105,11 @@ struct DLL_LINKAGE ModVerificationInfo
 	static std::string fingerprintLanHostOffer(const ModCompatibilityInfo & mods, const ModArchiveManifest & archives);
 	/// Advertise only active root mods with archives deliberately placed in userData/lan-mod-shares.
 	static ModArchiveManifest buildHostArchiveManifest(const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath);
+	/// Read at most 64 KiB from an explicitly staged, hash-matching host share.
+	/// The caller must authorize the requesting lobby connection before invoking this.
+	static std::optional<ModArchiveChunk> readHostArchiveChunk(const ModCompatibilityInfo & activeMods,
+		const std::filesystem::path & userDataPath, const TModID & rootId,
+		const std::string & expectedSha256, std::int64_t offset);
 	/// Classify each missing/mismatched root once, using the negotiated host manifest
 	/// and existing persistent SHA-256 verification. Does not install or trust archives.
 	static LanArchivePreview inspectHostArchiveAvailability(const ModListVerificationStatus & statuses,
