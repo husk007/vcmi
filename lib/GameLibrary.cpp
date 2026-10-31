@@ -30,6 +30,9 @@
 #include "campaign/CampaignRegionsHandler.h"
 #include "mapping/MapFormatSettings.h"
 #include "modding/CModHandler.h"
+#include "modding/ModManager.h"
+#include "modding/LanModPackageStage.h"
+#include "modding/LanRelaunchTokenFormat.h"
 #include "modding/IdentifierStorage.h"
 #include "modding/CModVersion.h"
 #include "CStopWatch.h"
@@ -158,6 +161,35 @@ void GameLibrary::loadModFilesystem(bool useTestPreset, const std::string & lanR
 	{
 		auto loader = std::make_unique<CFilesystemLoader>("MODS/", "test/testdata/", 64);
 		dynamic_cast<CFilesystemList*>(CResourceHandler::get("initial"))->addLoader(std::move(loader), false);
+	}
+
+	// Only the one-shot LAN relaunch may expose downloaded mods to discovery.
+	// Normal startup, crash recovery, other presets and the dedicated test
+	// preset continue to see the user's unmodified personal installations.
+	if(!useTestPreset && LanRelaunchTokenFormat::isValid(lanRelaunchToken))
+	{
+		try
+		{
+			const auto path = JsonPath::builtin("config/modSettings.json");
+			if(CResourceHandler::get("local")->existsResource(ResourcePath(path)))
+			{
+				JsonParsingSettings parsing;
+				parsing.strict = true;
+				const JsonNode saved(path, parsing);
+				const auto staged = LanModSessionState::stagedModsForControlledRelaunch(saved, lanRelaunchToken);
+				if(!staged.empty())
+				{
+					auto * initial = dynamic_cast<CFilesystemList *>(CResourceHandler::get("initial"));
+					const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
+					if(!initial || !LanModPackageStage::mountControlledStagedMods(*initial, userData, staged))
+						logGlobal->warn("Approved LAN staging could not be mounted; rejoin will require recovery");
+				}
+			}
+		}
+		catch(const std::exception & error)
+		{
+			logGlobal->warn("LAN staging unavailable; preserving normal mod startup: %s", error.what());
+		}
 	}
 	modh = std::make_unique<CModHandler>(useTestPreset, lanRelaunchToken);
 	identifiersHandler = std::make_unique<CIdentifierStorage>();

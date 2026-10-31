@@ -144,6 +144,8 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 	std::int64_t lanArchiveOffset = 0;
 	std::size_t lanArchiveCachedCount = 0;
 	bool lanArchiveDownloading = false;
+	std::string lanArchiveRequestedHostOffer;
+	std::string lanArchiveApprovedHostOffer;
 	void requestNextLanArchiveChunk();
 	void finishLanArchiveDownload(bool success);
 

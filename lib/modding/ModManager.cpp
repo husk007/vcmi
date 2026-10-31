@@ -274,6 +274,45 @@ void LanModSessionState::setRejoinTarget(JsonNode & config, const LanRejoinTarge
 		playerNames.emplace_back(name);
 }
 
+
+void LanModSessionState::setStagedMods(JsonNode & config, const ModArchiveHashes & staged)
+{
+	validateLanSessionSnapshot(config);
+	if(!config["lanSession"]["stagedMods"].isNull())
+		throw std::runtime_error("LAN staged mod selection was already set");
+	for(const auto & [rootId, digest] : staged)
+	{
+		if(rootId.empty() || rootId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") != rootId.npos
+			|| !ModArchiveDigest::isSha256(digest))
+			throw std::runtime_error("Invalid staged LAN mod identity or SHA-256");
+		config["lanSession"]["stagedMods"][rootId].String() = digest;
+	}
+}
+
+ModArchiveHashes LanModSessionState::stagedModsForControlledRelaunch(const JsonNode & config, const std::string & token)
+{
+	const JsonNode & current = config;
+	const JsonNode & session = current["lanSession"];
+	if(!LanRelaunchTokenFormat::isValid(token) || !session.isStruct()
+		|| !session["relaunchToken"].isString() || session["relaunchToken"].String() != token)
+		return {};
+	validateLanSessionSnapshot(config);
+	const JsonNode & selected = session["stagedMods"];
+	if(selected.isNull())
+		return {};
+	if(!selected.isStruct())
+		throw std::runtime_error("Invalid staged LAN mod selection");
+	ModArchiveHashes result;
+	for(const auto & [rootId, digest] : selected.Struct())
+	{
+		if(rootId.empty() || rootId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") != rootId.npos
+			|| !digest.isString() || !ModArchiveDigest::isSha256(digest.String()))
+			throw std::runtime_error("Invalid staged LAN mod identity or SHA-256");
+		result.emplace(rootId, digest.String());
+	}
+	return result;
+}
+
 std::optional<LanRejoinTarget> LanModSessionState::getRejoinTarget(const JsonNode & config)
 {
 	if(!config["activePreset"].isString() || config["activePreset"].String() != temporaryPresetName())
@@ -571,12 +610,20 @@ void ModsPresetState::beginLanSession()
 
 void ModsPresetState::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target)
 {
+	prepareLanSessionWithStagedMods(plan, target, {});
+}
+
+void ModsPresetState::prepareLanSessionWithStagedMods(const ModSyncPlan & plan,
+	const LanRejoinTarget & target, const ModArchiveHashes & staged)
+{
 	beginLanSession();
 	try
 	{
 		JsonNode pending = modConfig;
 		LanModSessionState::applyInstalledOnlyPlan(pending, plan);
 		LanModSessionState::setRejoinTarget(pending, target);
+		if(!staged.empty())
+			LanModSessionState::setStagedMods(pending, staged);
 		if(!saveConfigurationState(pending))
 			throw std::runtime_error("LAN temporary preset could not be synced to disk");
 		modConfig = std::move(pending);
@@ -1400,6 +1447,18 @@ void ModManager::prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const 
 		modsPreset->restoreLanSession();
 		throw;
 	}
+}
+
+
+void ModManager::prepareLanSessionWithStagedMods(const ModSyncPlan & plan,
+	const LanRejoinTarget & target, const ModArchiveHashes & staged)
+{
+	if(staged.empty())
+		throw std::runtime_error("LAN staged preparation requires a verified host archive");
+	// Unknown host mods are deliberately not added to the current resolver: they
+	// become discoverable only in the next process after the controlled mount.
+	// Its fresh lobby preview verifies every version and the host fingerprint.
+	modsPreset->prepareLanSessionWithStagedMods(plan, target, staged);
 }
 
 std::optional<LanRejoinTarget> ModManager::consumeLanRejoinTarget()

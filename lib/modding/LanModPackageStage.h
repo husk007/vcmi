@@ -9,6 +9,9 @@
 
 #include "LanModArchiveCache.h"
 #include "../filesystem/CZipLoader.h"
+#include "../filesystem/CFilesystemLoader.h"
+#include "../filesystem/AdapterLoaders.h"
+#include "ModVerificationInfo.h"
 
 #include <algorithm>
 #include <cctype>
@@ -162,4 +165,46 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 		return std::nullopt;
 	}
 }
+
+/**
+ * Make approved, digest-selected host mods visible to the normal VCMI mod
+ * discovery on a controlled relaunch. Only a root that is completely absent
+ * locally can be mounted: overlaying a private version would accidentally
+ * mix files missing from the guest archive with the player's own mod.
+ *
+ * Call after createInitial(), but before ModManager scans mod definitions.
+ * No file in the player's Mods directory is changed.
+ */
+inline bool mountControlledStagedMods(CFilesystemList & initial,
+	const std::filesystem::path & userData, const ModArchiveHashes & selected)
+{
+	std::vector<std::unique_ptr<CFilesystemLoader>> toMount;
+	for(const auto & [rootId, digest] : selected)
+	{
+		if(rootId.empty() || rootId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") != rootId.npos
+			|| !ModArchiveDigest::isSha256(digest))
+			return false;
+
+		std::string upperId = rootId;
+		std::transform(upperId.begin(), upperId.end(), upperId.begin(),
+			[](unsigned char c){ return static_cast<char>(std::toupper(c)); });
+		const std::string prefix = "MODS/" + upperId + "/";
+		const ResourcePath definition(prefix + "MOD", EResType::JSON);
+		if(initial.existsResource(definition))
+			return false; // Never shadow an installed private root mod.
+
+		const auto staged = stageVerifiedArchive(userData, rootId, digest);
+		if(!staged)
+			return false;
+		auto loader = std::make_unique<CFilesystemLoader>(prefix,
+			boost::filesystem::path(staged->native()), 64, true);
+		if(!loader->existsResource(definition))
+			return false;
+		toMount.emplace_back(std::move(loader));
+	}
+	for(auto & loader : toMount)
+		initial.addLoader(std::move(loader), false);
+	return true;
+}
+
 } // namespace LanModPackageStage

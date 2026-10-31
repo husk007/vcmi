@@ -60,6 +60,10 @@ public:
 	static void applyInstalledOnlyPlan(JsonNode & config, const ModSyncPlan & plan);
 	/// Store and recover the exact host selected by the player for a controlled relaunch.
 	static void setRejoinTarget(JsonNode & config, const LanRejoinTarget & target);
+	/// Persist explicitly approved, verified LAN roots only in the temporary session.
+	static void setStagedMods(JsonNode & config, const ModArchiveHashes & staged);
+	/// Only the matching one-shot relaunch token may expose staged roots to discovery.
+	static ModArchiveHashes stagedModsForControlledRelaunch(const JsonNode & config, const std::string & token);
 	static std::optional<LanRejoinTarget> getRejoinTarget(const JsonNode & config);
 	/// Refuse personal preset operations while the LAN recovery snapshot is active.
 	static void requirePersonalPresetUnlocked(const JsonNode & config);
@@ -91,6 +95,7 @@ public:
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
 	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target);
+	void prepareLanSessionWithStagedMods(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModArchiveHashes & staged);
 	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	void prepareControlledRelaunch(const std::string & relaunchToken);
 	void restoreLanSession();
@@ -206,6 +211,7 @@ public:
 	void activatePreset(const std::string & presetName);
 	void beginLanSession();
 	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModCompatibilityInfo & hostMods);
+	void prepareLanSessionWithStagedMods(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModArchiveHashes & staged);
 	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Persist a new one-shot token before spawning a replacement client.
 	std::string prepareControlledRelaunch();

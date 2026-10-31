@@ -15,6 +15,7 @@
 #include "ModDescription.h"
 #include "ModManager.h"
 #include "ModScope.h"
+#include "LanModPackageStage.h"
 
 #include "../CConfigHandler.h"
 #include "../VCMIDirs.h"
@@ -60,6 +61,49 @@ bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & ho
 		return false;
 
 	modManager->prepareInstalledOnlyLanSession(*plan, target, hostMods);
+	try
+	{
+		requestLanRelaunch();
+	}
+	catch(...)
+	{
+		restoreLanSession();
+		throw;
+	}
+	return true;
+}
+
+
+bool CModHandler::prepareCachedLanSession(const ModCompatibilityInfo & hostMods,
+	const ModArchiveManifest & archives, const LanRejoinTarget & target)
+{
+	auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto installed = getAllMods();
+	const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
+	ModArchiveHashes staged;
+	for(auto & [modId, status] : statuses)
+	{
+		if(status == ModVerificationStatus::VERSION_MISMATCH)
+			return false; // Never mix staged content with an installed private version.
+		if(status != ModVerificationStatus::NOT_INSTALLED)
+			continue;
+		const auto rootId = modId.substr(0, modId.find('.'));
+		if(vstd::contains(installed, rootId))
+			return false; // An installed root with a missing child is not replaceable.
+		const auto offered = archives.find(rootId);
+		if(offered == archives.end()
+			|| !LanModPackageStage::stageVerifiedArchive(userData, rootId, offered->second.sha256))
+			return false; // Must be in the verified cache and safe staging already.
+		staged.emplace(rootId, offered->second.sha256);
+		status = ModVerificationStatus::DISABLED;
+	}
+	if(staged.empty())
+		return false;
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	if(!plan || !plan->requiresChanges())
+		return false;
+
+	modManager->prepareLanSessionWithStagedMods(*plan, target, staged);
 	try
 	{
 		requestLanRelaunch();

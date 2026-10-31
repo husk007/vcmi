@@ -89,6 +89,9 @@ public:
 	void beginLanSession();
 	/// Persist an installed-only LAN preset and signal a controlled client restart.
 	bool prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods, const LanRejoinTarget & target);
+	/// Use previously approved, verified ZIP roots not yet installed; relaunch to mount them.
+	/// Does not replace an existing private mod version.
+	bool prepareCachedLanSession(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives, const LanRejoinTarget & target);
 	/// Available exactly once after a matching one-shot relaunch token was consumed.
 	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
 	/// Restore the saved personal preset when a LAN join or session is cancelled.

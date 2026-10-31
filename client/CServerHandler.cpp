@@ -1373,6 +1373,7 @@ void CServerHandler::sendGamePack(const CPackForServer & pack) const
 
 void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised, bool autoJoinAfterRelaunch, std::string approvedHostModsSha256)
 {
+	lanArchiveApprovedHostOffer.clear(); // A different preview needs fresh content approval.
 	lobbyPreviewExpectedHostModsSha256 = std::move(approvedHostModsSha256);
 	lobbyPreviewMode = true;
 	lobbyPreviewCapabilityAdvertised = capabilityAdvertised;
@@ -1406,6 +1407,8 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 	}
 	if(pending.empty())
 	{
+		if(prepared)
+			lanArchiveApprovedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
 		if(prepared && ENGINE)
 			CInfoWindow::showInfoDialog(
 				LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
@@ -1413,6 +1416,7 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 		return prepared != 0;
 	}
 	lanArchivePending = std::move(pending);
+	lanArchiveRequestedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
 	lanArchiveStaging.clear();
 	lanArchiveOffset = 0;
 	lanArchiveCachedCount = prepared;
@@ -1527,6 +1531,11 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 	if(!lanArchiveDownloading)
 		return;
 	const auto cachedCount = lanArchiveCachedCount;
+	if(success)
+		lanArchiveApprovedHostOffer = lanArchiveRequestedHostOffer;
+	else
+		lanArchiveApprovedHostOffer.clear();
+	lanArchiveRequestedHostOffer.clear();
 	lanArchiveDownloading = false;
 	lanArchivePending.clear();
 	lanArchiveOffset = 0;
@@ -1597,28 +1606,38 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) : std::string{}};
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
-		[this, hostMods, canPreviewLocalPreparation, selectedHost]()
+		[this, hostMods, hostArchives, canPreviewLocalPreparation, selectedHost]()
 		{
 			if(canPreviewLocalPreparation)
 			{
 				const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
 				const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
-				if(!plan)
-					return;
-				if(plan->requiresChanges())
+				bool relaunchPrepared = false;
+				try
 				{
-					try
+					if(plan && plan->requiresChanges())
+						relaunchPrepared = LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
+					else if(!plan)
 					{
-						LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
+						// A cached ZIP is not an authorization to execute unknown scripts.
+						// "Prepare host mods" asks for explicit trust first.
+						if(lanArchiveApprovedHostOffer == selectedHost.approvedHostModsSha256)
+							relaunchPrepared = LIBRARY->modh->prepareCachedLanSession(hostMods, hostArchives, selectedHost);
+						if(!relaunchPrepared)
+						{
+							CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
+							return;
+						}
 					}
-					catch(const std::exception & e)
-					{
-						logNetwork->error("Unable to prepare installed LAN mods: %s", e.what());
-						CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
-						return;
-					}
-					throw GameShutdownException();
 				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to prepare LAN mods for controlled relaunch: %s", e.what());
+					CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
+					return;
+				}
+				if(relaunchPrepared)
+					throw GameShutdownException();
 			}
 			ENGINE->windows().popWindows(1);
 			if(onLobbyPreviewJoin)

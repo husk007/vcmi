@@ -19,7 +19,7 @@
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Existing persistent verified SHA-256 cache and host archive manifest are available in read-only preview. New implementation binds the approved automatic rejoin to **both** host mod metadata and advertised archive SHA-256/size; archive replacements require re-approval. No real transfer/activation from archive or zero-byte network counter yet. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | Host TCP chunks and opt-in guest download passed CI #41170685212. New LAN-only, versioned package staging extracts verified ZIPs without touching private Mods and can prepare already cached archives with zero transfer (new test/build pending). No automatic activation/rejoin yet. | CODE_ONLY (guest download) |
+| M4 host-to-guest transfer | Host TCP chunks and opt-in guest download passed CI #41170685212. LAN-only staged ZIPs remain separate from personal Mods. New controlled-relaunch integration can mount consented, verified *missing* root mods into VCMI discovery, apply the temporary preset and rejoin. Private root version conflicts intentionally remain unsupported; new full build/test pending. | CODE_ONLY (guest download) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -33,7 +33,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 1. Validate SHA-256 host-offer binding in the real VCMI build/test checkpoint, then review the guest's actual opt-in rejoin path.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
-3. Validate the new bounded, side-by-side extraction in CI; next mount only the approved staged version for a temporary LAN preset and relaunch, without adding it to personal Mods.
+3. Verify the token-gated staged-root mount and guest Join relaunch path in real CI, then test actual two-client GUI joining with licensed game data; add separate treatment for private version conflicts.
 
 ## Evidence/reporting discipline
 

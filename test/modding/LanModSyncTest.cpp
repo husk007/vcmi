@@ -36,6 +36,8 @@
 #include "../../lib/modding/LanModArchiveCache.h"
 #include "../../lib/modding/LanModPackageStage.h"
 #include "../../lib/filesystem/MinizipExtensions.h"
+#include "../../lib/filesystem/AdapterLoaders.h"
+#include "../../lib/filesystem/CFilesystemLoader.h"
 
 #include "../../lib/serializer/CMemorySerializer.h"
 #include "../../lib/serializer/GameConnection.h"
@@ -439,6 +441,21 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 	EXPECT_EQ(LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", *digest), staged);
 	EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(base / "guest", "hostmod", *digest));
 
+	// A private version must never be shadowed, not even by a fully cached ZIP.
+	CFilesystemList privateView;
+	privateView.addLoader(std::make_unique<CFilesystemLoader>("MODS/HOSTMOD/",
+		boost::filesystem::path(privateDefinition.parent_path().native()), 64, true), false);
+	EXPECT_FALSE(LanModPackageStage::mountControlledStagedMods(privateView, base / "guest", {{"hostmod", *digest}}));
+
+	// Without a private version the same staged package participates in actual
+	// VCMI mod discovery under its canonical MODS/<ROOT>/MOD resource name.
+	CFilesystemList guestView;
+	ASSERT_TRUE(LanModPackageStage::mountControlledStagedMods(guestView, base / "guest", {{"hostmod", *digest}}));
+	const auto definition = guestView.getResourceName(ResourcePath("MODS/HOSTMOD/MOD", EResType::JSON));
+	ASSERT_TRUE(definition);
+	EXPECT_EQ(fs::path(definition->native()), *staged / "mod.json");
+	EXPECT_FALSE(guestView.existsResource(ResourcePath("MODS/UNRELATED/MOD", EResType::JSON)));
+
 	const auto malicious = base / "traversal.zip";
 	ASSERT_TRUE(makeZip(malicious, "../mod.json"));
 	const auto badDigest = ModArchiveDigest::sha256File(malicious, LanModArchiveCache::maxArchiveBytes);
@@ -446,6 +463,30 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(base / "guest", "hostmod", *badDigest, malicious));
 	EXPECT_FALSE(LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", *badDigest));
 	EXPECT_FALSE(fs::exists(base / "guest" / "lan-mod-staged" / "mod.json"));
+}
+
+
+TEST(LanModSyncTest, OnlyMatchingControlledRelaunchMountsSelectedLANRoot)
+{
+	JsonNode settings;
+	settings["activePreset"].String() = "personal";
+	settings["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+	settings["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+	const std::string original = settings.toCompactString();
+	LanModSessionState::begin(settings);
+	const std::string digest(64, 'a');
+	const ModArchiveHashes selected = {{"hostmod", digest}};
+	LanModSessionState::setStagedMods(settings, selected);
+	const auto token = LanRelaunchToken::generate();
+	LanModSessionState::prepareControlledRelaunch(settings, token);
+	EXPECT_EQ(LanModSessionState::stagedModsForControlledRelaunch(settings, token), selected);
+	EXPECT_TRUE(LanModSessionState::stagedModsForControlledRelaunch(settings, LanRelaunchToken::generate()).empty());
+	EXPECT_TRUE(LanModSessionState::stagedModsForControlledRelaunch(settings, "").empty());
+
+	EXPECT_EQ(LanModSessionState::recoverOnStartup(settings, token), LanSessionStartupAction::RESUMED);
+	EXPECT_TRUE(LanModSessionState::stagedModsForControlledRelaunch(settings, token).empty());
+	EXPECT_TRUE(LanModSessionState::restore(settings));
+	EXPECT_EQ(settings.toCompactString(), original);
 }
 
 TEST(LanModSyncTest, RegisteredLobbyGuestFetchesMissingArchiveOnlyOnceOverRealTcp)
