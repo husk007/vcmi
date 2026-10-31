@@ -1,3 +1,2 @@
-M4 checkpoint: continue approved LAN Join after verified ZIP staging and GUI confirmation.
-Base: d16312ccaf2a244664ee3241ecb545b072004c13
-Build vcmitest/vcmiserver/vcmiclient and run LanModSyncTest.*. Validate that approved cached and newly downloaded host ZIPs allow the existing controlled relaunch without a second Join click. Real two-client GUI LAN_PASS still requires complete licensed Heroes III assets.
+M3/M4: first-use content approval is recorded for the exact host offer, enabling direct Join with previously approved verified cached ZIPs.
+Compile real vcmitest, vcmiserver, vcmiclient and run LanModSyncTest.* including HostOfferConsentPersistsForIdenticalContentOnly. Recheck ZIP TCP transfer, no repeated bytes, and preset rollback. A true two-client GUI LAN_PASS still needs full legally owned Heroes III assets.

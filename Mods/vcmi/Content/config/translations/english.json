@@ -925,6 +925,7 @@
 	"vcmi.lobby.preview.lanArchiveUncached": "Uncached package size:",
 	"vcmi.lobby.preview.lanArchiveDownloadButton": "Prepare host mods",
 	"vcmi.lobby.preview.lanStagedJoinHint": "Prepare host mods, then confirm to join",
+	"vcmi.lobby.preview.lanApprovedCachedJoinHint": "Previously approved host mods are verified in cache. Select Join.",
 	"vcmi.lobby.preview.lanArchiveDownloadConsent": "Prepare host mod archives? Missing packages will be downloaded after your approval, SHA-256 verified and unpacked to an isolated versioned LAN folder. Mods may contain untrusted scripts. Only approve hosts you trust and packages you have rights to use. Your personal Mods folder and active preset will not be changed.",
 	"vcmi.lobby.preview.lanArchiveDownloadDone": "Verified host packages are cached in LAN-only staging. Your personal mods are unchanged. Join remains unavailable if private mod versions conflict.",
 	"vcmi.lobby.preview.lanArchiveDownloadAutoJoin": "Host mods are verified and ready. Press OK to restart with the temporary LAN preset and rejoin the host. Your personal mods remain unchanged.",

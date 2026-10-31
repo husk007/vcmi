@@ -1442,6 +1442,8 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 		if(prepared)
 		{
 			lanArchiveApprovedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
+			if(!LanModArchiveCache::rememberApprovedHostOffer(userData, lanArchiveApprovedHostOffer))
+				logNetwork->warn("LAN mod approval could not be saved; consent will be requested again");
 			showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, prepared);
 		}
 		return prepared != 0;
@@ -1563,7 +1565,12 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 		return;
 	const auto cachedCount = lanArchiveCachedCount;
 	if(success)
+	{
 		lanArchiveApprovedHostOffer = lanArchiveRequestedHostOffer;
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(!LanModArchiveCache::rememberApprovedHostOffer(userData, lanArchiveApprovedHostOffer))
+			logNetwork->warn("LAN mod approval could not be saved; consent will be requested again");
+	}
 	else
 		lanArchiveApprovedHostOffer.clear();
 	lanArchiveRequestedHostOffer.clear();
@@ -1632,6 +1639,18 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation,
 		localPlayerNames, screenType == ESelectionScreen::loadGame,
 		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) : std::string{}};
+	if(canPreviewLocalPreparation)
+	{
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(LanModArchiveCache::hasApprovedHostOffer(userData, selectedHost.approvedHostModsSha256))
+		{
+			const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+			const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, hostArchives, userData);
+			if(!available.empty() && std::all_of(available.begin(), available.end(),
+				[](const auto & entry){ return entry.second == LanArchivePreviewState::VERIFIED_IN_CACHE; }))
+				lanArchiveApprovedHostOffer = selectedHost.approvedHostModsSha256;
+		}
+	}
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
 		[this, hostMods, hostArchives, canPreviewLocalPreparation, selectedHost]()

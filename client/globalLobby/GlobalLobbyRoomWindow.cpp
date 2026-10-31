@@ -255,7 +255,15 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 #endif
 	cachedLanJoinCandidate = allowCachedPreparation;
 	if(cachedLanJoinCandidate)
+	{
 		cachedLanHostFingerprint = ModVerificationInfo::fingerprintLanHostOffer(roomDescription.modList, hostArchives);
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		// A cached ZIP is reusable without another consent only when the
+		// identical host offer was previously approved by this player.
+		cachedLanJoinPrepared = LanModArchiveCache::hasApprovedHostOffer(userData, cachedLanHostFingerprint)
+			&& std::all_of(archiveAvailability.begin(), archiveAvailability.end(),
+				[](const auto & entry){ return entry.second == LanArchivePreviewState::VERIFIED_IN_CACHE; });
+	}
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
@@ -272,7 +280,9 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		}
 		else if(allowCachedPreparation)
 		{
-			joinStatusText.appendTextID("vcmi.lobby.preview.lanStagedJoinHint");
+			joinStatusText.appendTextID(cachedLanJoinPrepared
+				? "vcmi.lobby.preview.lanApprovedCachedJoinHint"
+				: "vcmi.lobby.preview.lanStagedJoinHint");
 		}
 		else
 		{
@@ -335,7 +345,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	// An offered or even SHA-256 cached package is not approval to execute it.
 	// Keep Join blocked until all required archives have been prepared after consent.
-	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation);
+	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation && !cachedLanJoinPrepared);
 	filledBackground->setPlayerColor(PlayerColor(1));
 	center();
 }

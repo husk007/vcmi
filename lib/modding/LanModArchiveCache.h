@@ -89,6 +89,38 @@ inline std::optional<std::filesystem::path> findVerifiedArchive(const std::files
     return candidate;
 }
 
+/// User approval is bound to the exact host mod list and archive hashes/sizes.
+/// It never replaces SHA-256 verification of the actual cached ZIP on rejoin.
+inline bool hasApprovedHostOffer(const std::filesystem::path & userData, std::string_view fingerprint)
+{
+    if(userData.empty() || !ModArchiveDigest::isSha256(fingerprint))
+        return false;
+    const auto folder = userData / "lan-mod-archives" / "approved-offers";
+    std::error_code error;
+    return isTrustedCacheDirectory(folder)
+        && std::filesystem::is_directory(std::filesystem::symlink_status(folder / std::string(fingerprint), error))
+        && !error;
+}
+
+/// Call only after the user explicitly consented and every required package
+/// was verified and staged. An incomplete write simply causes another prompt.
+inline bool rememberApprovedHostOffer(const std::filesystem::path & userData, std::string_view fingerprint)
+{
+    if(userData.empty() || !ModArchiveDigest::isSha256(fingerprint))
+        return false;
+    const auto root = userData / "lan-mod-archives";
+    const auto folder = root / "approved-offers";
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    if(error || !isTrustedCacheDirectory(root))
+        return false;
+    std::filesystem::create_directories(folder, error);
+    if(error || !isTrustedCacheDirectory(folder))
+        return false;
+    std::filesystem::create_directory(folder / std::string(fingerprint), error);
+    return !error && hasApprovedHostOffer(userData, fingerprint);
+}
+
 /// Return only host-manifest entries whose persisted bytes have been rehashed successfully.
 inline std::map<std::string, std::string> verifiedArchiveDigests(const std::filesystem::path & userDataPath,
     const std::map<std::string, std::string> & expectedSha256)

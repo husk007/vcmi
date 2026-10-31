@@ -19,7 +19,7 @@
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). No archive transfer yet. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41186278138 passed the real TCP ZIP test: verified staging and zero bytes on the repeated fetch. Full GUI rejoin with cached mods is not yet tested. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | CI #41186278138 passes for TCP chunks, verified cache, staged roots, and consent-gated Join. This change connects successful staging (cache hit or transfer) to the real Join/relaunch callback on confirmation, removing the extra Join click; new GUI path awaits CI. Private root version conflicts remain unsupported. | CODE_ONLY (guest download) |
+| M4 host-to-guest transfer | [CI #41190122032](https://github.com/husk007/vcmi/actions/runs/41190122032) passed full client/server/vcmitest build and LAN tests for auto-Join after staging. New direct Join for a previously approved, unchanged host manifest uses verified SHA-256 cache without another Prepare/confirmation; changed offers still require consent (new CI pending). Private version conflicts unsupported. | CODE_ONLY (repeat Join); TEST_PASS (prior code) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -33,7 +33,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 1. Validate SHA-256 host-offer binding in the real VCMI build/test checkpoint, then review the guest's actual opt-in rejoin path.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
-3. Verify automatic Join after confirmed ZIP staging in CI; then test two GUI clients with licensed Heroes III data, including restoration and zero-byte repeat transfer.
+3. Validate previously approved cached-host direct Join in full CI; then run two GUI clients with licensed Heroes III data.
 
 ## Evidence/reporting discipline
 

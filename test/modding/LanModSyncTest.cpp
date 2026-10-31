@@ -466,6 +466,23 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 }
 
 
+TEST(LanModSyncTest, HostOfferConsentPersistsForIdenticalContentOnly)
+{
+	namespace fs = std::filesystem;
+	const auto userData = fs::temp_directory_path() / ("vcmi-lan-consent-" + LanRelaunchToken::generate());
+	const auto offer = LanRelaunchToken::generate();
+	const auto changedOffer = LanRelaunchToken::generate();
+	ASSERT_NE(offer, changedOffer);
+	EXPECT_FALSE(LanModArchiveCache::hasApprovedHostOffer(userData, offer));
+	EXPECT_FALSE(LanModArchiveCache::rememberApprovedHostOffer(userData, "invalid-digest"));
+	ASSERT_TRUE(LanModArchiveCache::rememberApprovedHostOffer(userData, offer));
+	EXPECT_TRUE(LanModArchiveCache::hasApprovedHostOffer(userData, offer));
+	EXPECT_TRUE(LanModArchiveCache::rememberApprovedHostOffer(userData, offer));
+	EXPECT_FALSE(LanModArchiveCache::hasApprovedHostOffer(userData, changedOffer));
+	std::error_code cleanup;
+	fs::remove_all(userData, cleanup);
+}
+
 TEST(LanModSyncTest, OnlyMatchingControlledRelaunchMountsSelectedLANRoot)
 {
 	JsonNode settings;
