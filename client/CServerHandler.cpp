@@ -985,14 +985,21 @@ void CServerHandler::startCampaignScenario(HighScoreParameter param, std::shared
 	campaignScoreCalculator->isCampaign = true;
 	campaignScoreCalculator->parameters = cs->highscoreParameters;
 
-	endGameplay(EGameplayExitMode::SHOW_RESULTS);
+	// A completed LAN campaign must finish its epilogue, outro and score screens
+	// before reloading the player's restored mod preset. An ongoing campaign
+	// keeps its existing lobby transition and manual restart notice.
+	const bool finishedCampaign = ourCampaign->isCampaignFinished();
+	const bool restoredPersonalLanMods = endGameplay(finishedCampaign
+		? EGameplayExitMode::DEFER_RESULTS_RESTART : EGameplayExitMode::SHOW_RESULTS);
+	const std::function<void()> afterFinalResults = finishedCampaign && restoredPersonalLanMods
+		? std::function<void()>([]() { restartAfterRestoringLanMods(); }) : std::function<void()>{};
 
 	// the game just took its campaign texts down with it, but the epilogue still has to render
 	// them - this keeps them up until the transition hands over to the next lobby
 	auto campaignTexts = std::make_shared<TranslatorOverlay>(ourCampaign->getTexts());
 
 	auto & epilogue = ourCampaign->scenario(*ourCampaign->lastScenario()).epilog;
-	auto finisher = [ourCampaign, campaignScoreCalculator, statistic, campaignTexts]()
+	auto finisher = [ourCampaign, campaignScoreCalculator, statistic, campaignTexts, afterFinalResults]()
 	{
 		if(ourCampaign->campaignSet != "" && ourCampaign->isCampaignFinished())
 		{
@@ -1011,12 +1018,12 @@ void CServerHandler::startCampaignScenario(HighScoreParameter param, std::shared
 				auto rim = ourCampaign->getVideoRim().empty() ? ImagePath::builtin("INTRORIM") : ourCampaign->getVideoRim();
 				if(ourCampaign->getVideoRim() == ImagePath::builtin("NONE"))
 					rim = ImagePath();
-				ENGINE->windows().createAndPushWindow<VideoWindow>(ourCampaign->getOutroVideo(), rim, false, 1, [campaignScoreCalculator, statistic](bool skipped){
-					ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic);
+				ENGINE->windows().createAndPushWindow<VideoWindow>(ourCampaign->getOutroVideo(), rim, false, 1, [campaignScoreCalculator, statistic, afterFinalResults](bool skipped){
+					ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic, afterFinalResults);
 				});
 			}
 			else
-				ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic);
+				ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic, afterFinalResults);
 		}
 	};
 
