@@ -3724,6 +3724,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		bool archiveOnly = false;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
 		std::string playerName = "LAN integration guest";
 		std::unique_ptr<LobbyLanModArchiveChunk> archiveChunk;
@@ -3738,7 +3739,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			peer->enterLobbyConnectionMode();
 			LobbyClientConnected join;
 			join.uuid = uuid;
-			join.names = {playerName};
+			if(!archiveOnly)
+				join.names = {playerName};
 			join.mode = EStartMode::NEW_GAME;
 			peer->sendPack(join);
 		}
@@ -3798,19 +3800,43 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		// Two independently registered guests fetch the same host ZIP in interleaved
 		// chunks. This uses the production server's per-connection transfer map,
 		// rather than the in-process TCP fixture used by the other tests.
+		JoinGuest firstTransfer;
+		firstTransfer.archiveOnly = true;
+		firstTransfer.uuid = "00000000-0000-4000-8000-000000000004";
 		JoinGuest secondGuest;
+		secondGuest.archiveOnly = true;
 		secondGuest.uuid = "00000000-0000-4000-8000-000000000003";
-		secondGuest.playerName = "LAN integration second guest";
+		network->getContext().restart();
+		network->connectToRemote(firstTransfer, "127.0.0.1", static_cast<std::uint16_t>(port));
+		network->getContext().run_for(std::chrono::seconds(4));
+		ASSERT_TRUE(firstTransfer.joined) << "Real VCMI server refused first archive-only connection: " << firstTransfer.error;
 		network->getContext().restart();
 		network->connectToRemote(secondGuest, "127.0.0.1", static_cast<std::uint16_t>(port));
 		network->getContext().run_for(std::chrono::seconds(4));
-		ASSERT_TRUE(secondGuest.joined) << "Real VCMI server refused second concurrent guest: " << secondGuest.error;
-		EXPECT_NE(secondGuest.assignedClientId, guest.assignedClientId);
+		ASSERT_TRUE(secondGuest.joined) << "Real VCMI server refused second archive-only connection: " << secondGuest.error;
+		EXPECT_NE(firstTransfer.assignedClientId, secondGuest.assignedClientId);
+		EXPECT_NE(firstTransfer.assignedClientId, guest.assignedClientId);
+		EXPECT_EQ(firstTransfer.assignedHostId, originalHostId);
 		EXPECT_EQ(secondGuest.assignedHostId, originalHostId);
 		EXPECT_EQ(guest.peer->connectionID, guest.assignedClientId)
-			<< "Second guest's lobby broadcast changed first guest's connection identity";
+			<< "Transfer connection's lobby broadcast changed the real guest's identity";
 
-		const std::vector<JoinGuest *> transferGuests{&guest, &secondGuest};
+		// Registered archive-only connections must not consume game player slots.
+		PreviewGuest duringTransfer(true);
+		network->getContext().restart();
+		network->connectToRemote(duringTransfer, "127.0.0.1", static_cast<std::uint16_t>(port));
+		network->getContext().run_for(std::chrono::seconds(4));
+		ASSERT_TRUE(duringTransfer.error.empty()) << duringTransfer.error;
+		const auto * unchangedLobby = dynamic_cast<LobbyModSyncPreview *>(duringTransfer.response.get());
+		ASSERT_NE(unchangedLobby, nullptr);
+		EXPECT_EQ(unchangedLobby->participantNames.size(), 2);
+		EXPECT_EQ(std::count(unchangedLobby->participantNames.begin(), unchangedLobby->participantNames.end(),
+			"LAN integration host"), 1);
+		EXPECT_EQ(std::count(unchangedLobby->participantNames.begin(), unchangedLobby->participantNames.end(),
+			"LAN integration guest"), 1);
+		duringTransfer.connection->close();
+
+		const std::vector<JoinGuest *> transferGuests{&firstTransfer, &secondGuest};
 		const std::vector<fs::path> receivedPaths{isolated / "first.zip", isolated / "second.zip"};
 		const std::vector<fs::path> guestDataPaths{isolated / "guest-first", isolated / "guest-second"};
 		std::vector<std::ofstream> outputs(transferGuests.size());
@@ -3874,8 +3900,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				<< "Guest " << i << " must reuse its own verified ZIP when rejoining";
 			EXPECT_TRUE(nextJoin.downloadOrUpdate.empty());
 		}
-		// Leave only the original guest connected for the existing preview,
-		// temporary preset, automatic rejoin and rollback assertions below.
+		// Remove both archive-only connections while keeping the real player.
+		firstTransfer.connection->close();
 		secondGuest.connection->close();
 		network->getContext().restart();
 		network->getContext().run_for(std::chrono::seconds(2));

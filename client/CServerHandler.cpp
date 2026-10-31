@@ -527,7 +527,8 @@ void CServerHandler::sendClientConnecting() const
 {
 	LobbyClientConnected lcc;
 	lcc.uuid = uuid;
-	lcc.names = localPlayerNames;
+	// Archive downloaders need a connection ID but must not occupy player slots.
+	lcc.names = lanArchiveDownloading ? std::vector<std::string>{} : localPlayerNames;
 	lcc.mode = si->mode;
 	sendLobbyPack(lcc);
 }
