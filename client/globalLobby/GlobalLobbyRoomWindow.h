@@ -65,6 +65,9 @@ class GlobalLobbyRoomWindow : public CWindowObject
 	std::function<void()> onCancelCallback;
 	std::function<void()> onDownloadCallback;
 	bool directJoinAllowed = false;
+	bool cachedLanJoinCandidate = false;
+	bool cachedLanJoinPrepared = false;
+	std::string cachedLanHostFingerprint;
 
 	std::shared_ptr<FilledTexturePlayerColored> filledBackground;
 	std::shared_ptr<CLabel> labelTitle;
@@ -96,4 +99,6 @@ public:
 	GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const std::string & roomUUID);
 	/// Complete an approved LAN join only if the fresh preview is compatible.
 	bool joinIfCompatible();
+	/// Unlock Join only after the matching host archives were explicitly approved and fully staged.
+	void approvePreparedLanJoin(const std::string & hostFingerprint);
 };

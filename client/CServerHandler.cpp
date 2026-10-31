@@ -1408,7 +1408,12 @@ bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMo
 	if(pending.empty())
 	{
 		if(prepared)
+		{
 			lanArchiveApprovedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
+			if(ENGINE)
+				for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+					room->approvePreparedLanJoin(lanArchiveApprovedHostOffer);
+		}
 		if(prepared && ENGINE)
 			CInfoWindow::showInfoDialog(
 				LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
@@ -1554,6 +1559,9 @@ void CServerHandler::finishLanArchiveDownload(bool success)
 	setState(EClientState::NONE);
 	if(oldConnection)
 		oldConnection->close();
+	if(success && ENGINE)
+		for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+			room->approvePreparedLanJoin(lanArchiveApprovedHostOffer);
 	if(ENGINE)
 	{
 		std::string message = LIBRARY->generaltexth->translate(

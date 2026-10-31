@@ -253,6 +253,9 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		allowCachedPreparation = allowCachedPreparation && hasMissingRoot;
 	}
 #endif
+	cachedLanJoinCandidate = allowCachedPreparation;
+	if(cachedLanJoinCandidate)
+		cachedLanHostFingerprint = ModVerificationInfo::fingerprintLanHostOffer(roomDescription.modList, hostArchives);
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
@@ -330,7 +333,9 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 
-	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation && !allowCachedPreparation);
+	// An offered or even SHA-256 cached package is not approval to execute it.
+	// Keep Join blocked until all required archives have been prepared after consent.
+	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation);
 	filledBackground->setPlayerColor(PlayerColor(1));
 	center();
 }
@@ -344,8 +349,18 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const s
 
 void GlobalLobbyRoomWindow::onJoin()
 {
+	if(cachedLanJoinCandidate && !cachedLanJoinPrepared)
+		return;
 	if(onJoinCallback)
 		onJoinCallback();
+}
+
+void GlobalLobbyRoomWindow::approvePreparedLanJoin(const std::string & hostFingerprint)
+{
+	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint)
+		return;
+	cachedLanJoinPrepared = true;
+	buttonJoin->block(false);
 }
 
 bool GlobalLobbyRoomWindow::joinIfCompatible()
