@@ -3724,6 +3724,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		std::string uuid = "00000000-0000-4000-8000-000000000002";
+		std::string playerName = "LAN integration guest";
 		std::unique_ptr<LobbyLanModArchiveChunk> archiveChunk;
 		GameConnectionID assignedClientId = GameConnectionID::INVALID;
 		GameConnectionID assignedHostId = GameConnectionID::INVALID;
@@ -3735,8 +3737,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			peer = std::make_unique<GameConnection>(ready);
 			peer->enterLobbyConnectionMode();
 			LobbyClientConnected join;
-			join.uuid = "00000000-0000-4000-8000-000000000002";
-			join.names = {"LAN integration guest"};
+			join.uuid = uuid;
+			join.names = {playerName};
 			join.mode = EStartMode::NEW_GAME;
 			peer->sendPack(join);
 		}
@@ -3755,7 +3757,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
 			{
-				if(accepted->clientId == GameConnectionID::INVALID)
+				// Another guest joining is broadcast to every lobby player.
+				// Do not overwrite this connection's assigned ID.
+				if(joined || accepted->clientId == GameConnectionID::INVALID)
 					return;
 				assignedClientId = accepted->clientId;
 				assignedHostId = accepted->hostClientId;
@@ -3791,47 +3795,90 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			std::error_code error;
 			fs::remove_all(isolated, error);
 		});
-		const auto receivedPath = isolated / "downloaded.zip";
-		const auto isolatedGuestData = isolated / "guest";
-		std::ofstream output(receivedPath, std::ios::binary);
-		ASSERT_TRUE(output.good());
-		std::uint64_t receivedBytes = 0;
-		while(receivedBytes < archive.bytes)
+		// Two independently registered guests fetch the same host ZIP in interleaved
+		// chunks. This uses the production server's per-connection transfer map,
+		// rather than the in-process TCP fixture used by the other tests.
+		JoinGuest secondGuest;
+		secondGuest.uuid = "00000000-0000-4000-8000-000000000003";
+		secondGuest.playerName = "LAN integration second guest";
+		network->getContext().restart();
+		network->connectToRemote(secondGuest, "127.0.0.1", static_cast<std::uint16_t>(port));
+		network->getContext().run_for(std::chrono::seconds(4));
+		ASSERT_TRUE(secondGuest.joined) << "Real VCMI server refused second concurrent guest: " << secondGuest.error;
+		EXPECT_NE(secondGuest.assignedClientId, guest.assignedClientId);
+		EXPECT_EQ(secondGuest.assignedHostId, originalHostId);
+		EXPECT_EQ(guest.peer->connectionID, guest.assignedClientId)
+			<< "Second guest's lobby broadcast changed first guest's connection identity";
+
+		const std::vector<JoinGuest *> transferGuests{&guest, &secondGuest};
+		const std::vector<fs::path> receivedPaths{isolated / "first.zip", isolated / "second.zip"};
+		const std::vector<fs::path> guestDataPaths{isolated / "guest-first", isolated / "guest-second"};
+		std::vector<std::ofstream> outputs(transferGuests.size());
+		std::vector<std::uint64_t> receivedBytes(transferGuests.size(), 0);
+		for(std::size_t i = 0; i < transferGuests.size(); ++i)
 		{
-			LobbyQueryLanModArchiveChunk request;
-			request.rootId = requiredMod;
-			request.sha256 = archive.sha256;
-			request.offset = static_cast<std::int64_t>(receivedBytes);
-			guest.peer->sendPack(request);
+			outputs[i].open(receivedPaths[i], std::ios::binary);
+			ASSERT_TRUE(outputs[i].good());
+		}
+		while(std::any_of(receivedBytes.begin(), receivedBytes.end(),
+			[&](std::uint64_t count){ return count < archive.bytes; }))
+		{
+			// Issue each guest's next request before processing the network, so
+			// both transfers really remain active against the same VCMI server.
+			for(std::size_t i = 0; i < transferGuests.size(); ++i)
+			{
+				if(receivedBytes[i] == archive.bytes)
+					continue;
+				LobbyQueryLanModArchiveChunk request;
+				request.rootId = requiredMod;
+				request.sha256 = archive.sha256;
+				request.offset = static_cast<std::int64_t>(receivedBytes[i]);
+				transferGuests[i]->peer->sendPack(request);
+			}
 			network->getContext().restart();
 			network->getContext().run_for(std::chrono::seconds(2));
-			ASSERT_NE(guest.archiveChunk, nullptr) << "Real VCMI host did not return a requested ZIP chunk";
-			const auto & chunk = *guest.archiveChunk;
-			ASSERT_TRUE(chunk.granted) << "Real host refused a registered guest's shared ZIP";
-			ASSERT_EQ(chunk.rootId, requiredMod);
-			ASSERT_EQ(chunk.sha256, archive.sha256);
-			ASSERT_EQ(chunk.offset, receivedBytes);
-			ASSERT_EQ(chunk.totalBytes, archive.bytes);
-			ASSERT_FALSE(chunk.data.empty());
-			ASSERT_LE(chunk.data.size(), 64U * 1024U);
-			ASSERT_LE(chunk.data.size(), archive.bytes - receivedBytes);
-			output.write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
-			ASSERT_TRUE(output.good());
-			receivedBytes += chunk.data.size();
-			guest.archiveChunk.reset();
+			for(std::size_t i = 0; i < transferGuests.size(); ++i)
+			{
+				if(receivedBytes[i] == archive.bytes)
+					continue;
+				ASSERT_NE(transferGuests[i]->archiveChunk, nullptr)
+					<< "Real VCMI host did not return guest " << i << "'s ZIP chunk";
+				const auto & chunk = *transferGuests[i]->archiveChunk;
+				ASSERT_TRUE(chunk.granted) << "Real VCMI host refused guest " << i;
+				ASSERT_EQ(chunk.rootId, requiredMod);
+				ASSERT_EQ(chunk.sha256, archive.sha256);
+				ASSERT_EQ(chunk.offset, receivedBytes[i]);
+				ASSERT_EQ(chunk.totalBytes, archive.bytes);
+				ASSERT_FALSE(chunk.data.empty());
+				ASSERT_LE(chunk.data.size(), 64U * 1024U);
+				ASSERT_LE(chunk.data.size(), archive.bytes - receivedBytes[i]);
+				outputs[i].write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+				ASSERT_TRUE(outputs[i].good());
+				receivedBytes[i] += chunk.data.size();
+				transferGuests[i]->archiveChunk.reset();
+			}
 		}
-		output.close();
-		ASSERT_EQ(receivedBytes, archive.bytes);
-		ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
-			isolatedGuestData, requiredMod, archive.sha256, receivedPath));
-		ASSERT_TRUE(LanModPackageStage::stageVerifiedArchive(isolatedGuestData, requiredMod, archive.sha256));
 		const ModListVerificationStatus missing = {{requiredMod, ModVerificationStatus::NOT_INSTALLED}};
 		const ModArchiveHashes expected = {{requiredMod, archive.sha256}};
-		const auto secondJoinPlan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
-			missing, expected, isolatedGuestData);
-		EXPECT_TRUE(secondJoinPlan.reuseCachedArchive.contains(requiredMod))
-			<< "Second join must reuse the actual host ZIP without requesting any bytes";
-		EXPECT_TRUE(secondJoinPlan.downloadOrUpdate.empty());
+		for(std::size_t i = 0; i < transferGuests.size(); ++i)
+		{
+			outputs[i].close();
+			ASSERT_EQ(receivedBytes[i], archive.bytes);
+			ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
+				guestDataPaths[i], requiredMod, archive.sha256, receivedPaths[i]));
+			ASSERT_TRUE(LanModPackageStage::stageVerifiedArchive(
+				guestDataPaths[i], requiredMod, archive.sha256));
+			const auto nextJoin = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+				missing, expected, guestDataPaths[i]);
+			EXPECT_TRUE(nextJoin.reuseCachedArchive.contains(requiredMod))
+				<< "Guest " << i << " must reuse its own verified ZIP when rejoining";
+			EXPECT_TRUE(nextJoin.downloadOrUpdate.empty());
+		}
+		// Leave only the original guest connected for the existing preview,
+		// temporary preset, automatic rejoin and rollback assertions below.
+		secondGuest.connection->close();
+		network->getContext().restart();
+		network->getContext().run_for(std::chrono::seconds(2));
 	}
 
 	PreviewGuest afterJoin(true);
