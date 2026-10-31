@@ -2890,7 +2890,11 @@ TEST(LanModSyncTest, RealDesktopClientLoadsCachedHostZipThenRecoversPersonalPres
 			&& logContains(resumedLog, "Loading mod: OK (" + rootId + ")");
 	});
 	stop(first);
-	ASSERT_TRUE(loaded) << "Controlled vcmiclient never loaded the cached host mod into its temporary LAN preset";
+	std::ifstream controlledOutput(resumedLog, std::ios::binary);
+	const std::string controlledLog((std::istreambuf_iterator<char>(controlledOutput)),
+		std::istreambuf_iterator<char>());
+	ASSERT_TRUE(loaded) << "Controlled vcmiclient never loaded the cached host mod into its temporary LAN preset"
+		<< "\nControlled process output:\n" << controlledLog.substr(0, 16384);
 
 	// A crashed client must recover exactly the previous preset on the next
 	// ordinary startup. The ZIP stays cached, but must no longer be mounted.
