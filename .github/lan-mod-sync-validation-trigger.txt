@@ -1,2 +1,2 @@
-CI checkpoint 2026-11-01: M5 integration now exercises two simultaneous real player TCP registrations against the production LAN host after installed-only mod relaunch. Assert distinct client IDs, both guests in the live lobby preview, and independent departure without disconnecting the first guest.
-Run full Linux VCMI build and LanModSyncTest.*. Public CI has no complete licensed Heroes III GUI assets, so this result cannot establish LAN_PASS.
+CI checkpoint 2026-11-01: M5 two live GUI guests now use distinct original presets and verify independent automatic recovery after both processes are forcibly terminated. Code commit 5a6f7857fd49cee5e25d7cf30182f4ab65fd3a3b.
+Run complete VCMI Linux build and all LanModSyncTest.* regressions. The new opt-in two-GUI-guest/recovery assertions need full legally owned Heroes III graphical assets; public CI only verifies their compilation, not LAN_PASS.
