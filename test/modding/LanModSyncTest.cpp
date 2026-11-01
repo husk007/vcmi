@@ -3725,6 +3725,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	// requirement from a locally selected mod that the host never advertised.
 	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
 	const char * secondMod = std::getenv("VCMI_LAN_TEST_SECOND_MOD");
+	const char * secondSubmod = std::getenv("VCMI_LAN_TEST_SECOND_SUBMOD");
 	if(secondMod)
 	{
 		const auto second = syncedMods->mods.find(secondMod);
@@ -3733,6 +3734,44 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
 		ASSERT_NE(statuses.find(secondMod), statuses.end());
 		EXPECT_EQ(statuses.at(secondMod), ModVerificationStatus::DISABLED);
+	}
+	if(secondSubmod)
+	{
+		ASSERT_NE(secondMod, nullptr);
+		const auto child = syncedMods->mods.find(secondSubmod);
+		ASSERT_NE(child, syncedMods->mods.end()) << "Real host preview omitted active gameplay submod";
+		EXPECT_EQ(child->second.parent, secondMod);
+		EXPECT_TRUE(child->second.impactsGameplay);
+
+		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
+		ASSERT_NE(statuses.find(secondSubmod), statuses.end());
+		EXPECT_EQ(statuses.at(secondSubmod), ModVerificationStatus::DISABLED);
+
+		// Use the real host's advertised child ID and the guest's actual
+		// compatibility result to prepare an installed-only LAN preset.
+		const ModListVerificationStatus childOnly = {
+			{secondSubmod, statuses.at(secondSubmod)}
+		};
+		const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(childOnly);
+		ASSERT_TRUE(plan.has_value());
+		EXPECT_TRUE(plan->activate.contains(secondSubmod));
+		EXPECT_TRUE(plan->downloadOrUpdate.empty());
+		EXPECT_TRUE(plan->reuseCachedArchive.empty());
+
+		JsonNode guestPreset;
+		guestPreset["activePreset"].String() = "personal";
+		guestPreset["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
+		guestPreset["presets"]["personal"]["mods"].Vector().emplace_back(secondMod);
+		guestPreset["presets"]["personal"]["settings"][secondMod]["units"].Bool() = false;
+		guestPreset["presets"]["other"]["mods"].Vector().emplace_back("vcmi");
+		const auto originalPreset = guestPreset.toCompactString();
+		LanModSessionState::begin(guestPreset);
+		LanModSessionState::applyInstalledOnlyPlan(guestPreset, *plan);
+		const JsonNode & temporary = guestPreset["presets"][LanModSessionState::temporaryPresetName()];
+		EXPECT_TRUE(temporary["settings"][secondMod]["units"].Bool());
+		EXPECT_FALSE(guestPreset["presets"]["personal"]["settings"][secondMod]["units"].Bool());
+		EXPECT_TRUE(LanModSessionState::restore(guestPreset));
+		EXPECT_EQ(guestPreset.toCompactString(), originalPreset);
 	}
 	if(requiredMod)
 	{

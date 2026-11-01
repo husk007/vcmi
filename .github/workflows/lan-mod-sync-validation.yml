@@ -139,6 +139,19 @@ jobs:
           JSON
           cp "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/assets/payload.bin" \
             "$HOME/.local/share/vcmi/Mods/lan-ci-extra/assets/payload.bin"
+          # This host enables a real nested gameplay submod. The opt-in
+          # preview and root ZIP transfer must both cover that submod.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-extra/Mods/units"
+          cat > "$HOME/.local/share/vcmi/Mods/lan-ci-extra/Mods/units/mod.json" <<'JSON'
+          {
+            "name": "LAN CI second mod units",
+            "author": "VCMI LAN integration tests",
+            "version": "2.0",
+            "modType": "Mechanics",
+            "keepDisabled": true,
+            "settings": {}
+          }
+          JSON
           # Keep host-specific settings separate from the vcmitest guest settings.
           mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
           cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'
@@ -147,7 +160,7 @@ jobs:
             "presets": {
               "default": {
                 "mods": ["vcmi", "lan-ci-fixture", "lan-ci-extra"],
-                "settings": {}
+                "settings": {"lan-ci-extra": {"units": true}}
               }
             }
           }
@@ -183,6 +196,7 @@ jobs:
           export VCMI_LAN_TEST_SERVER_PORT="$port"
           export VCMI_LAN_TEST_REQUIRED_MOD="lan-ci-fixture"
           export VCMI_LAN_TEST_SECOND_MOD="lan-ci-extra"
+          export VCMI_LAN_TEST_SECOND_SUBMOD="lan-ci-extra.units"
           # The public vcmi-test-data fixture has no complete Heroes III GUI sprites.
           # The previous graphical client smoke test reached CRADVNTR and exited
           # before attempting LAN rejoin. Do not report that as an M2 code failure.
