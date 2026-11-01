@@ -1,2 +1,2 @@
-CI checkpoint 2026-11-01: Linux XDG publisher-to-client path alignment on f358795524ba4f8181d2c30b4e830319db47833c.
-Reason: verify the integrated host preset/data launch and correct the generated test-client fixture syntax before Python checks and full VCMI build.
+CI checkpoint 2026-11-01: fix a real failed publisher test on 885ffb269e8935a932a721c99afca94263b96cee.
+Reason: test_launcher_rejects_preset_or_mod_directory_it_cannot_use previously expected rejection for a valid co-located XDG_CONFIG_HOME/vcmi path. Now supply an unsupported config path and validate Python publisher tests, full VCMI build and LanModSyncTest.*.

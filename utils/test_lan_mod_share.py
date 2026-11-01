@@ -182,7 +182,11 @@ class LanModShareTest(unittest.TestCase):
         marker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         marker.chmod(0o755)
 
-        wrong_settings = self.user_data / "modSettings.json"
+        # A co-located XDG config/data root is valid: XDG_CONFIG_HOME/vcmi
+        # can be the same directory as XDG_DATA_HOME/vcmi. Use a layout that
+        # VCMIDirsXDG cannot actually read instead of rejecting a valid one.
+        wrong_settings = self.user_data / "unsupported-config" / "modSettings.json"
+        wrong_settings.parent.mkdir()
         wrong_settings.write_text(json.dumps({
             "activePreset": "host",
             "presets": {"host": {"mods": ["fixture"]}}
