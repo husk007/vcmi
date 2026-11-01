@@ -155,7 +155,7 @@ class LanModShareTest(unittest.TestCase):
             "from pathlib import Path\n"
             f"Path({str(marker)!r}).write_text(json.dumps({{"
             "'data': os.environ.get('XDG_DATA_HOME'), "
-            "'config': os.environ.get('XDG_CONFIG_HOME')}}))\n",
+            "'config': os.environ.get('XDG_CONFIG_HOME')}))\n",
             encoding="utf-8")
         fake_client.chmod(0o755)
 

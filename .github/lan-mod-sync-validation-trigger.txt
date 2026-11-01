@@ -1,1 +1,2 @@
-CI checkpoint 2026-11-01: validate actual Linux publisher-to-client XDG data/config alignment after d4074f512a07fca005b24791dbf5eb023f86cff0.\nReason: the launcher must run vcmiclient with the same active mod preset and user-data directory from which host shares were created; verify independent vcmiserver LAN tests remain green.\n
+CI checkpoint 2026-11-01: Linux XDG publisher-to-client path alignment on f358795524ba4f8181d2c30b4e830319db47833c.
+Reason: verify the integrated host preset/data launch and correct the generated test-client fixture syntax before Python checks and full VCMI build.
