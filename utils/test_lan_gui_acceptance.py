@@ -59,11 +59,11 @@ class LanGuiAcceptanceSetupTest(unittest.TestCase):
     def test_gui_acceptance_rejects_skips_even_on_green_gtest_exit(self):
         lobby = "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview"
         parsed_mod = "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset"
-        both_passed = f"[       OK ] {lobby} (250 ms)\\n[       OK ] {parsed_mod} (300 ms)"
+        both_passed = f"[       OK ] {lobby} (250 ms)\n[       OK ] {parsed_mod} (300 ms)"
         self.assertTrue(required_gui_tests_passed(both_passed))
-        self.assertFalse(required_gui_tests_passed(f"[       OK ] {lobby} (250 ms)\\n"
+        self.assertFalse(required_gui_tests_passed(f"[       OK ] {lobby} (250 ms)\n"
                                                f"[  SKIPPED ] {parsed_mod} (0 ms)"))
-        self.assertFalse(required_gui_tests_passed("[" + "==========] 0 tests ran. (0 ms total)"))
+        self.assertFalse(required_gui_tests_passed("[==========] 0 tests ran. (0 ms total)"))
 
     def test_requires_owned_data_and_does_not_touch_workspace_on_failure(self):
         (self.owned / "Data" / "H3sprite.lod").unlink()
