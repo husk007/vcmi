@@ -404,7 +404,9 @@ void CServerHandler::onConnectionEstablished(const NetworkConnectionPtr & netCon
 	}
 
 	logicConnection = std::make_shared<GameConnection>(netConnection);
-	logicConnection->uuid = uuid;
+	// Reuse the legacy registration packet, but explicitly mark a temporary
+	// archive-only socket. Older servers can still treat this as an opaque UUID.
+	logicConnection->uuid = lanArchiveDownloading ? "vcmi-lan-archive:" + uuid : uuid;
 	logicConnection->enterLobbyConnectionMode();
 
 	if(lobbyPreviewMode)
@@ -526,7 +528,7 @@ ui16 CServerHandler::getCurrentPort() const
 void CServerHandler::sendClientConnecting() const
 {
 	LobbyClientConnected lcc;
-	lcc.uuid = uuid;
+	lcc.uuid = logicConnection->uuid;
 	// Archive downloaders need a connection ID but must not occupy player slots.
 	lcc.names = lanArchiveDownloading ? std::vector<std::string>{} : localPlayerNames;
 	lcc.mode = si->mode;
