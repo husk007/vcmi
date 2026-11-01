@@ -3739,7 +3739,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			peer = std::make_unique<GameConnection>(ready);
 			peer->enterLobbyConnectionMode();
 			LobbyClientConnected join;
-			join.uuid = uuid;
+			join.uuid = archiveOnly ? "vcmi-lan-archive:" + uuid : uuid;
 			if(!archiveOnly)
 				join.names = {playerName};
 			join.mode = EStartMode::NEW_GAME;
