@@ -1,2 +1,2 @@
-CI checkpoint 2026-11-01: M5 opt-in two real desktop GUI guests now prepare distinct restored presets, perform controlled relaunch and must coexist in production LAN lobby.
-Validate full VCMI compile and LanModSyncTest.* on this branch. The public test fixture lacks licensed graphical Heroes III data, so the VCMI_LAN_TEST_GUI_CLIENT opt-in test is not runnable in public CI; do not count the green public run as LAN_PASS.
+CI checkpoint 2026-11-01: M5 integration now exercises two simultaneous real player TCP registrations against the production LAN host after installed-only mod relaunch. Assert distinct client IDs, both guests in the live lobby preview, and independent departure without disconnecting the first guest.
+Run full Linux VCMI build and LanModSyncTest.*. Public CI has no complete licensed Heroes III GUI assets, so this result cannot establish LAN_PASS.

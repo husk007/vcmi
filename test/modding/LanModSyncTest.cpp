@@ -4246,6 +4246,51 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_EQ(host.peer->connectionID, originalHostId) << "Guest-rejoin notification changed the host's identity";
 	EXPECT_NE(resumedConnection.assignedClientId, guest.assignedClientId);
 
+	// An additional player registration must coexist with the guest that
+	// relaunched with the host's installed gameplay mods. Archive-only sockets
+	// above do not prove that VCMI admits two actual lobby players.
+	JoinGuest concurrentPlayer;
+	concurrentPlayer.uuid = "00000000-0000-4000-8000-000000000006";
+	concurrentPlayer.playerName = "LAN concurrent guest";
+	network->getContext().restart();
+	network->connectToRemote(concurrentPlayer, resumedTarget->hostname, resumedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(concurrentPlayer.joined) << "Second player could not join the independent VCMI server: " << concurrentPlayer.error;
+	EXPECT_EQ(concurrentPlayer.assignedHostId, originalHostId);
+	EXPECT_NE(concurrentPlayer.assignedClientId, resumedConnection.assignedClientId);
+
+	PreviewGuest simultaneousPlayers(true);
+	network->getContext().restart();
+	network->connectToRemote(simultaneousPlayers, resumedTarget->hostname, resumedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(simultaneousPlayers.error.empty()) << simultaneousPlayers.error;
+	const auto * twoGuestLobby = dynamic_cast<LobbyModSyncPreview *>(simultaneousPlayers.response.get());
+	ASSERT_NE(twoGuestLobby, nullptr);
+	EXPECT_TRUE(twoGuestLobby->acceptingPlayers);
+	EXPECT_EQ(twoGuestLobby->participantNames.size(), 3);
+	for(const auto & name : {"LAN integration host", "LAN integration guest", "LAN concurrent guest"})
+		EXPECT_EQ(std::count(twoGuestLobby->participantNames.begin(), twoGuestLobby->participantNames.end(), name), 1)
+			<< "Live LAN lobby lost or duplicated player " << name;
+	simultaneousPlayers.connection->close();
+
+	// Leaving the second player must not evict the first relaunched guest.
+	concurrentPlayer.connection->close();
+	network->getContext().restart();
+	network->getContext().run_for(std::chrono::seconds(2));
+	PreviewGuest remainingPlayers(true);
+	network->getContext().restart();
+	network->connectToRemote(remainingPlayers, resumedTarget->hostname, resumedTarget->port);
+	network->getContext().run_for(std::chrono::seconds(4));
+	ASSERT_TRUE(remainingPlayers.error.empty()) << remainingPlayers.error;
+	const auto * remainingLobby = dynamic_cast<LobbyModSyncPreview *>(remainingPlayers.response.get());
+	ASSERT_NE(remainingLobby, nullptr);
+	EXPECT_EQ(remainingLobby->participantNames.size(), 2);
+	EXPECT_EQ(std::count(remainingLobby->participantNames.begin(), remainingLobby->participantNames.end(),
+		"LAN integration guest"), 1);
+	EXPECT_EQ(std::count(remainingLobby->participantNames.begin(), remainingLobby->participantNames.end(),
+		"LAN concurrent guest"), 0);
+	remainingPlayers.connection->close();
+
 	resumedConnection.connection->close();
 	relaunchedGuest.restoreLanSession();
 	ModsPresetState restoredGuest(true);
