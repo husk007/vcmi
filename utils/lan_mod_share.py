@@ -206,9 +206,12 @@ def main():
         # Validate every selected root before publishing the first archive.
         for mod_id in mod_ids:
             collect_mod_files(mod_id, mods_dir)
+        # A host launch must share the active preset's current files, even after
+        # an installed mod update. Explicit one-off publication stays unchanged.
+        refresh_active_shares = args.launch_client is not None and args.active_from_settings is not None
         for mod_id in mod_ids:
             destination, digest, changed = publish(mod_id, mods_dir, args.user_data,
-                                                    replace=args.replace_share)
+                                                    replace=args.replace_share or refresh_active_shares)
             print(f"{'Shared' if changed else 'Already shared'}: {destination}")
             print(f"SHA-256: {digest}")
     except (OSError, ValueError, zipfile.BadZipFile) as error:

@@ -136,6 +136,42 @@ class LanModShareTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse(marker.exists())
 
+    @unittest.skipIf(sys.platform == "win32", "Executable shebang fixture requires POSIX")
+    def test_launch_updates_changed_active_root_but_reuses_other_share(self):
+        second = self.user_data / "Mods" / "second"
+        second.mkdir()
+        (second / "mod.json").write_text('{"name":"Unchanged LAN root"}', encoding="utf-8")
+        config = Path(self.temp.name) / "host-config" / "vcmi"
+        config.mkdir(parents=True)
+        settings = config / "modSettings.json"
+        settings.write_text(json.dumps({
+            "activePreset": "host",
+            "presets": {"host": {"mods": ["vcmi", "fixture", "second"]}}
+        }), encoding="utf-8")
+        client = self.user_data / "fake-vcmiclient"
+        client.write_text(f"#!{sys.executable}\\nimport sys\\nsys.exit(0)\\n", encoding="utf-8")
+        client.chmod(0o755)
+        cmd = [sys.executable, str(SCRIPT), "--active-from-settings", str(settings),
+               "--user-data", str(self.user_data), "--confirm-redistributable",
+               "--launch-client", str(client)]
+        first = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        shares = self.user_data / "lan-mod-shares"
+        initial = {root: hashlib.sha256((shares / (root + ".zip")).read_bytes()).hexdigest()
+                   for root in ("fixture", "second")}
+        (self.mod / "mod.json").write_text('{"name":"Updated LAN fixture","version":"2.0"}',
+                                           encoding="utf-8")
+        refreshed = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        self.assertIn(f"Shared: {shares / 'fixture.zip'}", refreshed.stdout)
+        self.assertIn(f"Already shared: {shares / 'second.zip'}", refreshed.stdout)
+        current = {root: hashlib.sha256((shares / (root + ".zip")).read_bytes()).hexdigest()
+                   for root in ("fixture", "second")}
+        self.assertNotEqual(current["fixture"], initial["fixture"])
+        self.assertEqual(current["second"], initial["second"])
+        with zipfile.ZipFile(shares / "fixture.zip") as archive:
+            self.assertIn("2.0", archive.read("fixture/mod.json").decode("utf-8"))
+
     @unittest.skipUnless(sys.platform == "linux", "Requires Linux VCMIDirsXDG")
     def test_launcher_uses_the_published_host_preset_and_data_directory(self):
         config_home = Path(self.temp.name) / "host-config"
