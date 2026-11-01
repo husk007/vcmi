@@ -1,5 +1,6 @@
 """Executable checks for publishing an installed VCMI mod into the host share directory."""
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -67,6 +68,48 @@ class LanModShareTest(unittest.TestCase):
         (self.mod / "link").symlink_to(self.mod / "mod.json")
         self.assertNotEqual(self.run_share().returncode, 0)
 
+    def test_active_preset_publishes_unique_roots_without_inactive_mods(self):
+        for name in ("second", "inactive"):
+            root = self.user_data / "Mods" / name
+            root.mkdir()
+            (root / "mod.json").write_text('{"name":"A fixture mod"}', encoding="utf-8")
+        config = self.user_data / "modSettings.json"
+        config.write_text(json.dumps({
+            "activePreset": "lan-host",
+            "presets": {
+                "lan-host": {"mods": ["vcmi", "core", "fixture.addon", "fixture", "second"]},
+                "personal": {"mods": ["inactive"]}
+            }
+        }), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), "--active-from-settings", str(config),
+                   "--user-data", str(self.user_data), "--confirm-redistributable"]
+        published = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(published.returncode, 0, published.stderr)
+        shares = self.user_data / "lan-mod-shares"
+        self.assertEqual({path.name for path in shares.iterdir()},
+                         {"fixture.zip", "second.zip"})
+        self.assertEqual(published.stdout.count("SHA-256:"), 2)
+        with zipfile.ZipFile(shares / "fixture.zip") as contents:
+            self.assertIn("fixture/mod.json", contents.namelist())
+        repeated = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertEqual(repeated.stdout.count("Already shared:"), 2)
+
+    def test_missing_active_root_refuses_entire_preset_before_writing(self):
+        config = self.user_data / "modSettings.json"
+        config.write_text(json.dumps({
+            "activePreset": "lan-host",
+            "presets": {"lan-host": {"mods": ["fixture", "missing-mod"]}}
+        }), encoding="utf-8")
+        command = [sys.executable, str(SCRIPT), "--active-from-settings", str(config),
+                   "--user-data", str(self.user_data), "--confirm-redistributable"]
+        rejected = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse((self.user_data / "lan-mod-shares").exists())
+        config.write_text('{"activePreset":"does-not-exist","presets":{}}', encoding="utf-8")
+        rejected = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse((self.user_data / "lan-mod-shares").exists())
 
 if __name__ == "__main__":
     unittest.main()

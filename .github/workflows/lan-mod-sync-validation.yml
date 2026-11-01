@@ -124,11 +124,6 @@ jobs:
               for index in range(2200):
                   target.write(sha256(f"vcmi-lan-fixture-{index}".encode()).digest())
           PY
-          python3 utils/lan_mod_share.py lan-ci-fixture \
-            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable
-          archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
-          test -s "$archive"
-          test "$(stat -c %s "$archive")" -gt 65536
           # Keep host-specific settings separate from the vcmitest guest settings.
           mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
           cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'
@@ -142,6 +137,14 @@ jobs:
             }
           }
           JSON
+          # Use the host's active preset rather than a handwritten mod list.
+          # Consent covers each archive selected by this explicit command.
+          python3 utils/lan_mod_share.py --active-from-settings \
+            "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" \
+            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable
+          archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
+          test -s "$archive"
+          test "$(stat -c %s "$archive")" -gt 65536
 
       - name: Run committed LAN tests against independent VCMI host
         working-directory: out/build/linux-gcc-test/bin

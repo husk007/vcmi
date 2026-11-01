@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -106,9 +107,42 @@ def publish(mod_id, mods_dir, user_data, replace=False):
             temporary.unlink(missing_ok=True)
 
 
+def active_mod_roots(settings_path):
+    """Return unique installed roots from the current VCMI preset."""
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid VCMI mod settings: {error}") from error
+    if not isinstance(settings, dict):
+        raise ValueError("VCMI mod settings must be a JSON object")
+    presets = settings.get("presets")
+    active = settings.get("activePreset")
+    if not isinstance(presets, dict) or not isinstance(active, str) or active not in presets:
+        raise ValueError("active VCMI mod preset is missing")
+    selected = presets[active]
+    if not isinstance(selected, dict) or not isinstance(selected.get("mods"), list):
+        raise ValueError("active VCMI mod preset has no mod list")
+    roots = []
+    for mod_id in selected["mods"]:
+        if not isinstance(mod_id, str):
+            raise ValueError("active preset contains a non-string mod ID")
+        root_id = mod_id.split(".", 1)[0]
+        if root_id in {"vcmi", "core"}:
+            continue
+        if not re.fullmatch(r"[a-z0-9_-]+", root_id):
+            raise ValueError(f"invalid active root mod ID: {mod_id}")
+        if root_id not in roots:
+            roots.append(root_id)
+    if not roots:
+        raise ValueError("active preset has no shareable root mods")
+    return roots
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mod_id", help="canonical installed root mod ID")
+    parser.add_argument("mod_id", nargs="?", help="canonical installed root mod ID")
+    parser.add_argument("--active-from-settings", type=Path,
+                        help="publish all active root mods from this modSettings.json (skips VCMI core)")
     parser.add_argument("--user-data", type=Path, required=True,
                         help="VCMI user-data folder used by the host (contains Mods/)")
     parser.add_argument("--mods-dir", type=Path,
@@ -118,17 +152,25 @@ def main():
     parser.add_argument("--replace-share", action="store_true",
                         help="replace an older host share of this mod (never modifies Mods/)")
     args = parser.parse_args()
+    if (args.mod_id is None) == (args.active_from_settings is None):
+        parser.error("provide either mod_id or --active-from-settings PATH")
     if not args.confirm_redistributable:
         parser.error("--confirm-redistributable is required; do not share commercial Heroes III files")
     try:
-        destination, digest, changed = publish(args.mod_id, args.mods_dir or args.user_data / "Mods",
-                                                args.user_data, replace=args.replace_share)
+        mod_ids = ([args.mod_id] if args.mod_id is not None
+                   else active_mod_roots(args.active_from_settings))
+        mods_dir = args.mods_dir or args.user_data / "Mods"
+        # Validate every selected root before publishing the first archive.
+        for mod_id in mod_ids:
+            collect_mod_files(mod_id, mods_dir)
+        for mod_id in mod_ids:
+            destination, digest, changed = publish(mod_id, mods_dir, args.user_data,
+                                                    replace=args.replace_share)
+            print(f"{'Shared' if changed else 'Already shared'}: {destination}")
+            print(f"SHA-256: {digest}")
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         parser.exit(1, f"Could not share LAN mod: {error}\n")
-    print(f"{'Shared' if changed else 'Already shared'}: {destination}")
-    print(f"SHA-256: {digest}")
-    print("The running VCMI host advertises this archive only while the root mod is active.")
-
+    print("The running VCMI host advertises these archives only while their root mods are active.")
 
 if __name__ == "__main__":
     main()
