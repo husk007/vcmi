@@ -96,6 +96,7 @@ def run(args: argparse.Namespace) -> int:
             "VCMI_LAN_TEST_SECOND_MOD": "lan-ci-extra",
             "VCMI_LAN_TEST_SECOND_SUBMOD": "lan-ci-extra.units",
             "VCMI_LAN_TEST_GUI_CLIENT": "1",
+            "VCMI_LAN_TEST_SHARE_REFRESH": "1",
             "SDL_AUDIODRIVER": "dummy",
         })
         publisher = Path(__file__).with_name("lan_mod_share.py")

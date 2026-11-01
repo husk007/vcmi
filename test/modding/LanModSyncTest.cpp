@@ -4137,7 +4137,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			// CI uses disposable, explicitly generated mod shares. Refresh one ZIP
 			// while the production host stays online and verify that a new preview
 			// requires only that root; the other root remains a zero-byte cache hit.
-			if(const char * ci = std::getenv("GITHUB_ACTIONS"); ci && std::string(ci) == "true"
+			if(const char * allowRefresh = std::getenv("VCMI_LAN_TEST_SHARE_REFRESH"); allowRefresh && std::string(allowRefresh) == "1"
 				&& std::string(requiredMod) == "lan-ci-fixture"
 				&& std::string(secondMod) == "lan-ci-extra")
 			{
