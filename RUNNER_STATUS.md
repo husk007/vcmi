@@ -14,12 +14,12 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41198370293](https://github.com/husk007/vcmi/actions/runs/41198370293) passed on `e065d70` (100/100 LAN tests): actual `vcmitest`, `vcmiserver`, `vcmiclient` built and LAN tests passed, including >64 KiB real ZIP TCP transfer, isolated mount and zero-byte repeat join. GUI play remains untested with full legal assets. | BUILD_PASS / TEST_PASS (prior code) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41274788088](https://github.com/husk007/vcmi/actions/runs/41274788088) passed on `e137080` (102/102 LAN tests): actual `vcmitest`, `vcmiserver`, `vcmiclient` built; installed-host preset publisher, real TCP transfer, isolated mount and zero-byte repeat join verified. GUI play remains untested with full legal assets. | BUILD_PASS / TEST_PASS (prior code) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). Host ZIP transfer and staging are already implemented under M4. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41186278138 passed the real TCP ZIP test: verified staging and zero bytes on the repeated fetch. Full GUI rejoin with cached mods is not yet tested. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | [CI #41250286237](https://github.com/husk007/vcmi/actions/runs/41250286237) passed on `d9f28bc`: actual client/server/vcmitest build, two concurrent production-server transfers and separate verified SHA-256 caches. New regression registers archive-only guests with no player names so transfers do not take lobby slots; CI is pending. Licensed-data GUI play remains untested. | BUILD_PASS / TEST_PASS (prior); CODE_ONLY (new) |
+| M4 host-to-guest transfer | [CI #41274788088](https://github.com/husk007/vcmi/actions/runs/41274788088) passed on `e137080`: production server serves host active-preset ZIP; 102 real tests passed. Next test checks two different active mod roots, concurrently transferred to two guests and then reused from both caches; CI pending. Licensed-data GUI play remains untested. | BUILD_PASS / TEST_PASS (prior); CODE_ONLY (new) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate new archive-only registration against the production host: two ZIP transfers without added player slots.
+1. Validate the two-root active preset through production vcmiserver: two archive-only guests fetch both ZIPs and plan a zero-byte repeat join.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
 3. Run two GUI clients with licensed Heroes III data to check cache-only rejoin, no transfer and full restoration.
 

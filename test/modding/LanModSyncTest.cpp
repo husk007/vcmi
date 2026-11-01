@@ -3705,6 +3705,16 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	// installed but disabled in the guest test preset. Do not infer a host
 	// requirement from a locally selected mod that the host never advertised.
 	const char * requiredMod = std::getenv("VCMI_LAN_TEST_REQUIRED_MOD");
+	const char * secondMod = std::getenv("VCMI_LAN_TEST_SECOND_MOD");
+	if(secondMod)
+	{
+		const auto second = syncedMods->mods.find(secondMod);
+		ASSERT_NE(second, syncedMods->mods.end()) << "Host active preset omitted its second mod";
+		EXPECT_TRUE(second->second.impactsGameplay);
+		const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(syncedMods->mods);
+		ASSERT_NE(statuses.find(secondMod), statuses.end());
+		EXPECT_EQ(statuses.at(secondMod), ModVerificationStatus::DISABLED);
+	}
 	if(requiredMod)
 	{
 		const auto required = syncedMods->mods.find(requiredMod);
@@ -3954,6 +3964,85 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_TRUE(nextJoin.reuseCachedArchive.contains(requiredMod))
 				<< "Guest " << i << " must reuse its own verified ZIP when rejoining";
 			EXPECT_TRUE(nextJoin.downloadOrUpdate.empty());
+		}
+
+		// Reuse both archive-only TCP connections to fetch a different active
+		// root from the SAME production host. This checks the real server's
+		// transfer reset between packages, independent digest verification,
+		// and a repeated join requiring zero bytes for BOTH cached roots.
+		if(secondMod)
+		{
+			const auto secondOffer = syncedMods->archives.find(secondMod);
+			ASSERT_NE(secondOffer, syncedMods->archives.end()) << "Second active mod was not shared";
+			const auto & nextArchive = secondOffer->second;
+			ASSERT_GT(nextArchive.bytes, 64U * 1024U);
+			std::vector<std::uint64_t> secondBytes(transferGuests.size(), 0);
+			std::vector<fs::path> secondPaths{isolated / "second-root-first.zip",
+				isolated / "second-root-second.zip"};
+			std::vector<std::ofstream> secondOutputs(transferGuests.size());
+			for(std::size_t i = 0; i < transferGuests.size(); ++i)
+			{
+				secondOutputs[i].open(secondPaths[i], std::ios::binary);
+				ASSERT_TRUE(secondOutputs[i].good());
+			}
+			while(std::any_of(secondBytes.begin(), secondBytes.end(),
+				[&](std::uint64_t count){ return count < nextArchive.bytes; }))
+			{
+				for(std::size_t i = 0; i < transferGuests.size(); ++i)
+				{
+					if(secondBytes[i] == nextArchive.bytes)
+						continue;
+					LobbyQueryLanModArchiveChunk request;
+					request.rootId = secondMod;
+					request.sha256 = nextArchive.sha256;
+					request.offset = static_cast<std::int64_t>(secondBytes[i]);
+					transferGuests[i]->peer->sendPack(request);
+				}
+				network->getContext().restart();
+				network->getContext().run_for(std::chrono::seconds(2));
+				for(std::size_t i = 0; i < transferGuests.size(); ++i)
+				{
+					if(secondBytes[i] == nextArchive.bytes)
+						continue;
+					ASSERT_NE(transferGuests[i]->archiveChunk, nullptr)
+						<< "Real VCMI host did not return guest " << i << "'s second mod";
+					const auto & chunk = *transferGuests[i]->archiveChunk;
+					ASSERT_TRUE(chunk.granted);
+					EXPECT_EQ(chunk.rootId, secondMod);
+					EXPECT_EQ(chunk.sha256, nextArchive.sha256);
+					ASSERT_EQ(chunk.offset, secondBytes[i]);
+					ASSERT_EQ(chunk.totalBytes, nextArchive.bytes);
+					ASSERT_FALSE(chunk.data.empty());
+					ASSERT_LE(chunk.data.size(), 64U * 1024U);
+					ASSERT_LE(chunk.data.size(), nextArchive.bytes - secondBytes[i]);
+					secondOutputs[i].write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+					ASSERT_TRUE(secondOutputs[i].good());
+					secondBytes[i] += chunk.data.size();
+					transferGuests[i]->archiveChunk.reset();
+				}
+			}
+			const ModListVerificationStatus bothMissing = {
+				{requiredMod, ModVerificationStatus::NOT_INSTALLED},
+				{secondMod, ModVerificationStatus::NOT_INSTALLED}
+			};
+			const ModArchiveHashes bothExpected = {
+				{requiredMod, archive.sha256}, {secondMod, nextArchive.sha256}
+			};
+			for(std::size_t i = 0; i < transferGuests.size(); ++i)
+			{
+				secondOutputs[i].close();
+				ASSERT_EQ(secondBytes[i], nextArchive.bytes);
+				ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
+					guestDataPaths[i], secondMod, nextArchive.sha256, secondPaths[i]));
+				ASSERT_TRUE(LanModPackageStage::stageVerifiedArchive(
+					guestDataPaths[i], secondMod, nextArchive.sha256));
+				const auto repeated = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+					bothMissing, bothExpected, guestDataPaths[i]);
+				EXPECT_TRUE(repeated.reuseCachedArchive.contains(requiredMod));
+				EXPECT_TRUE(repeated.reuseCachedArchive.contains(secondMod));
+				EXPECT_TRUE(repeated.downloadOrUpdate.empty())
+					<< "Rejoining must not download either previously verified root";
+			}
 		}
 		// Remove both archive-only connections while keeping the real player.
 		firstTransfer.connection->close();

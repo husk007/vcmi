@@ -124,6 +124,21 @@ jobs:
               for index in range(2200):
                   target.write(sha256(f"vcmi-lan-fixture-{index}".encode()).digest())
           PY
+          # The second active root proves a single host preset can publish
+          # several independently selected archives in one invocation.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-extra/assets"
+          cat > "$HOME/.local/share/vcmi/Mods/lan-ci-extra/mod.json" <<'JSON'
+          {
+            "name": "LAN CI second gameplay fixture",
+            "author": "VCMI LAN integration tests",
+            "version": "2.0",
+            "modType": "Mechanics",
+            "keepDisabled": true,
+            "settings": {}
+          }
+          JSON
+          cp "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/assets/payload.bin" \
+            "$HOME/.local/share/vcmi/Mods/lan-ci-extra/assets/payload.bin"
           # Keep host-specific settings separate from the vcmitest guest settings.
           mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
           cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'
@@ -131,7 +146,7 @@ jobs:
             "activePreset": "default",
             "presets": {
               "default": {
-                "mods": ["vcmi", "lan-ci-fixture"],
+                "mods": ["vcmi", "lan-ci-fixture", "lan-ci-extra"],
                 "settings": {}
               }
             }
@@ -145,6 +160,9 @@ jobs:
           archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
           test -s "$archive"
           test "$(stat -c %s "$archive")" -gt 65536
+          second_archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-extra.zip"
+          test -s "$second_archive"
+          test "$(stat -c %s "$second_archive")" -gt 65536
 
       - name: Run committed LAN tests against independent VCMI host
         working-directory: out/build/linux-gcc-test/bin
@@ -164,6 +182,7 @@ jobs:
           fi
           export VCMI_LAN_TEST_SERVER_PORT="$port"
           export VCMI_LAN_TEST_REQUIRED_MOD="lan-ci-fixture"
+          export VCMI_LAN_TEST_SECOND_MOD="lan-ci-extra"
           # The public vcmi-test-data fixture has no complete Heroes III GUI sprites.
           # The previous graphical client smoke test reached CRADVNTR and exited
           # before attempting LAN rejoin. Do not report that as an M2 code failure.
