@@ -3658,6 +3658,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		bool receivedStartPreparation = false;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3680,6 +3681,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
 		{
 			auto packet = peer->retrievePack(bytes);
+			if(dynamic_cast<LobbyPrepareStartGame *>(packet.get()))
+			{
+				receivedStartPreparation = true;
+				return;
+			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
 			{
 				// LobbyClientConnected is also broadcast when OTHER guests join.
@@ -3848,6 +3854,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::unique_ptr<GameConnection> peer;
 		std::string error;
 		bool joined = false;
+		bool receivedStartPreparation = false;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3877,6 +3884,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		void onPacketReceived(const NetworkConnectionPtr &, const std::vector<std::byte> & bytes) override
 		{
 			auto packet = peer->retrievePack(bytes);
+			if(dynamic_cast<LobbyPrepareStartGame *>(packet.get()))
+			{
+				receivedStartPreparation = true;
+				return;
+			}
 			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
 			{
 				archiveChunk = std::make_unique<LobbyLanModArchiveChunk>(*chunk);
@@ -4431,6 +4443,19 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		EXPECT_EQ(std::count(twoGuestLobby->participantNames.begin(), twoGuestLobby->participantNames.end(), name), 1)
 			<< "Live LAN lobby lost or duplicated player " << name;
 	simultaneousPlayers.connection->close();
+
+	// Move beyond lobby registration: the production host's pre-start signal
+	// must reach both real players before either leaves the LAN room.
+	LobbyPrepareStartGame prepareStart;
+	host.peer->sendPack(prepareStart);
+	network->getContext().restart();
+	const auto prepareDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+	while((!host.receivedStartPreparation || !resumedConnection.receivedStartPreparation
+		|| !concurrentPlayer.receivedStartPreparation) && std::chrono::steady_clock::now() < prepareDeadline)
+		network->getContext().run_one_for(std::chrono::milliseconds(50));
+	EXPECT_TRUE(host.receivedStartPreparation) << "Real host did not receive its own lobby pre-start signal";
+	EXPECT_TRUE(resumedConnection.receivedStartPreparation) << "Relaunched LAN guest missed the host's pre-start signal";
+	EXPECT_TRUE(concurrentPlayer.receivedStartPreparation) << "Second LAN guest missed the host's pre-start signal";
 
 	// Leaving the second player must not evict the first relaunched guest.
 	concurrentPlayer.connection->close();
