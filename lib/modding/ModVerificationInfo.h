@@ -135,6 +135,9 @@ struct DLL_LINKAGE ModVerificationInfo
 		LanArchivePreviewState archiveState, bool completeUsableHostOffer);
 	/// Total bytes of host archives not already verified in the guest cache, counted once per root mod.
 	static std::uint64_t estimateUncachedArchiveBytes(const LanArchivePreview & availability, const ModArchiveManifest & hostArchives);
+	/// Canonical mod IDs, active submod versions and archive digests shown before trusting a LAN host's content.
+	static std::vector<std::string> describeLanArchiveConsent(const ModCompatibilityInfo & hostMods,
+		const LanArchivePreview & availability, const ModArchiveManifest & hostArchives);
 	/// Cache entries must describe archives whose SHA-256 has already been verified.
 	/// Missing or malformed host archive digests reject download planning.
 	/// Read-only preview of changes possible using locally installed matching-version mods.

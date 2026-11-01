@@ -393,6 +393,34 @@ std::uint64_t ModVerificationInfo::estimateUncachedArchiveBytes(
 	return total;
 }
 
+std::vector<std::string> ModVerificationInfo::describeLanArchiveConsent(
+	const ModCompatibilityInfo & hostMods, const LanArchivePreview & availability,
+	const ModArchiveManifest & hostArchives)
+{
+	std::vector<std::string> descriptions;
+	for(const auto & [rootId, state] : availability)
+	{
+		if(state == LanArchivePreviewState::UNAVAILABLE)
+			continue;
+		const auto offered = hostArchives.find(rootId);
+		if(offered == hostArchives.end())
+			continue;
+
+		std::string description = rootId;
+		for(const auto & [modId, info] : hostMods)
+		{
+			if(modId == rootId)
+				description += " (" + info.version.toString() + ")";
+			else if(modId.size() > rootId.size() && modId.compare(0, rootId.size(), rootId) == 0
+				&& modId[rootId.size()] == '.')
+				description += " / " + modId + " (" + info.version.toString() + ")";
+		}
+		description += " [SHA-256 " + offered->second.sha256.substr(0, 12) + "]";
+		descriptions.push_back(std::move(description));
+	}
+	return descriptions;
+}
+
 std::optional<ModSyncPlan> ModVerificationInfo::buildInstalledOnlyPlan(const ModListVerificationStatus & statuses)
 {
 	ModSyncPlan plan;

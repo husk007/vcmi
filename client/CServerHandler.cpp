@@ -1752,8 +1752,12 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 			const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, hostArchives,
 				std::filesystem::path(VCMIDirs::get().userDataPath().native()));
 			const auto bytes = ModVerificationInfo::estimateUncachedArchiveBytes(available, hostArchives);
-			const auto question = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadConsent")
+			std::string question = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadConsent")
 				+ "\n" + std::to_string((bytes + 1023) / 1024) + " KiB";
+			// Trust approval must identify the actual host packages, not just their combined size.
+			// Include cached archives too: a cache hit alone does not authorize first-time execution.
+			for(const auto & description : ModVerificationInfo::describeLanArchiveConsent(hostMods, available, hostArchives))
+				question += "\n" + description;
 			CInfoWindow::showYesNoDialog(question, {},
 				[this, hostMods, hostArchives]()
 				{

@@ -527,6 +527,35 @@ TEST(LanModSyncTest, GuestPreparesOnlyCompleteHostArchiveOffersWithoutPrivateVer
 		{{"disabledlocal", ModVerificationStatus::DISABLED}}, available, installed));
 }
 
+TEST(LanModSyncTest, HostArchiveConsentIdentifiesEachRootAndActiveSubmodBeforeTrust)
+{
+	ModCompatibilityInfo hostMods;
+	ModVerificationInfo first;
+	first.version = CModVersion::fromString("1.0");
+	hostMods["lan-first"] = first;
+	ModVerificationInfo child;
+	child.version = CModVersion::fromString("2.0");
+	hostMods["lan-second.units"] = child;
+	const ModArchiveManifest archives = {
+		{"lan-first", {std::string(64, 'a'), 4096}},
+		{"lan-second", {std::string(64, 'b'), 8192}},
+		{"lan-hidden", {std::string(64, 'c'), 16384}}
+	};
+	const LanArchivePreview availability = {
+		{"lan-first", LanArchivePreviewState::OFFERED_BY_HOST},
+		{"lan-second", LanArchivePreviewState::VERIFIED_IN_CACHE},
+		{"lan-hidden", LanArchivePreviewState::UNAVAILABLE}
+	};
+	const auto descriptions = ModVerificationInfo::describeLanArchiveConsent(hostMods, availability, archives);
+	ASSERT_EQ(descriptions.size(), 2);
+	EXPECT_NE(descriptions.at(0).find("lan-first (" + first.version.toString() + ")"), std::string::npos);
+	EXPECT_NE(descriptions.at(0).find(std::string(12, 'a')), std::string::npos);
+	EXPECT_NE(descriptions.at(1).find("lan-second.units (" + child.version.toString() + ")"), std::string::npos);
+	EXPECT_NE(descriptions.at(1).find(std::string(12, 'b')), std::string::npos);
+	for(const auto & description : descriptions)
+		EXPECT_EQ(description.find("lan-hidden"), std::string::npos);
+}
+
 TEST(LanModSyncTest, HostOfferConsentPersistsForIdenticalContentOnly)
 {
 	namespace fs = std::filesystem;
