@@ -99,12 +99,20 @@ public:
         if(requestedRoot.empty() || !ModArchiveDigest::isSha256(requestedSha256))
             return {};
 
-        // Reuse the existing explicit-share, canonical-ID and active-root
-        // checks. Limit hashing to the requested root, not every shared mod.
-        const auto root = activeMods.find(requestedRoot);
-        if(root == activeMods.end())
+        // A parent root may be absent from the active list when its submods
+        // are enabled. Bind the request to that active root's subtree only;
+        // never authorize an unrelated root or hash every shared archive.
+        ModCompatibilityInfo selected;
+        for(const auto & [modId, info] : activeMods)
+        {
+            if(modId == requestedRoot
+                || (modId.size() > requestedRoot.size()
+                    && modId.compare(0, requestedRoot.size(), requestedRoot) == 0
+                    && modId[requestedRoot.size()] == '.'))
+                selected.emplace(modId, info);
+        }
+        if(selected.empty())
             return {};
-        ModCompatibilityInfo selected{{root->first, root->second}};
         const auto offers = ModVerificationInfo::buildHostArchiveManifest(selected, userDataPath);
         const auto offered = offers.find(requestedRoot);
         if(offered == offers.end() || !ModArchiveDigest::sameSha256(offered->second.sha256, requestedSha256)

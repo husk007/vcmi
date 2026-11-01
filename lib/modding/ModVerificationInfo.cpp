@@ -241,15 +241,25 @@ ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
 	if(!std::filesystem::is_directory(std::filesystem::symlink_status(shareDirectory, error)) || error)
 		return manifest;
 
+	// The active gameplay list may contain only enabled submods: the parent
+	// mod itself is not always included. Its explicitly published root ZIP
+	// must still be offered, otherwise a guest missing that root cannot join.
+	std::set<TModID> activeRoots;
 	for(const auto & [modId, info] : activeMods)
+	{
+		if(modId == ModScope::scopeBuiltin() || !isValidLanModId(modId))
+			continue;
+		const TModID rootId = modId.substr(0, modId.find('.'));
+		if(rootId != ModScope::scopeBuiltin())
+			activeRoots.insert(rootId);
+	}
+
+	for(const auto & rootId : activeRoots)
 	{
 		if(manifest.size() >= 64)
 			break;
-		if(modId == ModScope::scopeBuiltin() || !info.parent.empty()
-			|| modId.find('.') != TModID::npos || !isValidLanModId(modId))
-			continue;
 
-		const auto archive = shareDirectory / (modId + ".zip");
+		const auto archive = shareDirectory / (rootId + ".zip");
 		if(!LanModArchiveCache::isAllowedArchiveSize(archive))
 			continue;
 		const auto digest = ModArchiveDigest::sha256File(archive, LanModArchiveCache::maxArchiveBytes);
@@ -258,7 +268,7 @@ ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
 		const auto size = std::filesystem::file_size(archive, error);
 		if(error)
 			continue;
-		manifest.emplace(modId, ModArchiveManifestEntry{*digest, static_cast<std::uint64_t>(size)});
+		manifest.emplace(rootId, ModArchiveManifestEntry{*digest, static_cast<std::uint64_t>(size)});
 	}
 	return manifest;
 }

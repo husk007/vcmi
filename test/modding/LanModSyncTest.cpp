@@ -871,6 +871,25 @@ TEST(LanModSyncTest, HostStagedArchiveManifestFeedsGuestVerifiedCachePreflight)
 	const auto & offered = manifest.at("hostmod");
 	EXPECT_EQ(offered.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 	EXPECT_EQ(offered.bytes, 3);
+
+	// VCMI may announce enabled child mods but omit the parent root. The same
+	// explicitly shared root archive must remain visible to the lobby preview
+	// and downloadable through the actual host transfer reader.
+	const ModCompatibilityInfo submodOnly = {{"hostmod.units", child}};
+	const auto submodManifest = ModVerificationInfo::buildHostArchiveManifest(submodOnly, directory / "host");
+	ASSERT_EQ(submodManifest.size(), 1);
+	EXPECT_EQ(submodManifest.at("hostmod").sha256, offered.sha256);
+	const auto transfer = LanHostArchiveTransfer::open(submodOnly, directory / "host", "hostmod", offered.sha256);
+	ASSERT_NE(transfer, nullptr);
+	const auto chunk = transfer->next("hostmod", offered.sha256, 0);
+	ASSERT_TRUE(chunk);
+	EXPECT_EQ(chunk->data, "abc");
+	EXPECT_EQ(chunk->totalBytes, 3);
+	EXPECT_TRUE(transfer->complete());
+	// Prefix lookalikes are not active members of the requested root.
+	EXPECT_EQ(LanHostArchiveTransfer::open({{"hostmodextra.units", child}},
+		directory / "host", "hostmod", offered.sha256), nullptr);
+
 	const ModListVerificationStatus missing = {{"hostmod", ModVerificationStatus::NOT_INSTALLED}};
 	const ModListVerificationStatus previewStatuses = {
 		{"hostmod", ModVerificationStatus::NOT_INSTALLED},
