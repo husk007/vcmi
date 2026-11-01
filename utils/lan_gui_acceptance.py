@@ -8,7 +8,7 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import socket
 import subprocess
@@ -69,6 +69,27 @@ def stage_fixture(assets: Path, workspace: Path) -> tuple[Path, Path]:
     return user_data, host_config
 
 
+def owned_map_resource(assets: Path, requested: str) -> str:
+    """Resolve an optional game-start map only from linked owner assets."""
+    name = PurePosixPath(requested)
+    parts = name.parts
+    if not parts or name.is_absolute() or chr(92) in requested or ":" in requested or ".." in parts:
+        raise ValueError("start map must be a relative file under the owner's Maps directory")
+    if parts[0].lower() == "maps":
+        parts = parts[1:]
+    if not parts or PurePosixPath(parts[-1]).suffix.lower() not in (".h3m", ".vmap"):
+        raise ValueError("start map must name an owned .h3m or .vmap file")
+    maps = next((p for p in assets.expanduser().resolve(strict=True).iterdir()
+                 if p.is_dir() and p.name.lower() == "maps"), None)
+    if maps is None:
+        raise ValueError("start map requires the owner's Maps directory")
+    root = maps.resolve(strict=True)
+    selected = maps.joinpath(*parts).resolve(strict=True)
+    if not selected.is_relative_to(root) or not selected.is_file():
+        raise ValueError("start map must be inside the owner's Maps directory")
+    return "Maps/" + "/".join(parts)
+
+
 REQUIRED_GUI_TESTS = (
     "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview",
     "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset",
@@ -90,6 +111,7 @@ def required_gui_tests_passed(log: str) -> bool:
 def acceptance_environment(workspace: Path, host_config: Path) -> dict[str, str]:
     """Run only against isolated paths, checking actual mod loading with licensed data."""
     env = os.environ.copy()
+    env.pop("VCMI_LAN_TEST_START_MAP", None)
     env.update({
         "XDG_CONFIG_HOME": str(host_config),
         "XDG_DATA_HOME": str(workspace / "share"),
@@ -124,6 +146,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         user_data, host_config = stage_fixture(args.assets_dir, workspace)
         env = acceptance_environment(workspace, host_config)
+        if args.start_map:
+            env["VCMI_LAN_TEST_START_MAP"] = owned_map_resource(args.assets_dir, args.start_map)
         publisher = Path(__file__).with_name("lan_mod_share.py")
         subprocess.run([
             sys.executable, str(publisher), "--active-from-settings",
@@ -187,6 +211,9 @@ def main() -> int:
                         help="full VCMI build bin/ with vcmitest, vcmiserver and vcmiclient")
     parser.add_argument("--assets-dir", type=Path, required=True,
                         help="your legally installed VCMI data directory containing Data/")
+    parser.add_argument("--start-map",
+                        help="optional owned Maps/*.h3m or *.vmap with >=3 human slots; "
+                             "exercise real server game-state start with both GUI clients")
     parser.add_argument("--timeout", type=int, default=900,
                         help="maximum seconds for the vcmitest run (default: 900)")
     parser.add_argument("--keep", action="store_true",

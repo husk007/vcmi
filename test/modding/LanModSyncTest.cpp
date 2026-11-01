@@ -51,6 +51,7 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/mapping/CMapInfo.h"
 #include "../../lib/VCMIDirs.h"
 #include "../../lib/ScopeGuard.h"
 
@@ -3659,6 +3660,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::string error;
 		bool joined = false;
 		bool receivedStartPreparation = false;
+		bool receivedInitializedStart = false;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3684,6 +3686,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(dynamic_cast<LobbyPrepareStartGame *>(packet.get()))
 			{
 				receivedStartPreparation = true;
+				return;
+			}
+			if(const auto * started = dynamic_cast<LobbyStartGame *>(packet.get()))
+			{
+				receivedInitializedStart = started->initializedStartInfo && started->initializedGameState;
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -4715,6 +4722,40 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_NE(std::find(tempMods.begin(), tempMods.end(), JsonNode(requiredMod)), tempMods.end());
 			EXPECT_TRUE(state["lanSession"]["relaunchToken"].isNull());
 		}
+		// With an owner-supplied map, the same two real GUI clients move from
+		// the lobby into a production-initialized game. Public CI has no such map.
+		if(guiJoined && secondGuiJoined)
+		{
+			if(const char * mapResource = std::getenv("VCMI_LAN_TEST_START_MAP"); mapResource && *mapResource)
+			{
+				auto chosenMap = std::make_shared<CMapInfo>();
+				ASSERT_NO_THROW(chosenMap->mapInit(mapResource));
+				ASSERT_GE(chosenMap->amountOfHumanControllablePlayers, 3)
+					<< "Select an owned map with three human-controllable player slots";
+				LobbySetMap selectMap;
+				selectMap.mapInfo = chosenMap;
+				host.peer->sendPack(selectMap);
+				LobbyPrepareStartGame prepare;
+				host.peer->sendPack(prepare);
+				LobbyStartGame start;
+				host.peer->sendPack(start);
+				const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+				network->getContext().restart();
+				while(!host.receivedInitializedStart && std::chrono::steady_clock::now() < deadline)
+					network->getContext().run_one_for(std::chrono::milliseconds(100));
+				ASSERT_TRUE(host.receivedInitializedStart)
+					<< "The production server did not initialize and broadcast the game state";
+				network->getContext().restart();
+				network->getContext().run_for(std::chrono::seconds(5));
+				int firstStatus = 0;
+				int secondStatus = 0;
+				EXPECT_EQ(::waitpid(guiPid, &firstStatus, WNOHANG), 0)
+					<< "First GUI client exited after the host started the game";
+				EXPECT_EQ(::waitpid(secondGuiPid, &secondStatus, WNOHANG), 0)
+					<< "Second GUI client exited after the host started the game";
+			}
+		}
+
 		if(guiJoined && secondGuiJoined)
 		{
 			// Simulate both GUI clients crashing in the same lobby. A subsequent

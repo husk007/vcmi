@@ -1,13 +1,14 @@
 """Checks that the opt-in two-GUI acceptance setup never changes personal game data."""
 import json
 from pathlib import Path
+from unittest.mock import patch
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
 
-from utils.lan_gui_acceptance import acceptance_environment, required_gui_tests_passed, stage_fixture
+from utils.lan_gui_acceptance import acceptance_environment, owned_map_resource, required_gui_tests_passed, stage_fixture
 
 PUBLISHER = Path(__file__).with_name("lan_mod_share.py")
 
@@ -55,6 +56,22 @@ class LanGuiAcceptanceSetupTest(unittest.TestCase):
         self.assertEqual(env["XDG_CONFIG_HOME"], str(config))
         self.assertEqual(env["XDG_DATA_HOME"], str(workspace / "share"))
         self.assertEqual(env["XDG_CACHE_HOME"], str(workspace / "cache"))
+
+    def test_optional_game_start_only_uses_owned_maps(self):
+        maps = self.owned / "Maps"
+        maps.mkdir()
+        (maps / "Three Players.h3m").write_bytes(b"owned map placeholder")
+        self.assertEqual(owned_map_resource(self.owned, "Maps/Three Players.h3m"),
+                         "Maps/Three Players.h3m")
+        self.assertEqual(owned_map_resource(self.owned, "Three Players.h3m"),
+                         "Maps/Three Players.h3m")
+        with self.assertRaises(ValueError):
+            owned_map_resource(self.owned, "../outside.h3m")
+        with self.assertRaises((ValueError, OSError)):
+            owned_map_resource(self.owned, "missing.h3m")
+        with patch.dict("os.environ", {"VCMI_LAN_TEST_START_MAP": "Maps/stale.h3m"}):
+            env = acceptance_environment(self.base / "sandbox", self.base / "config")
+        self.assertNotIn("VCMI_LAN_TEST_START_MAP", env)
 
     def test_gui_acceptance_rejects_skips_even_on_green_gtest_exit(self):
         lobby = "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview"
