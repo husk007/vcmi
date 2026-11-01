@@ -3821,6 +3821,50 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		EXPECT_EQ(guest.peer->connectionID, guest.assignedClientId)
 			<< "Transfer connection's lobby broadcast changed the real guest's identity";
 
+		// A downloader can lose its connection after receiving the first chunk.
+		// A new archive-only registration must be able to request the same data
+		// without disrupting either ongoing transfer or the real player.
+		JoinGuest interrupted;
+		interrupted.archiveOnly = true;
+		interrupted.uuid = "00000000-0000-4000-8000-000000000005";
+		network->getContext().restart();
+		network->connectToRemote(interrupted, "127.0.0.1", static_cast<std::uint16_t>(port));
+		network->getContext().run_for(std::chrono::seconds(4));
+		ASSERT_TRUE(interrupted.joined) << "Interrupted downloader could not register: " << interrupted.error;
+		LobbyQueryLanModArchiveChunk firstRequest;
+		firstRequest.rootId = requiredMod;
+		firstRequest.sha256 = archive.sha256;
+		firstRequest.offset = 0;
+		interrupted.peer->sendPack(firstRequest);
+		network->getContext().restart();
+		network->getContext().run_for(std::chrono::seconds(2));
+		ASSERT_NE(interrupted.archiveChunk, nullptr);
+		ASSERT_TRUE(interrupted.archiveChunk->granted);
+		ASSERT_FALSE(interrupted.archiveChunk->data.empty());
+		const std::string expectedFirstChunk = interrupted.archiveChunk->data;
+		interrupted.connection->close(); // No LobbyClientDisconnected packet.
+		network->getContext().restart();
+		network->getContext().run_for(std::chrono::seconds(2));
+
+		JoinGuest retry;
+		retry.archiveOnly = true;
+		retry.uuid = interrupted.uuid;
+		network->getContext().restart();
+		network->connectToRemote(retry, "127.0.0.1", static_cast<std::uint16_t>(port));
+		network->getContext().run_for(std::chrono::seconds(4));
+		ASSERT_TRUE(retry.joined) << "Interrupted downloader could not reconnect: " << retry.error;
+		retry.peer->sendPack(firstRequest);
+		network->getContext().restart();
+		network->getContext().run_for(std::chrono::seconds(2));
+		ASSERT_NE(retry.archiveChunk, nullptr);
+		ASSERT_TRUE(retry.archiveChunk->granted);
+		EXPECT_EQ(retry.archiveChunk->offset, 0);
+		EXPECT_EQ(retry.archiveChunk->sha256, archive.sha256);
+		EXPECT_EQ(retry.archiveChunk->data, expectedFirstChunk);
+		retry.connection->close();
+		network->getContext().restart();
+		network->getContext().run_for(std::chrono::seconds(2));
+
 		// Registered archive-only connections must not consume game player slots.
 		PreviewGuest duringTransfer(true);
 		network->getContext().restart();

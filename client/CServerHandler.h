@@ -149,7 +149,7 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 	std::string lanArchiveApprovedHostOffer;
 	void requestNextLanArchiveChunk();
 	void reportLanArchiveProgress();
-	void finishLanArchiveDownload(bool success, bool cancelledByPlayer = false);
+	void finishLanArchiveDownload(bool success, bool cancelledByPlayer = false, bool connectionLost = false);
 
 	void threadRunNetwork();
 	void waitForServerShutdown();

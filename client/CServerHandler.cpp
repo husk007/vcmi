@@ -1231,7 +1231,8 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 
 	if(lanArchiveDownloading)
 	{
-		finishLanArchiveDownload(false);
+		// The socket has already disconnected; cleanup must not send another packet.
+		finishLanArchiveDownload(false, false, true);
 		return;
 	}
 	if(lobbyPreviewMode)
@@ -1585,7 +1586,7 @@ void CServerHandler::cancelLanArchiveDownload()
 		finishLanArchiveDownload(false, true);
 }
 
-void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlayer)
+void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlayer, bool connectionLost)
 {
 	if(!lanArchiveDownloading)
 		return;
@@ -1612,7 +1613,7 @@ void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlay
 	if(!lanArchiveStaging.empty())
 		std::filesystem::remove(lanArchiveStaging, error);
 	lanArchiveStaging.clear();
-	if(logicConnection && logicConnection->connectionID != GameConnectionID::INVALID)
+	if(!connectionLost && logicConnection && logicConnection->connectionID != GameConnectionID::INVALID)
 	{
 		LobbyClientDisconnected leaving;
 		leaving.clientId = logicConnection->connectionID;
