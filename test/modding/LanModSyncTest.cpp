@@ -3725,6 +3725,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::string error;
 		bool joined = false;
 		bool archiveOnly = false;
+		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
 		std::string playerName = "LAN integration guest";
 		std::unique_ptr<LobbyLanModArchiveChunk> archiveChunk;
@@ -3759,9 +3760,15 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
 			{
-				// Another guest joining is broadcast to every lobby player.
-				// Do not overwrite this connection's assigned ID.
-				if(joined || accepted->clientId == GameConnectionID::INVALID)
+				// A downloader must not announce a phantom lobby guest to an
+				// existing player or to another archive-only connection.
+				if(joined)
+				{
+					if(accepted->clientId != assignedClientId)
+						++otherJoinNotifications;
+					return;
+				}
+				if(accepted->clientId == GameConnectionID::INVALID)
 					return;
 				assignedClientId = accepted->clientId;
 				assignedHostId = accepted->hostClientId;
@@ -3820,6 +3827,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		EXPECT_EQ(secondGuest.assignedHostId, originalHostId);
 		EXPECT_EQ(guest.peer->connectionID, guest.assignedClientId)
 			<< "Transfer connection's lobby broadcast changed the real guest's identity";
+		EXPECT_EQ(guest.otherJoinNotifications, 0U)
+			<< "Archive-only registration must not be announced as another player";
+		EXPECT_EQ(firstTransfer.otherJoinNotifications, 0U)
+			<< "A downloader must not receive unrelated lobby registrations";
 
 		// A downloader can lose its connection after receiving the first chunk.
 		// A new archive-only registration must be able to request the same data
