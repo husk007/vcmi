@@ -4366,8 +4366,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		original["presets"]["personal"]["settings"]["lan-ci-extra"]["units"].Bool() = false;
 		JsonNode staged = original;
 		LanModSessionState::begin(staged);
-		ModSyncPlan installed;
-		installed.activate.insert(requiredMod);
+		// The live host requires both active mod roots and its enabled submod.
+		// A fixture that only activates requiredMod cannot pass the real lobby gate.
+		const ModSyncPlan installed = localOnly;
+		ASSERT_TRUE(installed.activate.contains(requiredMod));
 		LanModSessionState::applyInstalledOnlyPlan(staged, installed);
 		const std::string guiGuestName = "LAN GUI relaunch guest";
 		LanModSessionState::setRejoinTarget(staged,
