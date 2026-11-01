@@ -45,6 +45,9 @@ jobs:
             libluajit-5.1-dev libminizip-dev libsqlite3-dev \
             libsquish-dev libfmt-dev gettext
 
+      - name: Validate redistributable installed-mod publisher
+        run: python3 -m unittest utils/test_lan_mod_share.py
+
       - name: Configure VCMI with real test dependencies
         run: |
           cmake --preset linux-gcc-test \
@@ -109,17 +112,23 @@ jobs:
             "settings": {}
           }
           JSON
-          # Share only a generated redistributable test mod, never original H3 files.
-          # Store >64 KiB to exercise production host archive chunking.
-          mkdir -p "$HOME/.local/share/vcmi/lan-mod-shares"
+          # Publish the actual installed mod through the same tool hosts use,
+          # then serve the resulting ZIP from production vcmiserver to two guests.
+          # Deterministic incompressible fixture must cross the 64 KiB chunk boundary.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/assets"
           python3 - <<'PY'
+          from hashlib import sha256
           from pathlib import Path
-          from zipfile import ZIP_STORED, ZipFile
-          data = Path.home() / ".local/share/vcmi"
-          with ZipFile(data / "lan-mod-shares/lan-ci-fixture.zip", "w", compression=ZIP_STORED) as archive:
-              archive.write(data / "Mods/lan-ci-fixture/mod.json", "lan-ci-fixture/mod.json")
-              archive.writestr("lan-ci-fixture/assets/payload.bin", b"L" * (64 * 1024 + 89))
+          output = Path.home() / ".local/share/vcmi/Mods/lan-ci-fixture/assets/payload.bin"
+          with output.open("wb") as target:
+              for index in range(2200):
+                  target.write(sha256(f"vcmi-lan-fixture-{index}".encode()).digest())
           PY
+          python3 utils/lan_mod_share.py lan-ci-fixture \
+            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable
+          archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
+          test -s "$archive"
+          test "$(stat -c %s "$archive")" -gt 65536
           # Keep host-specific settings separate from the vcmitest guest settings.
           mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
           cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'
