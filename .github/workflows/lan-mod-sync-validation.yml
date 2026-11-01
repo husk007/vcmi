@@ -169,7 +169,10 @@ jobs:
           # Consent covers each archive selected by this explicit command.
           python3 utils/lan_mod_share.py --active-from-settings \
             "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" \
-            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable
+            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable \
+            --launch-client "$PWD/out/build/linux-gcc-test/bin/vcmiclient" \
+            --client-arg=--help > "$RUNNER_TEMP/lan-host-client-launch.log"
+          grep -q -- "lan-relaunch-token" "$RUNNER_TEMP/lan-host-client-launch.log"
           archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
           test -s "$archive"
           test "$(stat -c %s "$archive")" -gt 65536

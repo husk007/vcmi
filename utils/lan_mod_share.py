@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 import tempfile
 import zipfile
 
@@ -151,12 +152,23 @@ def main():
                         help="confirm you have permission to share ALL included mod files")
     parser.add_argument("--replace-share", action="store_true",
                         help="replace an older host share of this mod (never modifies Mods/)")
+    parser.add_argument("--launch-client", type=Path,
+                        help="start VCMI after publishing the host's active mod archives")
+    parser.add_argument("--client-arg", action="append", default=[],
+                        help="forward an argument to VCMI (repeat; use --client-arg=--help)")
     args = parser.parse_args()
     if (args.mod_id is None) == (args.active_from_settings is None):
         parser.error("provide either mod_id or --active-from-settings PATH")
     if not args.confirm_redistributable:
         parser.error("--confirm-redistributable is required; do not share commercial Heroes III files")
+    if args.client_arg and args.launch_client is None:
+        parser.error("--client-arg requires --launch-client")
+    executable = None
     try:
+        if args.launch_client is not None:
+            executable = args.launch_client.expanduser().resolve(strict=True)
+            if not executable.is_file():
+                raise ValueError(f"VCMI client executable is not a file: {executable}")
         mod_ids = ([args.mod_id] if args.mod_id is not None
                    else active_mod_roots(args.active_from_settings))
         mods_dir = args.mods_dir or args.user_data / "Mods"
@@ -171,6 +183,13 @@ def main():
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         parser.exit(1, f"Could not share LAN mod: {error}\n")
     print("The running VCMI host advertises these archives only while their root mods are active.")
+    if executable is not None:
+        print(f"Starting VCMI client: {executable}")
+        sys.stdout.flush()
+        try:
+            os.execv(str(executable), [str(executable), *args.client_arg])
+        except OSError as error:
+            parser.exit(1, f"Could not launch VCMI client: {error}\n")
 
 if __name__ == "__main__":
     main()

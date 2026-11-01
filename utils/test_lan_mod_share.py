@@ -111,5 +111,34 @@ class LanModShareTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse((self.user_data / "lan-mod-shares").exists())
 
+
+    @unittest.skipIf(sys.platform == "win32", "Executable shebang fixture requires POSIX")
+    def test_launch_client_after_publishing_and_never_on_failure(self):
+        marker = self.user_data / "launched.txt"
+        fake_client = self.user_data / "fake-vcmiclient"
+        fake_client.write_text(
+            f"#!{sys.executable}\n"
+            "import pathlib, sys\n"
+            f"pathlib.Path({str(marker)!r}).write_text(','.join(sys.argv[1:]), encoding='utf-8')\n",
+            encoding="utf-8")
+        fake_client.chmod(0o755)
+
+        launched = self.run_share("--launch-client", str(fake_client),
+                                  "--client-arg=--help", "--client-arg=--version")
+        self.assertEqual(launched.returncode, 0, launched.stderr)
+        self.assertEqual(marker.read_text(encoding="utf-8"), "--help,--version")
+        self.assertTrue((self.user_data / "lan-mod-shares" / "fixture.zip").is_file())
+
+        marker.unlink()
+        (self.mod / "H3sprite.lod").write_bytes(b"proprietary placeholder")
+        rejected = self.run_share("--launch-client", str(fake_client))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse(marker.exists())
+
+    def test_client_arguments_require_a_client_executable(self):
+        rejected = self.run_share("--client-arg=--help")
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse((self.user_data / "lan-mod-shares").exists())
+
 if __name__ == "__main__":
     unittest.main()
