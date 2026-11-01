@@ -14,12 +14,12 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41290727321](https://github.com/husk007/vcmi/actions/runs/41290727321) passed on `d5a4127` (102/102 LAN tests): actual `vcmitest`, `vcmiserver`, `vcmiclient` built; installed-host preset publisher, real TCP transfer, isolated mount and zero-byte repeat join verified. GUI play remains untested with full legal assets. | BUILD_PASS / TEST_PASS (prior code) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41294799985](https://github.com/husk007/vcmi/actions/runs/41294799985) passed on `d4074f5` (102/102 LAN tests): actual `vcmitest`, `vcmiserver`, `vcmiclient` built; installed-host preset publisher, real TCP transfer, isolated mount and zero-byte repeat join verified. GUI play remains untested with full legal assets. | BUILD_PASS / TEST_PASS (prior code) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). Host ZIP transfer and staging are already implemented under M4. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41186278138 passed the real TCP ZIP test: verified staging and zero bytes on the repeated fetch. Full GUI rejoin with cached mods is not yet tested. | CODE_ONLY (new rejoin binding) |
-| M4 host-to-guest transfer | [CI #41290727321](https://github.com/husk007/vcmi/actions/runs/41290727321) passed on `d5a4127`: production server serves two active mod roots (including an active submod) to two guests, supports SHA-256-verified cache reuse, and restores temporary presets; 102 tests passed. One-command publisher-to-client integration now awaits CI. Licensed-data GUI play remains untested. | BUILD_PASS / TEST_PASS (prior); CODE_ONLY (new) |
+| M4 host-to-guest transfer | [CI #41290727321](https://github.com/husk007/vcmi/actions/runs/41290727321) passed on `d5a4127`: production server serves two active mod roots (including an active submod) to two guests, supports SHA-256-verified cache reuse, and restores temporary presets; 102 tests passed. One-command publisher-to-client integration passed CI #41294799985. Linux launcher must use the same XDG config/data roots as the published preset; this integration fix awaits CI. Licensed-data GUI play remains untested. | BUILD_PASS / TEST_PASS (prior); CODE_ONLY (new) |
 | M5 two-client LAN acceptance | No completed real LAN game with mod round trip documented. | NOT TESTED |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Validate the one-command installed-host publisher → real vcmiclient launch through GitHub Actions; the already verified vcmiserver transfer must remain green.
+1. Validate the publisher → real client XDG config/data alignment through GitHub Actions; preserve the already passing vcmiserver transfer.
 2. Exercise the GUI epilogue → outro → scores → restored-preset relaunch with legally owned Heroes III data; the public CI fixture cannot establish LAN_PASS.
 3. Run two GUI clients with licensed Heroes III data to check cache-only rejoin, no transfer and full restoration.
 

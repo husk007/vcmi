@@ -1,6 +1,7 @@
 """Executable checks for publishing an installed VCMI mod into the host share directory."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +16,7 @@ class LanModShareTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.user_data = Path(self.temp.name)
+        self.user_data = Path(self.temp.name) / "vcmi"
         self.mod = self.user_data / "Mods" / "fixture"
         self.mod.mkdir(parents=True)
         (self.mod / "mod.json").write_text('{"name":"LAN fixture","version":"1.0"}', encoding="utf-8")
@@ -134,6 +135,73 @@ class LanModShareTest(unittest.TestCase):
         rejected = self.run_share("--launch-client", str(fake_client))
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux VCMIDirsXDG")
+    def test_launcher_uses_the_published_host_preset_and_data_directory(self):
+        config_home = Path(self.temp.name) / "host-config"
+        config_dir = config_home / "vcmi"
+        config_dir.mkdir(parents=True)
+        host_settings = config_dir / "modSettings.json"
+        host_settings.write_text(json.dumps({
+            "activePreset": "host",
+            "presets": {"host": {"mods": ["vcmi", "fixture"]}}
+        }), encoding="utf-8")
+
+        marker = self.user_data / "launch-environment.json"
+        fake_client = self.user_data / "fake-vcmiclient"
+        fake_client.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os\n"
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text(json.dumps({{"
+            "'data': os.environ.get('XDG_DATA_HOME'), "
+            "'config': os.environ.get('XDG_CONFIG_HOME')}}))\n",
+            encoding="utf-8")
+        fake_client.chmod(0o755)
+
+        command = [sys.executable, str(SCRIPT),
+                   "--active-from-settings", str(host_settings),
+                   "--user-data", str(self.user_data),
+                   "--confirm-redistributable",
+                   "--launch-client", str(fake_client)]
+        environment = os.environ.copy()
+        environment["XDG_DATA_HOME"] = str(self.user_data / "wrong-data")
+        environment["XDG_CONFIG_HOME"] = str(self.user_data / "wrong-config")
+        launched = subprocess.run(command, capture_output=True, text=True, env=environment)
+        self.assertEqual(launched.returncode, 0, launched.stderr)
+        observed = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertEqual(observed, {
+            "data": str(self.user_data.parent.resolve()),
+            "config": str(config_home.resolve())
+        })
+        self.assertTrue((self.user_data / "lan-mod-shares" / "fixture.zip").is_file())
+
+    @unittest.skipUnless(sys.platform == "linux", "Requires Linux VCMIDirsXDG")
+    def test_launcher_rejects_preset_or_mod_directory_it_cannot_use(self):
+        marker = self.user_data / "fake-vcmiclient"
+        marker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        marker.chmod(0o755)
+
+        wrong_settings = self.user_data / "modSettings.json"
+        wrong_settings.write_text(json.dumps({
+            "activePreset": "host",
+            "presets": {"host": {"mods": ["fixture"]}}
+        }), encoding="utf-8")
+        bad_preset = [sys.executable, str(SCRIPT),
+                      "--active-from-settings", str(wrong_settings),
+                      "--user-data", str(self.user_data),
+                      "--confirm-redistributable", "--launch-client", str(marker)]
+        result = subprocess.run(bad_preset, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("XDG_CONFIG_HOME", result.stderr)
+
+        other_mods = self.user_data.parent / "other-mods"
+        other_mods.mkdir()
+        bad_mod_path = self.run_share("--mods-dir", str(other_mods),
+                                     "--launch-client", str(marker))
+        self.assertNotEqual(bad_mod_path.returncode, 0)
+        self.assertIn("--mods-dir", bad_mod_path.stderr)
+        self.assertFalse((self.user_data / "lan-mod-shares").exists())
 
     def test_client_arguments_require_a_client_executable(self):
         rejected = self.run_share("--client-arg=--help")

@@ -1,2 +1,1 @@
-CI checkpoint 2026-11-01: 0c11764e508e58573635ed66e3738cdd0077a419
-Reason: correct real vcmiclient recovery test fixtures to include an installed nested mod's disabled state; prior run #41286100011 built successfully but failed two process restoration assertions after normal VCMI startup normalized a missing false submod flag.
+CI checkpoint 2026-11-01: validate actual Linux publisher-to-client XDG data/config alignment after d4074f512a07fca005b24791dbf5eb023f86cff0.\nReason: the launcher must run vcmiclient with the same active mod preset and user-data directory from which host shares were created; verify independent vcmiserver LAN tests remain green.\n

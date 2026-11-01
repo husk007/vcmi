@@ -139,6 +139,34 @@ def active_mod_roots(settings_path):
     return roots
 
 
+def client_launch_environment(args):
+    """Launch Linux VCMI with the exact preset and data directory we published."""
+    environment = os.environ.copy()
+    if sys.platform != "linux":
+        return environment
+
+    # VCMIDirsXDG always resolves userDataPath() to XDG_DATA_HOME/vcmi.
+    data_dir = args.user_data.expanduser().resolve(strict=True)
+    if data_dir.name != "vcmi":
+        raise ValueError("--launch-client requires --user-data ending in /vcmi on Linux")
+    if args.mods_dir is not None:
+        selected_mods = args.mods_dir.expanduser().resolve(strict=True)
+        if selected_mods != (data_dir / "Mods").resolve(strict=True):
+            raise ValueError("--launch-client cannot use --mods-dir outside its VCMI user-data")
+    environment["XDG_DATA_HOME"] = str(data_dir.parent)
+
+    if args.active_from_settings is not None:
+        settings = args.active_from_settings.expanduser().resolve(strict=True)
+        if settings.name != "modSettings.json" or settings.parent.name != "vcmi":
+            raise ValueError(
+                "--launch-client requires --active-from-settings at "
+                "XDG_CONFIG_HOME/vcmi/modSettings.json on Linux"
+            )
+        # VCMIDirsXDG uses XDG_CONFIG_HOME/vcmi, not the data directory.
+        environment["XDG_CONFIG_HOME"] = str(settings.parent.parent)
+    return environment
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mod_id", nargs="?", help="canonical installed root mod ID")
@@ -164,11 +192,14 @@ def main():
     if args.client_arg and args.launch_client is None:
         parser.error("--client-arg requires --launch-client")
     executable = None
+    launch_env = None
     try:
         if args.launch_client is not None:
             executable = args.launch_client.expanduser().resolve(strict=True)
             if not executable.is_file():
                 raise ValueError(f"VCMI client executable is not a file: {executable}")
+            # Refuse to package one preset and launch another installation.
+            launch_env = client_launch_environment(args)
         mod_ids = ([args.mod_id] if args.mod_id is not None
                    else active_mod_roots(args.active_from_settings))
         mods_dir = args.mods_dir or args.user_data / "Mods"
@@ -187,7 +218,7 @@ def main():
         print(f"Starting VCMI client: {executable}")
         sys.stdout.flush()
         try:
-            os.execv(str(executable), [str(executable), *args.client_arg])
+            os.execve(str(executable), [str(executable), *args.client_arg], launch_env)
         except OSError as error:
             parser.exit(1, f"Could not launch VCMI client: {error}\n")
 
