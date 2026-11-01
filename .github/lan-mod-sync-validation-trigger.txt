@@ -1,2 +1,2 @@
-CI checkpoint 2026-11-01: M5 test integration at da27947186ac1b401b4a256ab3eece1648d587cd.
-Two independent graphical guests now stage the COMPLETE live host mod set, including the second root and enabled submod, instead of only one root. After both join the production lobby, forcibly terminate them and verify distinct personal presets independently recover on ordinary startup. Run full Linux compilation and LanModSyncTest.*. Public CI cannot execute the opt-in GUI section without legally owned complete Heroes III resources; do not claim LAN_PASS.
+CI checkpoint 2026-11-01: M4 first-use guest trust dialog identifies the precise host mod roots, versions, active submods and SHA-256 digests before approval. Feature commit de5f117f1c04c379309a62978a952a342d469133.
+Run full VCMI Linux build and LanModSyncTest.* including HostArchiveConsentIdentifiesEachRootAndActiveSubmodBeforeTrust. The licensed-data GUI LAN acceptance remains separate; do not report LAN_PASS from CI.
