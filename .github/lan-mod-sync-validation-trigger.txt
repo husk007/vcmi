@@ -1,2 +1,1 @@
-CI checkpoint 2026-11-01: M4 first-use guest trust dialog identifies the precise host mod roots, versions, active submods and SHA-256 digests before approval. Feature commit de5f117f1c04c379309a62978a952a342d469133.
-Run full VCMI Linux build and LanModSyncTest.* including HostArchiveConsentIdentifiesEachRootAndActiveSubmodBeforeTrust. The licensed-data GUI LAN acceptance remains separate; do not report LAN_PASS from CI.
+CI checkpoint 2026-11-01: M4 host-launcher automatically republishes changed active mod ZIP archives while preserving unchanged SHA-256 shares. Implementation commit 98335652837e902bf3a1d15dd2526439a6964d1f. Verify Python launcher regression test and full real VCMI build/LanModSyncTest.*; GUI assets acceptance remains opt-in on Linux Mint.

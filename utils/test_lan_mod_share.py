@@ -149,7 +149,7 @@ class LanModShareTest(unittest.TestCase):
             "presets": {"host": {"mods": ["vcmi", "fixture", "second"]}}
         }), encoding="utf-8")
         client = self.user_data / "fake-vcmiclient"
-        client.write_text(f"#!{sys.executable}\\nimport sys\\nsys.exit(0)\\n", encoding="utf-8")
+        client.write_text(f"#!{sys.executable}\nimport sys\nsys.exit(0)\n", encoding="utf-8")
         client.chmod(0o755)
         cmd = [sys.executable, str(SCRIPT), "--active-from-settings", str(settings),
                "--user-data", str(self.user_data), "--confirm-redistributable",
