@@ -2684,6 +2684,8 @@ TEST(LanModSyncTest, RealDesktopClientProcessesResumeInstalledModThenRecoverAfte
 	// The real client persists the built-in core mod in every normalized preset.
 	original["presets"]["personal"]["mods"].Vector().emplace_back("core");
 	original["presets"]["personal"]["settings"].Struct();
+	// Normal VCMI startup records the installed nested mod as disabled.
+	original["presets"]["personal"]["settings"]["lan-ci-extra"]["units"].Bool() = false;
 	JsonNode session = original;
 	LanModSessionState::begin(session);
 	ModSyncPlan installedOnly;
@@ -2870,6 +2872,7 @@ TEST(LanModSyncTest, RealDesktopClientMountsCachedHostZipThenRecoversPersonalPre
 	personal["mods"].Vector().emplace_back("vcmi");
 	personal["mods"].Vector().emplace_back("core");
 	personal["settings"].Struct();
+	personal["settings"]["lan-ci-extra"]["units"].Bool() = false;
 	JsonNode session = original;
 	LanModSessionState::begin(session);
 	ModSyncPlan plan;
