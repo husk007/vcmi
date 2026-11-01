@@ -180,6 +180,30 @@ TEST(LanModSyncTest, DirectIpJoinNegotiatesOptInPreviewAndFallsBackForLegacyHost
 	EXPECT_FALSE(legacyFallback);
 }
 
+TEST(LanModSyncTest, DirectIpPreviewIgnoresLegacyReplyBeforeOptInReply)
+{
+	NetworkContext hostContext;
+	using Udp = boost::asio::ip::udp;
+	Udp::socket host(hostContext, Udp::endpoint(Udp::v4(), 0));
+	const auto discoveryPort = host.local_endpoint().port();
+	std::array<char, 128> buffer{};
+	Udp::endpoint guest;
+	host.async_receive_from(boost::asio::buffer(buffer), guest,
+		[&](const boost::system::error_code & error, std::size_t)
+		{
+			if(error)
+				return;
+			const auto legacy = LanModDiscovery::replyForProbe(LanModDiscovery::legacyProbe, 31317);
+			const auto upgraded = LanModDiscovery::replyForProbe(LanModDiscovery::previewProbe, 31317);
+			host.send_to(boost::asio::buffer(legacy), guest);
+			host.send_to(boost::asio::buffer(upgraded), guest);
+		});
+	std::thread hostThread([&]() { hostContext.run(); });
+	const bool supportsPreview = ServerDiscovery::probeHostPreview("127.0.0.1", 31317, discoveryPort);
+	hostThread.join();
+	EXPECT_TRUE(supportsPreview) << "Legacy UDP reply suppressed the later opt-in LAN preview";
+}
+
 TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegacyPackets)
 {
 	LobbyQueryState legacyQuery;

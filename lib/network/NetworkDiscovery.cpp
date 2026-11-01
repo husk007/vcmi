@@ -159,15 +159,28 @@ bool ServerDiscovery::probeHostPreview(const std::string & host, std::uint16_t t
 		std::array<char, 128> responseBuffer{};
 		Udp::endpoint responseSender;
 		bool supportsPreview = false;
-		socket.async_receive_from(boost::asio::buffer(responseBuffer), responseSender,
-			[&](const boost::system::error_code & receiveError, std::size_t size)
-			{
-				if(!receiveError && responseSender.address() == target.address())
+		std::function<void()> receiveNext;
+		receiveNext = [&]()
+		{
+			socket.async_receive_from(boost::asio::buffer(responseBuffer), responseSender,
+				[&](const boost::system::error_code & receiveError, std::size_t size)
 				{
-					const auto response = LanModDiscovery::parseReply(std::string_view(responseBuffer.data(), size));
-					supportsPreview = response && response->supportsModPreview && response->port == tcpPort;
-				}
-			});
+					if(receiveError)
+						return;
+					if(responseSender.address() == target.address())
+					{
+						const auto response = LanModDiscovery::parseReply(std::string_view(responseBuffer.data(), size));
+						if(response && response->supportsModPreview && response->port == tcpPort)
+						{
+							supportsPreview = true;
+							return;
+						}
+					}
+					// A legacy or unrelated UDP reply must not hide a later opt-in response.
+					receiveNext();
+				});
+		};
+		receiveNext();
 
 		const std::string message(LanModDiscovery::previewProbe);
 		socket.send_to(boost::asio::buffer(message), target, 0, error);
