@@ -4133,6 +4133,112 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				EXPECT_TRUE(repeated.downloadOrUpdate.empty())
 					<< "Rejoining must not download either previously verified root";
 			}
+
+			// CI uses disposable, explicitly generated mod shares. Refresh one ZIP
+			// while the production host stays online and verify that a new preview
+			// requires only that root; the other root remains a zero-byte cache hit.
+			if(const char * ci = std::getenv("GITHUB_ACTIONS"); ci && std::string(ci) == "true"
+				&& std::string(requiredMod) == "lan-ci-fixture"
+				&& std::string(secondMod) == "lan-ci-extra")
+			{
+				const fs::path share = fs::path(VCMIDirs::get().userDataPath().native())
+					/ "lan-mod-shares" / (std::string(requiredMod) + ".zip");
+				const fs::path originalCopy = isolated / "host-original.zip";
+				const fs::path replacement = share.parent_path()
+					/ (std::string(requiredMod) + "-lan-test-" + LanRelaunchToken::generate() + ".zip");
+				ASSERT_TRUE(fs::copy_file(share, originalCopy));
+				const auto restoreShare = vstd::makeScopeGuard([&]()
+				{
+					std::error_code error;
+					fs::copy_file(originalCopy, replacement, fs::copy_options::overwrite_existing, error);
+					if(!error)
+						fs::rename(replacement, share, error);
+					EXPECT_FALSE(error) << "Could not restore CI host's original mod ZIP: " << error.message();
+					fs::remove(replacement, error);
+				});
+				ASSERT_TRUE(fs::copy_file(share, replacement));
+				zipFile zip = zipOpen(replacement.string().c_str(), APPEND_STATUS_ADDINZIP);
+				ASSERT_NE(zip, nullptr);
+				const std::string markerName = std::string(requiredMod) + "/assets/lan-refresh-fixture.txt";
+				const std::string markerBytes = "VCMI LAN host archive changed without changing mod version";
+				ASSERT_EQ(zipOpenNewFileInZip(zip, markerName.c_str(), nullptr,
+					nullptr, 0, nullptr, 0, nullptr, 0, 0), ZIP_OK);
+				EXPECT_EQ(zipWriteInFileInZip(zip, markerBytes.data(),
+					static_cast<unsigned int>(markerBytes.size())), ZIP_OK);
+				EXPECT_EQ(zipCloseFileInZip(zip), ZIP_OK);
+				ASSERT_EQ(zipClose(zip, nullptr), ZIP_OK);
+				fs::rename(replacement, share); // Linux atomic publication of the updated ZIP.
+
+				PreviewGuest updatedPreview(true);
+				network->getContext().restart();
+				network->connectToRemote(updatedPreview, "127.0.0.1", static_cast<std::uint16_t>(port));
+				network->getContext().run_for(std::chrono::seconds(4));
+				ASSERT_TRUE(updatedPreview.error.empty()) << updatedPreview.error;
+				const auto * updatedLobby = dynamic_cast<LobbyModSyncPreview *>(updatedPreview.response.get());
+				ASSERT_NE(updatedLobby, nullptr);
+				ASSERT_TRUE(updatedLobby->archives.contains(requiredMod));
+				ASSERT_TRUE(updatedLobby->archives.contains(secondMod));
+				const auto & changed = updatedLobby->archives.at(requiredMod);
+				EXPECT_EQ(updatedLobby->mods.at(requiredMod).version, syncedMods->mods.at(requiredMod).version);
+				EXPECT_NE(changed.sha256, archive.sha256);
+				EXPECT_EQ(updatedLobby->archives.at(secondMod).sha256, nextArchive.sha256);
+				const auto changedAvailability = ModVerificationInfo::inspectHostArchiveAvailability(
+					bothMissing, updatedLobby->archives, guestDataPaths.front());
+				ASSERT_EQ(changedAvailability.at(requiredMod), LanArchivePreviewState::OFFERED_BY_HOST);
+				ASSERT_EQ(changedAvailability.at(secondMod), LanArchivePreviewState::VERIFIED_IN_CACHE);
+				EXPECT_EQ(ModVerificationInfo::estimateUncachedArchiveBytes(
+					changedAvailability, updatedLobby->archives), changed.bytes);
+				const ModArchiveHashes changedHashes = {
+					{requiredMod, changed.sha256}, {secondMod, nextArchive.sha256}
+				};
+				const auto changedPlan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+					bothMissing, changedHashes, guestDataPaths.front());
+				EXPECT_TRUE(changedPlan.downloadOrUpdate.contains(requiredMod));
+				EXPECT_FALSE(changedPlan.downloadOrUpdate.contains(secondMod));
+				EXPECT_TRUE(changedPlan.reuseCachedArchive.contains(secondMod));
+
+				const fs::path changedPath = isolated / "updated-root.zip";
+				std::ofstream changedOutput(changedPath, std::ios::binary);
+				ASSERT_TRUE(changedOutput.good());
+				std::uint64_t changedReceived = 0;
+				while(changedReceived < changed.bytes)
+				{
+					LobbyQueryLanModArchiveChunk request;
+					request.rootId = requiredMod;
+					request.sha256 = changed.sha256;
+					request.offset = static_cast<std::int64_t>(changedReceived);
+					firstTransfer.peer->sendPack(request);
+					network->getContext().restart();
+					network->getContext().run_for(std::chrono::seconds(2));
+					ASSERT_NE(firstTransfer.archiveChunk, nullptr);
+					const auto & chunk = *firstTransfer.archiveChunk;
+					ASSERT_TRUE(chunk.granted);
+					ASSERT_EQ(chunk.sha256, changed.sha256);
+					ASSERT_EQ(chunk.rootId, requiredMod);
+					ASSERT_EQ(chunk.offset, changedReceived);
+					ASSERT_EQ(chunk.totalBytes, changed.bytes);
+					ASSERT_FALSE(chunk.data.empty());
+					ASSERT_LE(chunk.data.size(), changed.bytes - changedReceived);
+					changedOutput.write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+					ASSERT_TRUE(changedOutput.good());
+					changedReceived += chunk.data.size();
+					firstTransfer.archiveChunk.reset();
+				}
+				changedOutput.close();
+				ASSERT_EQ(changedReceived, changed.bytes);
+				ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
+					guestDataPaths.front(), requiredMod, changed.sha256, changedPath));
+				const auto cachedAgain = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+					bothMissing, changedHashes, guestDataPaths.front());
+				EXPECT_TRUE(cachedAgain.downloadOrUpdate.empty());
+				EXPECT_TRUE(cachedAgain.reuseCachedArchive.contains(requiredMod));
+				EXPECT_TRUE(cachedAgain.reuseCachedArchive.contains(secondMod));
+				// Both content-addressed versions remain available for later sessions.
+				const auto originalPlan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+					bothMissing, bothExpected, guestDataPaths.front());
+				EXPECT_TRUE(originalPlan.downloadOrUpdate.empty());
+				updatedPreview.connection->close();
+			}
 		}
 		// Remove both archive-only connections while keeping the real player.
 		firstTransfer.connection->close();
