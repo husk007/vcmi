@@ -437,6 +437,23 @@ void CVCMIServer::handleReceivedPack(std::shared_ptr<GameConnection> connection,
 
 void CVCMIServer::announcePack(CPackForLobby & pack)
 {
+	// Archive-only clients register without player names. Their acknowledgement
+	// must reach the downloader, but it must not impersonate a new lobby player
+	// or force a lobby-state refresh on the host and its actual guests.
+	if(const auto * joined = dynamic_cast<LobbyClientConnected *>(&pack))
+	{
+		if(joined->names.empty() && joined->clientId != hostClientId)
+		{
+			for(const auto & activeConnection : activeConnections)
+				if(activeConnection->connectionID == joined->clientId)
+				{
+					activeConnection->sendPack(pack);
+					break;
+				}
+			return;
+		}
+	}
+
 	for(auto activeConnection : activeConnections)
 	{
 		// FIXME: we need to avoid sending something to client that not yet get answer for LobbyClientConnected
