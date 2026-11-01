@@ -4363,6 +4363,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		original["presets"]["personal"]["mods"].Vector().emplace_back("vcmi");
 		original["presets"]["personal"]["mods"].Vector().emplace_back("core");
 		original["presets"]["personal"]["settings"].Struct();
+		original["presets"]["personal"]["settings"]["lan-ci-extra"]["units"].Bool() = false;
 		JsonNode staged = original;
 		LanModSessionState::begin(staged);
 		ModSyncPlan installed;
@@ -4387,7 +4388,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const auto secondLogs = sandbox / "second-logs";
 		ASSERT_TRUE(fs::create_directories(secondModSettings.parent_path()));
 		ASSERT_TRUE(fs::create_directories(secondLogs));
-		JsonNode secondStaged = original;
+		JsonNode secondOriginal = original;
+		secondOriginal["activePreset"].String() = "second-personal";
+		secondOriginal["presets"]["second-personal"] = secondOriginal["presets"]["personal"];
+		JsonNode secondStaged = secondOriginal;
 		LanModSessionState::begin(secondStaged);
 		LanModSessionState::applyInstalledOnlyPlan(secondStaged, installed);
 		LanModSessionState::setRejoinTarget(secondStaged,
@@ -4396,8 +4400,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const std::string secondToken = LanRelaunchToken::generate();
 		LanModSessionState::prepareControlledRelaunch(secondStaged, secondToken);
 		ASSERT_NE(secondToken, token);
-		ASSERT_TRUE(AtomicModSettings::replace(secondModSettings, originalBytes));
-		ASSERT_TRUE(LanModRecoveryJournal::persist(secondModSettings, originalBytes));
+		const std::string secondOriginalBytes = secondOriginal.toCompactString();
+		ASSERT_TRUE(AtomicModSettings::replace(secondModSettings, secondOriginalBytes));
+		ASSERT_TRUE(LanModRecoveryJournal::persist(secondModSettings, secondOriginalBytes));
 		ASSERT_TRUE(AtomicModSettings::replace(secondModSettings, secondStaged.toCompactString()));
 
 		pid_t guiPid = ::fork();
@@ -4524,9 +4529,77 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_NE(std::find(tempMods.begin(), tempMods.end(), JsonNode(requiredMod)), tempMods.end());
 			EXPECT_TRUE(state["lanSession"]["relaunchToken"].isNull());
 		}
-		// This opt-in gate validates two concurrently joined real GUI clients.
-		// It does not prove gameplay or clean disconnect restoration; the latter
-		// still requires a licensed-data match and the separate recovery tests.
+		if(guiJoined && secondGuiJoined)
+		{
+			// Simulate both GUI clients crashing in the same lobby. A subsequent
+			// ordinary launch must restore each distinct personal preset independently.
+			const auto terminate = [](pid_t & pid)
+			{
+				if(pid <= 0)
+					return;
+				::kill(pid, SIGKILL);
+				int status = 0;
+				while(::waitpid(pid, &status, 0) == -1 && errno == EINTR) {}
+				pid = -1;
+			};
+			terminate(guiPid);
+			terminate(secondGuiPid);
+			const auto launchRecovery = [&](const fs::path & profile) -> pid_t
+			{
+				const pid_t child = ::fork();
+				if(child == 0)
+				{
+					if(::setenv("XDG_CONFIG_HOME", profile.c_str(), 1) != 0)
+						::_exit(126);
+					::setenv("SDL_VIDEODRIVER", "dummy", 1);
+					::setenv("SDL_AUDIODRIVER", "dummy", 1);
+					::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
+						static_cast<char *>(nullptr));
+					::_exit(127);
+				}
+				return child;
+			};
+			pid_t recoveredFirstPid = launchRecovery(configRoot);
+			ASSERT_GT(recoveredFirstPid, 0);
+			const auto stopRecoveredFirst = vstd::makeScopeGuard([&](){ terminate(recoveredFirstPid); });
+			pid_t recoveredSecondPid = launchRecovery(secondConfigRoot);
+			ASSERT_GT(recoveredSecondPid, 0);
+			const auto stopRecoveredSecond = vstd::makeScopeGuard([&](){ terminate(recoveredSecondPid); });
+			const auto restored = [&](const fs::path & settings, const JsonNode & expected)
+			{
+				try
+				{
+					std::ifstream input(settings, std::ios::binary);
+					if(!input)
+						return false;
+					const std::string bytes((std::istreambuf_iterator<char>(input)),
+							std::istreambuf_iterator<char>());
+					const JsonNode state(bytes.data(), bytes.size(), "Recovered GUI LAN guest settings");
+					const auto & name = expected["activePreset"].String();
+					return state["lanSession"].isNull()
+						&& state["activePreset"].isString() && state["activePreset"].String() == name
+						&& state["presets"][name].toCompactString() == expected["presets"][name].toCompactString()
+						&& state["presets"][LanModSessionState::temporaryPresetName()].isNull();
+				}
+				catch(const std::exception &)
+				{
+					return false; // The recovery process may be replacing the settings file.
+				}
+			};
+			bool restoredFirst = false;
+			bool restoredSecond = false;
+			for(int attempt = 0; attempt < 120 && (!restoredFirst || !restoredSecond); ++attempt)
+			{
+				restoredFirst = restored(modSettings, original);
+				restoredSecond = restored(secondModSettings, secondOriginal);
+				if(!restoredFirst || !restoredSecond)
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			EXPECT_TRUE(restoredFirst) << "First crashed GUI client did not recover its personal preset";
+			EXPECT_TRUE(restoredSecond) << "Second crashed GUI client did not recover its distinct personal preset";
+		}
+		// Two independent GUI clients now exercise live lobby participation and
+		// crash recovery. Actual gameplay and clean disconnect still need a match.
 	}
 #endif
 
