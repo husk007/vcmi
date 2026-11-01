@@ -4334,6 +4334,27 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		ASSERT_TRUE(LanModRecoveryJournal::persist(modSettings, originalBytes));
 		ASSERT_TRUE(AtomicModSettings::replace(modSettings, staged.toCompactString()));
 
+		// A second desktop process must connect to the same live host at the
+		// same time, but with its own durable LAN preset and one-shot token.
+		const std::string secondGuiGuestName = "LAN GUI second guest";
+		const auto secondConfigRoot = sandbox / "second-config";
+		const auto secondModSettings = secondConfigRoot / "vcmi" / "modSettings.json";
+		const auto secondLogs = sandbox / "second-logs";
+		ASSERT_TRUE(fs::create_directories(secondModSettings.parent_path()));
+		ASSERT_TRUE(fs::create_directories(secondLogs));
+		JsonNode secondStaged = original;
+		LanModSessionState::begin(secondStaged);
+		LanModSessionState::applyInstalledOnlyPlan(secondStaged, installed);
+		LanModSessionState::setRejoinTarget(secondStaged,
+			{"127.0.0.1", static_cast<std::uint16_t>(port), true, {secondGuiGuestName}, false,
+				ModVerificationInfo::fingerprintLanHostOffer(syncedMods->mods, syncedMods->archives)});
+		const std::string secondToken = LanRelaunchToken::generate();
+		LanModSessionState::prepareControlledRelaunch(secondStaged, secondToken);
+		ASSERT_NE(secondToken, token);
+		ASSERT_TRUE(AtomicModSettings::replace(secondModSettings, originalBytes));
+		ASSERT_TRUE(LanModRecoveryJournal::persist(secondModSettings, originalBytes));
+		ASSERT_TRUE(AtomicModSettings::replace(secondModSettings, secondStaged.toCompactString()));
+
 		pid_t guiPid = ::fork();
 		if(guiPid == 0)
 		{
@@ -4355,17 +4376,46 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				guiPid = -1;
 			}
 		});
+		pid_t secondGuiPid = ::fork();
+		if(secondGuiPid == 0)
+		{
+			::setenv("XDG_CONFIG_HOME", secondConfigRoot.c_str(), 1);
+			::setenv("SDL_AUDIODRIVER", "dummy", 1);
+			::execl(executable.c_str(), executable.c_str(), "--nointro",
+				"--logLocation", secondLogs.c_str(), "--lan-relaunch-token", secondToken.c_str(),
+				static_cast<char *>(nullptr));
+			::_exit(127);
+		}
+		ASSERT_GT(secondGuiPid, 0);
+		const auto stopSecondClient = vstd::makeScopeGuard([&]()
+		{
+			if(secondGuiPid > 0)
+			{
+				::kill(secondGuiPid, SIGKILL);
+				int status = 0;
+				while(::waitpid(secondGuiPid, &status, 0) == -1 && errno == EINTR) {}
+				secondGuiPid = -1;
+			}
+		});
 		bool guiJoined = false;
-		for(int attempt = 0; attempt < 120 && !guiJoined; ++attempt)
+		bool secondGuiJoined = false;
+		for(int attempt = 0; attempt < 120 && (!guiJoined || !secondGuiJoined); ++attempt)
 		{
 			network->getContext().restart();
 			network->getContext().run_for(std::chrono::milliseconds(250));
 			guiJoined = std::find(host.observedGuestNames.begin(), host.observedGuestNames.end(),
 				guiGuestName) != host.observedGuestNames.end();
+			secondGuiJoined = std::find(host.observedGuestNames.begin(), host.observedGuestNames.end(),
+				secondGuiGuestName) != host.observedGuestNames.end();
 			int status = 0;
 			if(!guiJoined && ::waitpid(guiPid, &status, WNOHANG) == guiPid)
 			{
 				guiPid = -1;
+				break;
+			}
+			if(!secondGuiJoined && ::waitpid(secondGuiPid, &status, WNOHANG) == secondGuiPid)
+			{
+				secondGuiPid = -1;
 				break;
 			}
 		}
@@ -4380,7 +4430,35 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					<< contents.substr(contents.size() > 2500 ? contents.size() - 2500 : 0);
 			}
 		}
-		EXPECT_TRUE(guiJoined) << "Real graphical vcmiclient did not automatically join the live LAN host";
+		EXPECT_TRUE(guiJoined) << "First graphical vcmiclient did not join the live LAN host";
+		EXPECT_TRUE(secondGuiJoined) << "Second independent graphical vcmiclient did not join the same host";
+		if(!secondGuiJoined)
+		{
+			const auto logFile = secondLogs / "VCMI_Client_log.txt";
+			std::ifstream log(logFile);
+			if(log)
+			{
+				const std::string contents((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+				ADD_FAILURE() << "Second GUI LAN rejoin failed. Client log tail: "
+					<< contents.substr(contents.size() > 2500 ? contents.size() - 2500 : 0);
+			}
+		}
+		if(guiJoined && secondGuiJoined)
+		{
+			// A fresh real server preview proves that both graphical processes are
+			// present in the lobby simultaneously, not merely that they connected once.
+			PreviewGuest bothGraphicalGuests(true);
+			network->getContext().restart();
+			network->connectToRemote(bothGraphicalGuests, "127.0.0.1", static_cast<std::uint16_t>(port));
+			network->getContext().run_for(std::chrono::seconds(4));
+			ASSERT_TRUE(bothGraphicalGuests.error.empty()) << bothGraphicalGuests.error;
+			const auto * liveRoom = dynamic_cast<LobbyModSyncPreview *>(bothGraphicalGuests.response.get());
+			ASSERT_NE(liveRoom, nullptr);
+			for(const auto & name : {guiGuestName, secondGuiGuestName})
+				EXPECT_NE(std::find(liveRoom->participantNames.begin(), liveRoom->participantNames.end(), name),
+					liveRoom->participantNames.end()) << "GUI guest is no longer in the production lobby: " << name;
+			bothGraphicalGuests.connection->close();
+		}
 		if(guiJoined)
 		{
 			std::ifstream configFile(modSettings, std::ios::binary);
@@ -4391,9 +4469,19 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_NE(std::find(tempMods.begin(), tempMods.end(), JsonNode(requiredMod)), tempMods.end());
 			EXPECT_TRUE(state["lanSession"]["relaunchToken"].isNull());
 		}
-		// Leave crash recovery to the separate real-process regression test.
-		// The live-host assertion above proves that GUI startup, UDP capability
-		// probe, TCP mod preview and automatic lobby join all actually ran.
+		if(secondGuiJoined)
+		{
+			std::ifstream configFile(secondModSettings, std::ios::binary);
+			const std::string bytes((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
+			JsonNode state(bytes.data(), bytes.size(), "Second GUI LAN guest mod settings");
+			EXPECT_EQ(state["activePreset"].String(), LanModSessionState::temporaryPresetName());
+			const auto & tempMods = state["presets"][LanModSessionState::temporaryPresetName()]["mods"].Vector();
+			EXPECT_NE(std::find(tempMods.begin(), tempMods.end(), JsonNode(requiredMod)), tempMods.end());
+			EXPECT_TRUE(state["lanSession"]["relaunchToken"].isNull());
+		}
+		// This opt-in gate validates two concurrently joined real GUI clients.
+		// It does not prove gameplay or clean disconnect restoration; the latter
+		// still requires a licensed-data match and the separate recovery tests.
 	}
 #endif
 

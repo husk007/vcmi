@@ -1,2 +1,2 @@
-CI checkpoint 2026-11-01: fix a real failed publisher test on 885ffb269e8935a932a721c99afca94263b96cee.
-Reason: test_launcher_rejects_preset_or_mod_directory_it_cannot_use previously expected rejection for a valid co-located XDG_CONFIG_HOME/vcmi path. Now supply an unsupported config path and validate Python publisher tests, full VCMI build and LanModSyncTest.*.
+CI checkpoint 2026-11-01: M5 opt-in two real desktop GUI guests now prepare distinct restored presets, perform controlled relaunch and must coexist in production LAN lobby.
+Validate full VCMI compile and LanModSyncTest.* on this branch. The public test fixture lacks licensed graphical Heroes III data, so the VCMI_LAN_TEST_GUI_CLIENT opt-in test is not runnable in public CI; do not count the green public run as LAN_PASS.
