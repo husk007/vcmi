@@ -69,6 +69,42 @@ def stage_fixture(assets: Path, workspace: Path) -> tuple[Path, Path]:
     return user_data, host_config
 
 
+REQUIRED_GUI_TESTS = (
+    "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview",
+    "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset",
+)
+
+
+def required_gui_tests_passed(log: str) -> bool:
+    """A green exit code is insufficient when mandatory GoogleTests were skipped."""
+    passed = set()
+    prefix = "[       OK ] "
+    for line in log.splitlines():
+        if line.startswith(prefix):
+            test_name = line[len(prefix):].split(" ", 1)[0]
+            if test_name in REQUIRED_GUI_TESTS:
+                passed.add(test_name)
+    return len(passed) == len(REQUIRED_GUI_TESTS)
+
+
+def acceptance_environment(workspace: Path, host_config: Path) -> dict[str, str]:
+    """Run only against isolated paths, checking actual mod loading with licensed data."""
+    env = os.environ.copy()
+    env.update({
+        "XDG_CONFIG_HOME": str(host_config),
+        "XDG_DATA_HOME": str(workspace / "share"),
+        "XDG_CACHE_HOME": str(workspace / "cache"),
+        "VCMI_LAN_TEST_REQUIRED_MOD": "lan-ci-fixture",
+        "VCMI_LAN_TEST_SECOND_MOD": "lan-ci-extra",
+        "VCMI_LAN_TEST_SECOND_SUBMOD": "lan-ci-extra.units",
+        "VCMI_LAN_TEST_GUI_CLIENT": "1",
+        "VCMI_LAN_TEST_COMPLETE_H3_DATA": "1",
+        "VCMI_LAN_TEST_SHARE_REFRESH": "1",
+        "SDL_AUDIODRIVER": "dummy",
+    })
+    return env
+
+
 def run(args: argparse.Namespace) -> int:
     binaries = args.bin_dir.expanduser().resolve(strict=True)
     for name in ("vcmitest", "vcmiserver", "vcmiclient"):
@@ -87,18 +123,7 @@ def run(args: argparse.Namespace) -> int:
     success = False
     try:
         user_data, host_config = stage_fixture(args.assets_dir, workspace)
-        env = os.environ.copy()
-        env.update({
-            "XDG_CONFIG_HOME": str(host_config),
-            "XDG_DATA_HOME": str(workspace / "share"),
-            "XDG_CACHE_HOME": str(workspace / "cache"),
-            "VCMI_LAN_TEST_REQUIRED_MOD": "lan-ci-fixture",
-            "VCMI_LAN_TEST_SECOND_MOD": "lan-ci-extra",
-            "VCMI_LAN_TEST_SECOND_SUBMOD": "lan-ci-extra.units",
-            "VCMI_LAN_TEST_GUI_CLIENT": "1",
-            "VCMI_LAN_TEST_SHARE_REFRESH": "1",
-            "SDL_AUDIODRIVER": "dummy",
-        })
+        env = acceptance_environment(workspace, host_config)
         publisher = Path(__file__).with_name("lan_mod_share.py")
         subprocess.run([
             sys.executable, str(publisher), "--active-from-settings",
@@ -129,13 +154,18 @@ def run(args: argparse.Namespace) -> int:
                         "--gtest_color=no"
                     ], cwd=binaries, env=env, stdout=test_out,
                        stderr=subprocess.STDOUT, timeout=args.timeout)
-                success = completed.returncode == 0
+                # GoogleTest may exit 0 after skipping required tests. Do not
+                # report two GUI clients or real mod loading without both OK lines.
+                required_pass = required_gui_tests_passed(test_log.read_text(encoding="utf-8", errors="replace"))
+                success = completed.returncode == 0 and required_pass
                 if not success:
-                    print(f"LAN fixture tests failed ({completed.returncode}): {test_log}", file=sys.stderr)
+                    print(f"LAN acceptance failed (vcmitest exit {completed.returncode}; "
+                          f"required GUI tests passed: {required_pass}): {test_log}", file=sys.stderr)
                 else:
-                    print("Real vcmitest LAN fixtures passed, including the two GUI lobby clients.")
+                    print("Real vcmitest LAN fixtures passed, including both GUI lobby clients "
+                          "and licensed-data mod-loading checks.")
                     print("This is not LAN_PASS: no complete gameplay match was automated.")
-                return completed.returncode
+                return 0 if success else (completed.returncode or 1)
             finally:
                 if server.poll() is None:
                     server.terminate()

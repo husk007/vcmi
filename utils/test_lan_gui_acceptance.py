@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import zipfile
 
-from utils.lan_gui_acceptance import stage_fixture
+from utils.lan_gui_acceptance import acceptance_environment, required_gui_tests_passed, stage_fixture
 
 PUBLISHER = Path(__file__).with_name("lan_mod_share.py")
 
@@ -45,6 +45,25 @@ class LanGuiAcceptanceSetupTest(unittest.TestCase):
                 self.assertNotIn("H3sprite.lod", " ".join(archive.namelist()))
                 self.assertTrue(all(entry.startswith(name + "/") for entry in archive.namelist()))
         self.assertEqual((self.owned / "Mods" / "private" / "mod.json").read_bytes(), original)
+
+    def test_licensed_acceptance_checks_real_mod_loading_in_isolated_paths(self):
+        workspace = self.base / "session"
+        config = workspace / "config"
+        env = acceptance_environment(workspace, config)
+        self.assertEqual(env["VCMI_LAN_TEST_GUI_CLIENT"], "1")
+        self.assertEqual(env["VCMI_LAN_TEST_COMPLETE_H3_DATA"], "1")
+        self.assertEqual(env["XDG_CONFIG_HOME"], str(config))
+        self.assertEqual(env["XDG_DATA_HOME"], str(workspace / "share"))
+        self.assertEqual(env["XDG_CACHE_HOME"], str(workspace / "cache"))
+
+    def test_gui_acceptance_rejects_skips_even_on_green_gtest_exit(self):
+        lobby = "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview"
+        parsed_mod = "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset"
+        both_passed = f"[       OK ] {lobby} (250 ms)\\n[       OK ] {parsed_mod} (300 ms)"
+        self.assertTrue(required_gui_tests_passed(both_passed))
+        self.assertFalse(required_gui_tests_passed(f"[       OK ] {lobby} (250 ms)\\n"
+                                               f"[  SKIPPED ] {parsed_mod} (0 ms)"))
+        self.assertFalse(required_gui_tests_passed("[" + "==========] 0 tests ran. (0 ms total)"))
 
     def test_requires_owned_data_and_does_not_touch_workspace_on_failure(self):
         (self.owned / "Data" / "H3sprite.lod").unlink()
