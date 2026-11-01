@@ -442,7 +442,7 @@ void CVCMIServer::announcePack(CPackForLobby & pack)
 	// or force a lobby-state refresh on the host and its actual guests.
 	if(const auto * joined = dynamic_cast<LobbyClientConnected *>(&pack))
 	{
-		if(joined->names.empty() && joined->clientId != hostClientId)
+		if(joined->names.empty() && joined->uuid.starts_with("vcmi-lan-archive:") && joined->clientId != hostClientId)
 		{
 			for(const auto & activeConnection : activeConnections)
 				if(activeConnection->connectionID == joined->clientId)
