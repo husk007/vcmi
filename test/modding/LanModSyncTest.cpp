@@ -46,6 +46,7 @@
 #include "../../lib/serializer/GameConnection.h"
 #include "../../lib/networkPacks/PacksForLobby.h"
 #include "../../lib/networkPacks/PacksForClient.h"
+#include "../../lib/networkPacks/PacksForServer.h"
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
@@ -3683,6 +3684,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::size_t initializedPlayableHeroes = 0;
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
+		std::optional<PlayerColor> ownedGameplayColor;
+		std::optional<bool> endTurnAccepted;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3717,8 +3720,14 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				{
 					initializedHumanPlayers.clear();
 					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
+					{
 						if(player.isControlledByHuman())
+						{
 							initializedHumanPlayers.insert(player.name);
+							if(player.name == "LAN integration host")
+								ownedGameplayColor = color;
+						}
+					}
 					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
 					activeGameState = started->initializedGameState;
 					activeGameState->preInit(LIBRARY);
@@ -3729,6 +3738,12 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
 			{
 				notifiedGameplayTurns.insert(turn->player);
+				return;
+			}
+			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
+			{
+				if(applied->requestID == 1 && ownedGameplayColor && applied->player == *ownedGameplayColor)
+					endTurnAccepted = applied->result;
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -3905,6 +3920,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::size_t initializedPlayableHeroes = 0;
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
+		std::optional<PlayerColor> ownedGameplayColor;
+		std::optional<bool> endTurnAccepted;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3946,8 +3963,14 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				{
 					initializedHumanPlayers.clear();
 					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
+					{
 						if(player.isControlledByHuman())
+						{
 							initializedHumanPlayers.insert(player.name);
+							if(player.name == playerName)
+								ownedGameplayColor = color;
+						}
+					}
 					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
 					activeGameState = started->initializedGameState;
 					activeGameState->preInit(LIBRARY);
@@ -3963,6 +3986,12 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
 			{
 				notifiedGameplayTurns.insert(turn->player);
+				return;
+			}
+			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
+			{
+				if(applied->requestID == 1 && ownedGameplayColor && applied->player == *ownedGameplayColor)
+					endTurnAccepted = applied->result;
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -4582,6 +4611,42 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			const auto firstPlayer = *host.notifiedGameplayTurns.begin();
 			EXPECT_TRUE(resumedConnection.notifiedGameplayTurns.contains(firstPlayer));
 			EXPECT_TRUE(concurrentPlayer.notifiedGameplayTurns.contains(firstPlayer));
+
+			// A live turn must accept an actual gameplay request, not just broadcast
+			// a turn-start packet. Prefer the relaunched guest when its turn is active.
+			struct ActiveTurnClient
+			{
+				GameConnection * peer;
+				std::optional<PlayerColor> ownColor;
+				const std::set<PlayerColor> * startedTurns;
+				std::optional<bool> * appliedResult;
+			};
+			const std::array<ActiveTurnClient, 3> players{{
+				{resumedConnection.peer.get(), resumedConnection.ownedGameplayColor,
+					&resumedConnection.notifiedGameplayTurns, &resumedConnection.endTurnAccepted},
+				{host.peer.get(), host.ownedGameplayColor,
+					&host.notifiedGameplayTurns, &host.endTurnAccepted},
+				{concurrentPlayer.peer.get(), concurrentPlayer.ownedGameplayColor,
+					&concurrentPlayer.notifiedGameplayTurns, &concurrentPlayer.endTurnAccepted}
+			}};
+			const auto activeClient = std::find_if(players.begin(), players.end(), [](const ActiveTurnClient & client)
+			{
+				return client.ownColor && client.startedTurns->contains(*client.ownColor);
+			});
+			ASSERT_NE(activeClient, players.end())
+				<< "No registered human player received the start of their own gameplay turn";
+			EndTurn finishTurn;
+			finishTurn.player = *activeClient->ownColor;
+			finishTurn.requestID = 1;
+			activeClient->peer->sendPack(finishTurn);
+			network->getContext().restart();
+			const auto endTurnDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+			while(!activeClient->appliedResult->has_value() && std::chrono::steady_clock::now() < endTurnDeadline)
+				network->getContext().run_one_for(std::chrono::milliseconds(50));
+			ASSERT_TRUE(activeClient->appliedResult->has_value())
+				<< "Production server did not acknowledge a real end-turn request";
+			EXPECT_TRUE(activeClient->appliedResult->value())
+				<< "Production server rejected the first registered player's end-turn request";
 
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
