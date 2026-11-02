@@ -1,2 +1,2 @@
-Checkpoint: 4bb092c3f56496cd70c4f05d56e5d050c38aadbc
-Reason: Verify automatic GUI-thread LAN guest rejoin after explicit trust and SHA-256-verified host archive staging, without a second confirmation dialog.
+Checkpoint: 105a9b815d0971944c05ce40184ad9fca4b4fcac
+Reason: Validate the independent production-server LobbyStartGame integration path for a LAN guest with temporarily activated mods and a second player; opt-in full-map execution still needs owner-provided Heroes III data.
