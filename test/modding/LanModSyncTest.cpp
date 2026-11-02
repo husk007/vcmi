@@ -54,6 +54,9 @@
 #include "../../lib/GameLibrary.h"
 #include "../../lib/StartInfo.h"
 #include "../../lib/mapping/CMapInfo.h"
+#include "../../lib/mapping/CMap.h"
+#include "../../lib/gameState/CGameState.h"
+#include "../../lib/mapObjects/CGHeroInstance.h"
 #include "../../lib/VCMIDirs.h"
 #include "../../lib/ScopeGuard.h"
 
@@ -3644,6 +3647,18 @@ TEST(LanModSyncTest, ActualTestPresetRoundTripsInstalledOnlyRelaunchThroughDisk)
 	EXPECT_EQ(restored.getActiveMods(), personalActive);
 }
 
+static std::size_t countLanPlayableStartingHeroes(const CGameState & gameState)
+{
+	std::size_t ready = 0;
+	for(int player = 0; player < 3; ++player)
+	{
+		const auto * hero = gameState.getMap().getHero(HeroTypeID(player));
+		if(hero && hero->getOwner() == PlayerColor(player) && hero->hasStackAtSlot(SlotID(0)))
+			++ready;
+	}
+	return ready;
+}
+
 TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview)
 {
 	// The workflow launches a separate real vcmiserver. No stub host is used.
@@ -3664,6 +3679,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool receivedStartPreparation = false;
 		bool receivedInitializedStart = false;
 		std::set<std::string> initializedHumanPlayers;
+		std::size_t initializedPlayableHeroes = 0;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3700,6 +3716,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
 						if(player.isControlledByHuman())
 							initializedHumanPlayers.insert(player.name);
+					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
 				}
 				return;
 			}
@@ -3874,6 +3891,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool receivedStartPreparation = false;
 		bool receivedInitializedStart = false;
 		std::set<std::string> initializedHumanPlayers;
+		std::size_t initializedPlayableHeroes = 0;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3917,6 +3935,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
 						if(player.isControlledByHuman())
 							initializedHumanPlayers.insert(player.name);
+					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
 				}
 				return;
 			}
@@ -4517,6 +4536,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				<< "Prepared LAN guest did not receive the initialized game state";
 			EXPECT_TRUE(concurrentPlayer.receivedInitializedStart)
 				<< "Second LAN guest did not receive the initialized game state";
+			EXPECT_EQ(host.initializedPlayableHeroes, 3U);
+			EXPECT_EQ(resumedConnection.initializedPlayableHeroes, 3U);
+			EXPECT_EQ(concurrentPlayer.initializedPlayableHeroes, 3U)
+				<< "Both LAN guests must receive their playable starting heroes";
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
 			// HostClient and JoinGuest are different types, but both expose the
