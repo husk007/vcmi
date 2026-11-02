@@ -3685,6 +3685,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
 		std::set<PlayerColor> completedGameplayTurns;
+		std::set<ui32> observedGameplayDays;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
 		std::vector<std::string> observedGuestNames;
@@ -3734,6 +3735,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					activeGameState->preInit(LIBRARY);
 					peer->setCallback(*activeGameState);
 				}
+				return;
+			}
+			if(const auto * newDay = dynamic_cast<NewTurn *>(packet.get()))
+			{
+				observedGameplayDays.insert(newDay->day);
 				return;
 			}
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
@@ -3927,6 +3933,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
 		std::set<PlayerColor> completedGameplayTurns;
+		std::set<ui32> observedGameplayDays;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
 		bool archiveOnly = false;
@@ -3988,6 +3995,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
 			{
 				archiveChunk = std::make_unique<LobbyLanModArchiveChunk>(*chunk);
+				return;
+			}
+			if(const auto * newDay = dynamic_cast<NewTurn *>(packet.get()))
+			{
+				observedGameplayDays.insert(newDay->day);
 				return;
 			}
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
@@ -4641,39 +4653,84 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				{concurrentPlayer.peer.get(), concurrentPlayer.ownedGameplayColor,
 					&concurrentPlayer.notifiedGameplayTurns, &concurrentPlayer.endTurnAccepted}
 			}};
-			const auto activeClient = std::find_if(players.begin(), players.end(), [](const ActiveTurnClient & client)
+			std::set<PlayerColor> ownedPlayers;
+			for(const auto & client : players)
 			{
-				return client.ownColor && client.startedTurns->contains(*client.ownColor);
-			});
-			ASSERT_NE(activeClient, players.end())
-				<< "No registered human player received the start of their own gameplay turn";
-			EndTurn finishTurn;
-			finishTurn.player = *activeClient->ownColor;
-			finishTurn.requestID = 1;
-			activeClient->peer->sendPack(finishTurn);
+				ASSERT_TRUE(client.ownColor.has_value())
+					<< "Each independent LAN client must own one of the playable human slots";
+				ownedPlayers.insert(*client.ownColor);
+			}
+			ASSERT_EQ(ownedPlayers.size(), players.size())
+				<< "The three LAN connections must own different player colors";
+
+			// Finish a complete human round through three independent connections.
+			// Player turns may become available sequentially or simultaneously.
+			std::set<PlayerColor> endedPlayers;
+			for(std::size_t turnIndex = 0; turnIndex < players.size(); ++turnIndex)
+			{
+				network->getContext().restart();
+				const auto availableDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+				auto activeClient = players.end();
+				while(std::chrono::steady_clock::now() < availableDeadline)
+				{
+					activeClient = std::find_if(players.begin(), players.end(), [&](const ActiveTurnClient & client)
+					{
+						return client.ownColor && !endedPlayers.contains(*client.ownColor)
+							&& client.startedTurns->contains(*client.ownColor);
+					});
+					if(activeClient != players.end())
+						break;
+					network->getContext().run_one_for(std::chrono::milliseconds(50));
+				}
+				ASSERT_NE(activeClient, players.end())
+					<< "Production server never granted a gameplay turn to the remaining LAN player";
+				ASSERT_FALSE(activeClient->appliedResult->has_value());
+				EndTurn finishTurn;
+				finishTurn.player = *activeClient->ownColor;
+				finishTurn.requestID = 1;
+				activeClient->peer->sendPack(finishTurn);
+				network->getContext().restart();
+				const auto endTurnDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+				while(!activeClient->appliedResult->has_value() && std::chrono::steady_clock::now() < endTurnDeadline)
+					network->getContext().run_one_for(std::chrono::milliseconds(50));
+				ASSERT_TRUE(activeClient->appliedResult->has_value())
+					<< "Production server did not acknowledge a registered player's end-turn request";
+				ASSERT_TRUE(activeClient->appliedResult->value())
+					<< "Production server rejected a registered player's end-turn request";
+
+				network->getContext().restart();
+				const auto turnBroadcastDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+				while((!host.completedGameplayTurns.contains(finishTurn.player)
+					|| !resumedConnection.completedGameplayTurns.contains(finishTurn.player)
+					|| !concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
+					&& std::chrono::steady_clock::now() < turnBroadcastDeadline)
+					network->getContext().run_one_for(std::chrono::milliseconds(50));
+				ASSERT_TRUE(host.completedGameplayTurns.contains(finishTurn.player))
+					<< "Production server did not broadcast a completed turn to the host";
+				ASSERT_TRUE(resumedConnection.completedGameplayTurns.contains(finishTurn.player))
+					<< "Prepared LAN guest missed a completed turn";
+				ASSERT_TRUE(concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
+					<< "Second LAN guest missed a completed turn";
+				endedPlayers.insert(finishTurn.player);
+			}
+			EXPECT_EQ(endedPlayers, ownedPlayers)
+				<< "Not every human player completed their first gameplay turn";
+
+			// Acknowledgements alone do not advance the calendar. All three peers
+			// must receive day two from the independent production server.
 			network->getContext().restart();
-			const auto endTurnDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
-			while(!activeClient->appliedResult->has_value() && std::chrono::steady_clock::now() < endTurnDeadline)
+			const auto nextDayDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+			while((!host.observedGameplayDays.contains(2U)
+				|| !resumedConnection.observedGameplayDays.contains(2U)
+				|| !concurrentPlayer.observedGameplayDays.contains(2U))
+				&& std::chrono::steady_clock::now() < nextDayDeadline)
 				network->getContext().run_one_for(std::chrono::milliseconds(50));
-			ASSERT_TRUE(activeClient->appliedResult->has_value())
-				<< "Production server did not acknowledge a real end-turn request";
-			ASSERT_TRUE(activeClient->appliedResult->value())
-				<< "Production server rejected the first registered player's end-turn request";
-			// All live peers must observe the same turn completion, not only
-			// the sender's request acknowledgement.
-			network->getContext().restart();
-			const auto turnBroadcastDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
-			while((!host.completedGameplayTurns.contains(finishTurn.player)
-				|| !resumedConnection.completedGameplayTurns.contains(finishTurn.player)
-				|| !concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
-				&& std::chrono::steady_clock::now() < turnBroadcastDeadline)
-				network->getContext().run_one_for(std::chrono::milliseconds(50));
-			EXPECT_TRUE(host.completedGameplayTurns.contains(finishTurn.player))
-				<< "Production server did not broadcast completed turn to the lobby host";
-			EXPECT_TRUE(resumedConnection.completedGameplayTurns.contains(finishTurn.player))
-				<< "Prepared LAN guest missed another player's completed turn";
-			EXPECT_TRUE(concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
-				<< "Second LAN guest missed the completed gameplay turn";
+			EXPECT_TRUE(host.observedGameplayDays.contains(2U))
+				<< "Host never received the new-day packet after the complete LAN round";
+			EXPECT_TRUE(resumedConnection.observedGameplayDays.contains(2U))
+				<< "Prepared LAN guest did not advance to the second day";
+			EXPECT_TRUE(concurrentPlayer.observedGameplayDays.contains(2U))
+				<< "Second LAN guest did not advance to the second day";
 
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
