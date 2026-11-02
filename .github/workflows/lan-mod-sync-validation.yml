@@ -180,6 +180,35 @@ jobs:
           test -s "$second_archive"
           test "$(stat -c %s "$second_archive")" -gt 65536
 
+          # vcmitest has vcmi-test enabled in its isolated fixture preset.
+          # The independent server must resolve the same test-only identifiers
+          # when receiving LobbySetMap, but guest data and published ZIPs stay untouched.
+          host_data="$RUNNER_TEMP/lan-host-data/vcmi"
+          mkdir -p "$host_data/Mods"
+          for item in "$HOME/.local/share/vcmi/"*; do
+            [ -e "$item" ] || continue
+            if [ "$(basename "$item")" = Mods ]; then
+              for mod in "$item"/*; do
+                [ -e "$mod" ] || continue
+                ln -s "$mod" "$host_data/Mods/$(basename "$mod")"
+              done
+            else
+              ln -s "$item" "$host_data/$(basename "$item")"
+            fi
+          done
+          test -f out/build/linux-gcc-test/bin/test/testdata/vcmi-test/mod.json
+          cp -a out/build/linux-gcc-test/bin/test/testdata/vcmi-test "$host_data/Mods/vcmi-test"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          settings_path = Path(os.environ["RUNNER_TEMP"]) / "lan-host-config/vcmi/modSettings.json"
+          settings = json.loads(settings_path.read_text())
+          settings["presets"]["default"]["mods"].append("vcmi-test")
+          settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+          PY
+
       - name: Run committed LAN tests against independent VCMI host
         working-directory: out/build/linux-gcc-test/bin
         shell: bash
@@ -195,7 +224,8 @@ jobs:
           cp "$map_file" "$HOME/.local/share/vcmi/Maps/LanThreeHumanStartMap.h3m"
           export VCMI_LAN_TEST_START_MAP="MAPS/LANTHREEHUMANSTARTMAP.H3M"
           port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-          XDG_CONFIG_HOME="$RUNNER_TEMP/lan-host-config" ./vcmiserver --port "$port" > "$RUNNER_TEMP/lan-real-host.log" 2>&1 &
+          XDG_DATA_HOME="$RUNNER_TEMP/lan-host-data" XDG_CONFIG_HOME="$RUNNER_TEMP/lan-host-config" \
+            ./vcmiserver --port "$port" > "$RUNNER_TEMP/lan-real-host.log" 2>&1 &
           host_pid=$!
           trap 'kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true' EXIT
           # A disposable TCP readiness probe would shut down a host without players.
