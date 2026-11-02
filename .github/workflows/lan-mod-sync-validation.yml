@@ -45,8 +45,8 @@ jobs:
             libluajit-5.1-dev libminizip-dev libsqlite3-dev \
             libsquish-dev libfmt-dev gettext
 
-      - name: Validate redistributable installed-mod publisher
-        run: python3 -m unittest utils/test_lan_mod_share.py
+      - name: Validate LAN publisher and isolated GUI acceptance fixture
+        run: python3 -m unittest utils/test_lan_mod_share.py utils/test_lan_gui_acceptance.py
 
       - name: Configure VCMI with real test dependencies
         run: |
