@@ -1,2 +1,2 @@
-Checkpoint: 5ef5d88fcbb5b6ecbb143d0974aa3779ad895d6c
-Reason: Fix real CI #41396492731 C++ compile failure in LanModSyncTest.cpp (mixed HostClient/JoinGuest pointer initializer_list); rerun the full VCMI build and map-based M5 tests.
+Checkpoint: ff46d71177dc2ce491de6147b567c2acc6127588
+Reason: Fix verified CI #41402525033 compilation error: HostClient must collect initialized human player names from LobbyStartGame before three-client assertions.
