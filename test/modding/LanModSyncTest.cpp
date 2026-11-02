@@ -45,6 +45,7 @@
 #include "../../lib/serializer/CMemorySerializer.h"
 #include "../../lib/serializer/GameConnection.h"
 #include "../../lib/networkPacks/PacksForLobby.h"
+#include "../../lib/networkPacks/PacksForClient.h"
 #include "../../lib/json/JsonNode.h"
 #include "../../lib/modding/ModManager.h"
 #include "../../lib/modding/ModVerificationInfo.h"
@@ -3680,6 +3681,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool receivedInitializedStart = false;
 		std::set<std::string> initializedHumanPlayers;
 		std::size_t initializedPlayableHeroes = 0;
+		std::shared_ptr<CGameState> activeGameState;
+		std::set<PlayerColor> notifiedGameplayTurns;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3717,7 +3720,15 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 						if(player.isControlledByHuman())
 							initializedHumanPlayers.insert(player.name);
 					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
+					activeGameState = started->initializedGameState;
+					activeGameState->preInit(LIBRARY);
+					peer->setCallback(*activeGameState);
 				}
+				return;
+			}
+			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
+			{
+				notifiedGameplayTurns.insert(turn->player);
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -3892,6 +3903,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool receivedInitializedStart = false;
 		std::set<std::string> initializedHumanPlayers;
 		std::size_t initializedPlayableHeroes = 0;
+		std::shared_ptr<CGameState> activeGameState;
+		std::set<PlayerColor> notifiedGameplayTurns;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3936,12 +3949,20 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 						if(player.isControlledByHuman())
 							initializedHumanPlayers.insert(player.name);
 					initializedPlayableHeroes = countLanPlayableStartingHeroes(*started->initializedGameState);
+					activeGameState = started->initializedGameState;
+					activeGameState->preInit(LIBRARY);
+					peer->setCallback(*activeGameState);
 				}
 				return;
 			}
 			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
 			{
 				archiveChunk = std::make_unique<LobbyLanModArchiveChunk>(*chunk);
+				return;
+			}
+			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
+			{
+				notifiedGameplayTurns.insert(turn->player);
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -4543,6 +4564,25 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_EQ(resumedConnection.initializedPlayableHeroes, 3U);
 			EXPECT_EQ(concurrentPlayer.initializedPlayableHeroes, 3U)
 				<< "Both LAN guests must receive their playable starting heroes";
+			// The initialized lobby state is not yet a gameplay turn. Confirm
+			// that the production server starts turn order and broadcasts the
+			// first actual gameplay packet to host and both independently joined guests.
+			network->getContext().restart();
+			const auto firstTurnDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+			while((host.notifiedGameplayTurns.empty() || resumedConnection.notifiedGameplayTurns.empty()
+				|| concurrentPlayer.notifiedGameplayTurns.empty())
+				&& std::chrono::steady_clock::now() < firstTurnDeadline)
+				network->getContext().run_one_for(std::chrono::milliseconds(50));
+			ASSERT_FALSE(host.notifiedGameplayTurns.empty())
+				<< "Independent vcmiserver never started the first gameplay turn";
+			ASSERT_FALSE(resumedConnection.notifiedGameplayTurns.empty())
+				<< "Prepared LAN guest never received a real gameplay turn";
+			ASSERT_FALSE(concurrentPlayer.notifiedGameplayTurns.empty())
+				<< "Second LAN guest never received a real gameplay turn";
+			const auto firstPlayer = *host.notifiedGameplayTurns.begin();
+			EXPECT_TRUE(resumedConnection.notifiedGameplayTurns.contains(firstPlayer));
+			EXPECT_TRUE(concurrentPlayer.notifiedGameplayTurns.contains(firstPlayer));
+
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
 			// HostClient and JoinGuest are different types, but both expose the
