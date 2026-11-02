@@ -4745,8 +4745,42 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					network->getContext().run_one_for(std::chrono::milliseconds(100));
 				ASSERT_TRUE(host.receivedInitializedStart)
 					<< "The production server did not initialize and broadcast the game state";
-				network->getContext().restart();
-				network->getContext().run_for(std::chrono::seconds(5));
+				// Server initialization alone is not enough: both real GUI clients
+				// must initialize their own human-controlled gameplay interfaces.
+				const auto humanInterfaceColor = [](const fs::path & logDir) -> std::string
+				{
+					std::ifstream input(logDir / "VCMI_Client_log.txt");
+					std::string line;
+					while(std::getline(input, line))
+					{
+						const auto begin = line.find("Player ");
+						if(begin == std::string::npos)
+							continue;
+						const auto end = line.find(" will be lead by human", begin + 7);
+						if(end != std::string::npos && end > begin + 7)
+							return line.substr(begin + 7, end - begin - 7);
+					}
+					return {};
+				};
+				std::string firstHuman;
+				std::string secondHuman;
+				const auto clientsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
+				while(std::chrono::steady_clock::now() < clientsDeadline)
+				{
+					firstHuman = humanInterfaceColor(sandbox);
+					secondHuman = humanInterfaceColor(secondLogs);
+					if(!firstHuman.empty() && !secondHuman.empty())
+						break;
+					network->getContext().restart();
+					network->getContext().run_for(std::chrono::milliseconds(150));
+				}
+				EXPECT_FALSE(firstHuman.empty())
+					<< "First GUI did not initialize a human gameplay interface after LobbyStartGame";
+				EXPECT_FALSE(secondHuman.empty())
+					<< "Second GUI did not initialize a human gameplay interface after LobbyStartGame";
+				if(!firstHuman.empty() && !secondHuman.empty())
+					EXPECT_NE(firstHuman, secondHuman)
+						<< "Both LAN guests were assigned the same playable color";
 				int firstStatus = 0;
 				int secondStatus = 0;
 				EXPECT_EQ(::waitpid(guiPid, &firstStatus, WNOHANG), 0)
