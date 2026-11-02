@@ -1,2 +1,2 @@
-Checkpoint: ff46d71177dc2ce491de6147b567c2acc6127588
-Reason: Fix verified CI #41402525033 compilation error: HostClient must collect initialized human player names from LobbyStartGame before three-client assertions.
+Checkpoint: f37ba5b41840a9fd2785d678ef536b98be0c1c9c
+Reason: After CI #41462307333 passed 104 real LanModSyncTest tests, verify production vcmiserver broadcasts the first gameplay turn to both rejoined LAN guests and host.
