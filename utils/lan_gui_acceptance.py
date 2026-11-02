@@ -90,6 +90,35 @@ def owned_map_resource(assets: Path, requested: str) -> str:
     return "Maps/" + "/".join(parts)
 
 
+
+def generate_synthetic_start_map(binaries: Path, user_data: Path, workspace: Path,
+                                 env: dict[str, str]) -> str:
+    """Build the existing three-human LAN map into the disposable game directory.
+
+    If the owner's Maps directory was linked by stage_fixture, remove only the
+    sandbox symlink. Never write generated data into the owner's installation.
+    """
+    maps = user_data / "Maps"
+    if maps.is_symlink():
+        maps.unlink()
+    maps.mkdir(parents=True, exist_ok=True)
+    cache = workspace / "generated-map-cache"
+    map_env = dict(env, XDG_CACHE_HOME=str(cache))
+    report = workspace / "generated-map.log"
+    with report.open("w", encoding="utf-8") as output:
+        subprocess.run([
+            str(binaries / "vcmitest"),
+            "--gtest_filter=TinyH3MBuilderTest.ThreeHumanLanStartMap",
+            "--gtest_color=no"
+        ], cwd=binaries, env=map_env, stdout=output,
+           stderr=subprocess.STDOUT, timeout=120, check=True)
+    generated = list(cache.rglob("LanThreeHumanStartMap.h3m"))
+    if len(generated) != 1 or not generated[0].is_file() or generated[0].stat().st_size == 0:
+        raise ValueError(f"vcmitest did not generate the three-player LAN map; inspect {report}")
+    shutil.copyfile(generated[0], maps / "LanThreeHumanStartMap.h3m")
+    return "Maps/LanThreeHumanStartMap.h3m"
+
+
 REQUIRED_GUI_TESTS = (
     "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview",
     "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset",
@@ -148,6 +177,11 @@ def run(args: argparse.Namespace) -> int:
         env = acceptance_environment(workspace, host_config)
         if args.start_map:
             env["VCMI_LAN_TEST_START_MAP"] = owned_map_resource(args.assets_dir, args.start_map)
+        else:
+            # Use the same playable, original three-human map as Linux CI.
+            # Two real SDL clients now exercise game initialization by default.
+            env["VCMI_LAN_TEST_START_MAP"] = generate_synthetic_start_map(
+                binaries, user_data, workspace, env)
         publisher = Path(__file__).with_name("lan_mod_share.py")
         subprocess.run([
             sys.executable, str(publisher), "--active-from-settings",
@@ -212,8 +246,8 @@ def main() -> int:
     parser.add_argument("--assets-dir", type=Path, required=True,
                         help="your legally installed VCMI data directory containing Data/")
     parser.add_argument("--start-map",
-                        help="optional owned Maps/*.h3m or *.vmap with >=3 human slots; "
-                             "exercise real server game-state start with both GUI clients")
+                        help="override the automatically generated three-human map with an owned "
+                             "Maps/*.h3m or *.vmap (>=3 human slots)")
     parser.add_argument("--timeout", type=int, default=900,
                         help="maximum seconds for the vcmitest run (default: 900)")
     parser.add_argument("--keep", action="store_true",
