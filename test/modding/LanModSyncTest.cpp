@@ -3863,6 +3863,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::string error;
 		bool joined = false;
 		bool receivedStartPreparation = false;
+		bool receivedInitializedStart = false;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3895,6 +3896,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(dynamic_cast<LobbyPrepareStartGame *>(packet.get()))
 			{
 				receivedStartPreparation = true;
+				return;
+			}
+			if(const auto * started = dynamic_cast<LobbyStartGame *>(packet.get()))
+			{
+				receivedInitializedStart = started->initializedStartInfo && started->initializedGameState;
 				return;
 			}
 			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
@@ -4464,6 +4470,44 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	EXPECT_TRUE(host.receivedStartPreparation) << "Real host did not receive its own lobby pre-start signal";
 	EXPECT_TRUE(resumedConnection.receivedStartPreparation) << "Relaunched LAN guest missed the host's pre-start signal";
 	EXPECT_TRUE(concurrentPlayer.receivedStartPreparation) << "Second LAN guest missed the host's pre-start signal";
+
+	// With an owner-supplied map, verify actual game-state delivery to both
+	// headless clients after one guest prepared its disabled host mod.
+	if(!std::getenv("VCMI_LAN_TEST_GUI_CLIENT"))
+	{
+		if(const char * mapResource = std::getenv("VCMI_LAN_TEST_START_MAP"); mapResource && *mapResource)
+		{
+			auto chosenMap = std::make_shared<CMapInfo>();
+			ASSERT_NO_THROW(chosenMap->mapInit(mapResource));
+			ASSERT_GE(chosenMap->amountOfHumanControllablePlayers, 3)
+				<< "Select a map with three human-controllable player slots";
+			LobbySetMap selectMap;
+			selectMap.mapInfo = chosenMap;
+			host.peer->sendPack(selectMap);
+			LobbyStartGame start;
+			host.peer->sendPack(start);
+			const auto startDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+			network->getContext().restart();
+			while((!host.receivedInitializedStart || !resumedConnection.receivedInitializedStart
+				|| !concurrentPlayer.receivedInitializedStart)
+				&& std::chrono::steady_clock::now() < startDeadline)
+				network->getContext().run_one_for(std::chrono::milliseconds(100));
+			EXPECT_TRUE(host.receivedInitializedStart) << "Production server did not initialize the LAN game";
+			EXPECT_TRUE(resumedConnection.receivedInitializedStart)
+				<< "Prepared LAN guest did not receive the initialized game state";
+			EXPECT_TRUE(concurrentPlayer.receivedInitializedStart)
+				<< "Second LAN guest did not receive the initialized game state";
+			concurrentPlayer.connection->close();
+			resumedConnection.connection->close();
+			relaunchedGuest.restoreLanSession();
+			ModsPresetState restoredGuest(true);
+			EXPECT_EQ(restoredGuest.getActivePreset(), personalName);
+			EXPECT_EQ(restoredGuest.exportCurrentPreset().toCompactString(), personalPreset);
+			EXPECT_EQ(restoredGuest.getAllPresets(), personalPresets);
+			EXPECT_EQ(restoredGuest.getActiveMods(), personalMods);
+			return;
+		}
+	}
 
 	// Leaving the second player must not evict the first relaunched guest.
 	concurrentPlayer.connection->close();
