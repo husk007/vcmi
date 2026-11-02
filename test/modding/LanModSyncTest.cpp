@@ -3684,6 +3684,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::size_t initializedPlayableHeroes = 0;
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
+		std::set<PlayerColor> completedGameplayTurns;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
 		std::vector<std::string> observedGuestNames;
@@ -3738,6 +3739,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
 			{
 				notifiedGameplayTurns.insert(turn->player);
+				return;
+			}
+			if(const auto * ended = dynamic_cast<PlayerEndsTurn *>(packet.get()))
+			{
+				completedGameplayTurns.insert(ended->player);
 				return;
 			}
 			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
@@ -3920,6 +3926,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::size_t initializedPlayableHeroes = 0;
 		std::shared_ptr<CGameState> activeGameState;
 		std::set<PlayerColor> notifiedGameplayTurns;
+		std::set<PlayerColor> completedGameplayTurns;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
 		bool archiveOnly = false;
@@ -3986,6 +3993,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * turn = dynamic_cast<PlayerStartsTurn *>(packet.get()))
 			{
 				notifiedGameplayTurns.insert(turn->player);
+				return;
+			}
+			if(const auto * ended = dynamic_cast<PlayerEndsTurn *>(packet.get()))
+			{
+				completedGameplayTurns.insert(ended->player);
 				return;
 			}
 			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
@@ -4645,8 +4657,23 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				network->getContext().run_one_for(std::chrono::milliseconds(50));
 			ASSERT_TRUE(activeClient->appliedResult->has_value())
 				<< "Production server did not acknowledge a real end-turn request";
-			EXPECT_TRUE(activeClient->appliedResult->value())
+			ASSERT_TRUE(activeClient->appliedResult->value())
 				<< "Production server rejected the first registered player's end-turn request";
+			// All live peers must observe the same turn completion, not only
+			// the sender's request acknowledgement.
+			network->getContext().restart();
+			const auto turnBroadcastDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+			while((!host.completedGameplayTurns.contains(finishTurn.player)
+				|| !resumedConnection.completedGameplayTurns.contains(finishTurn.player)
+				|| !concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
+				&& std::chrono::steady_clock::now() < turnBroadcastDeadline)
+				network->getContext().run_one_for(std::chrono::milliseconds(50));
+			EXPECT_TRUE(host.completedGameplayTurns.contains(finishTurn.player))
+				<< "Production server did not broadcast completed turn to the lobby host";
+			EXPECT_TRUE(resumedConnection.completedGameplayTurns.contains(finishTurn.player))
+				<< "Prepared LAN guest missed another player's completed turn";
+			EXPECT_TRUE(concurrentPlayer.completedGameplayTurns.contains(finishTurn.player))
+				<< "Second LAN guest missed the completed gameplay turn";
 
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
