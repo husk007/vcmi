@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cerrno>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -4581,6 +4582,47 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const auto secondLogs = sandbox / "second-logs";
 		ASSERT_TRUE(fs::create_directories(secondModSettings.parent_path()));
 		ASSERT_TRUE(fs::create_directories(secondLogs));
+
+		// Give each real GUI process an independent user-data and cache root.
+		// Only locally owned game resources are linked; installed fixture mods
+		// are copied, so the two guests cannot share a downloaded ZIP by accident.
+		const auto sharedUserData = fs::absolute(fs::path(VCMIDirs::get().userDataPath().native()));
+		const auto firstDataHome = sandbox / "first-data";
+		const auto secondDataHome = sandbox / "second-data";
+		const auto firstCacheHome = sandbox / "first-cache";
+		const auto secondCacheHome = sandbox / "second-cache";
+		const char * secondRequiredMod = std::getenv("VCMI_LAN_TEST_SECOND_MOD");
+		ASSERT_NE(secondRequiredMod, nullptr);
+		const auto stageIsolatedGuestData = [&](const fs::path & dataHome)
+		{
+			const auto userData = dataHome / "vcmi";
+			fs::create_directories(userData / "Mods");
+			for(const auto & entry : fs::directory_iterator(sharedUserData))
+			{
+				if(!entry.is_directory())
+					continue;
+				std::string name = entry.path().filename().string();
+				std::transform(name.begin(), name.end(), name.begin(),
+					[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+				if(name == "data" || name == "maps" || name == "mp3" || name == "video" || name == "music")
+					fs::create_directory_symlink(entry.path(), userData / entry.path().filename());
+			}
+			for(const auto & modId : {std::string(requiredMod), std::string(secondRequiredMod)})
+			{
+				const auto source = sharedUserData / "Mods" / modId;
+				if(!fs::is_directory(source))
+					throw std::runtime_error("LAN GUI fixture is missing installed mod: " + modId);
+				fs::copy(source, userData / "Mods" / modId, fs::copy_options::recursive);
+			}
+		};
+		ASSERT_NO_THROW(stageIsolatedGuestData(firstDataHome));
+		ASSERT_NO_THROW(stageIsolatedGuestData(secondDataHome));
+		ASSERT_FALSE(fs::exists(firstDataHome / "vcmi" / "lan-mod-shares"));
+		ASSERT_FALSE(fs::exists(secondDataHome / "vcmi" / "lan-mod-shares"));
+		ASSERT_FALSE(fs::is_symlink(firstDataHome / "vcmi" / "Mods" / requiredMod));
+		ASSERT_FALSE(fs::is_symlink(secondDataHome / "vcmi" / "Mods" / requiredMod));
+		ASSERT_NE(fs::canonical(firstDataHome), fs::canonical(secondDataHome));
+
 		JsonNode secondOriginal = original;
 		secondOriginal["activePreset"].String() = "second-personal";
 		secondOriginal["presets"]["second-personal"] = secondOriginal["presets"]["personal"];
@@ -4602,6 +4644,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		if(guiPid == 0)
 		{
 			::setenv("XDG_CONFIG_HOME", configRoot.c_str(), 1);
+			::setenv("XDG_DATA_HOME", firstDataHome.c_str(), 1);
+			::setenv("XDG_CACHE_HOME", firstCacheHome.c_str(), 1);
 			::setenv("SDL_AUDIODRIVER", "dummy", 1);
 			::execl(executable.c_str(), executable.c_str(), "--nointro",
 				"--logLocation", sandbox.c_str(), "--lan-relaunch-token", token.c_str(),
@@ -4623,6 +4667,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		if(secondGuiPid == 0)
 		{
 			::setenv("XDG_CONFIG_HOME", secondConfigRoot.c_str(), 1);
+			::setenv("XDG_DATA_HOME", secondDataHome.c_str(), 1);
+			::setenv("XDG_CACHE_HOME", secondCacheHome.c_str(), 1);
 			::setenv("SDL_AUDIODRIVER", "dummy", 1);
 			::execl(executable.c_str(), executable.c_str(), "--nointro",
 				"--logLocation", secondLogs.c_str(), "--lan-relaunch-token", secondToken.c_str(),
@@ -4812,6 +4858,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				{
 					if(::setenv("XDG_CONFIG_HOME", profile.c_str(), 1) != 0)
 						::_exit(126);
+					const auto & dataHome = profile == configRoot ? firstDataHome : secondDataHome;
+					const auto & cacheHome = profile == configRoot ? firstCacheHome : secondCacheHome;
+					::setenv("XDG_DATA_HOME", dataHome.c_str(), 1);
+					::setenv("XDG_CACHE_HOME", cacheHome.c_str(), 1);
 					::setenv("SDL_VIDEODRIVER", "dummy", 1);
 					::setenv("SDL_AUDIODRIVER", "dummy", 1);
 					::execl(executable.c_str(), executable.c_str(), "--headless", "--nointro",
