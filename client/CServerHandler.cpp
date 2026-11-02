@@ -95,9 +95,8 @@ static void restartAfterRestoringLanMods()
 }
 
 
-// Continue the normal LAN Join path from the GUI after the user acknowledges
-// successful staging. Running the callback from the network chunk handler
-// would throw GameShutdownException on the wrong thread.
+// Continue LAN Join on the next GUI frame after the player has approved
+// the host packages. A network-chunk callback must not initiate a relaunch.
 static void showLanArchiveReadyForJoin(const std::string & fingerprint, std::size_t preparedCount)
 {
 	if(!ENGINE)
@@ -110,16 +109,15 @@ static void showLanArchiveReadyForJoin(const std::string & fingerprint, std::siz
 		if(!room->approvePreparedLanJoin(fingerprint))
 			continue;
 
-		message = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadAutoJoin")
-			+ " (" + std::to_string(preparedCount) + ")";
-		auto dialog = CInfoWindow::create(message);
+		// First-use trust was already confirmed before staging. Continue
+		// automatically without a second confirmation, while still allowing
+		// the player to close the room before the next frame.
 		std::weak_ptr<GlobalLobbyRoomWindow> weakRoom(room);
-		dialog->buttons.front()->addCallback([weakRoom, fingerprint]()
+		ENGINE->dispatchMainThread([weakRoom, fingerprint]()
 		{
 			if(auto openRoom = weakRoom.lock())
 				openRoom->joinApprovedLanSession(fingerprint);
 		});
-		ENGINE->windows().pushWindow(dialog);
 		return;
 	}
 
