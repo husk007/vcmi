@@ -1,2 +1,2 @@
-Checkpoint: f37ba5b41840a9fd2785d678ef536b98be0c1c9c
-Reason: After CI #41462307333 passed 104 real LanModSyncTest tests, verify production vcmiserver broadcasts the first gameplay turn to both rejoined LAN guests and host.
+Checkpoint: 2b0d09153bbb6832d457cdebb2f3a10b886e0277
+Reason: CI #41475446664 passed the first gameplay-turn broadcast. Validate EndTurn acceptance and PlayerEndsTurn delivery to host and both independent LAN guests on real vcmiserver/vcmitest.
