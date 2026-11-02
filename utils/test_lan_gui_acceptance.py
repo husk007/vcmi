@@ -8,7 +8,8 @@ import tempfile
 import unittest
 import zipfile
 
-from utils.lan_gui_acceptance import acceptance_environment, owned_map_resource, required_gui_tests_passed, stage_fixture
+from utils.lan_gui_acceptance import (acceptance_environment, generate_synthetic_start_map,
+                                      owned_map_resource, required_gui_tests_passed, stage_fixture)
 
 PUBLISHER = Path(__file__).with_name("lan_mod_share.py")
 
@@ -72,6 +73,44 @@ class LanGuiAcceptanceSetupTest(unittest.TestCase):
         with patch.dict("os.environ", {"VCMI_LAN_TEST_START_MAP": "Maps/stale.h3m"}):
             env = acceptance_environment(self.base / "sandbox", self.base / "config")
         self.assertNotIn("VCMI_LAN_TEST_START_MAP", env)
+
+    def test_generated_gui_map_stays_off_the_owners_maps_directory(self):
+        owned_maps = self.owned / "Maps"
+        owned_maps.mkdir()
+        personal_map = owned_maps / "personal.h3m"
+        personal_map.write_bytes(b"owned original map")
+        workspace = self.base / "session"
+        user_data, config = stage_fixture(self.owned, workspace)
+        self.assertTrue((user_data / "Maps").is_symlink())
+
+        generated = workspace / "generated-map-cache" / "vcmi" / "Maps" / "LanThreeHumanStartMap.h3m"
+
+        def fake_map_test(command, **options):
+            self.assertIn("--gtest_filter=TinyH3MBuilderTest.ThreeHumanLanStartMap", command)
+            self.assertEqual(options["env"]["XDG_CACHE_HOME"],
+                             str(workspace / "generated-map-cache"))
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_bytes(b"synthetic three-human map")
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch("utils.lan_gui_acceptance.subprocess.run", side_effect=fake_map_test) as run_test:
+            resource = generate_synthetic_start_map(
+                self.base / "bin", user_data, workspace, acceptance_environment(workspace, config))
+        self.assertEqual(run_test.call_count, 1)
+        self.assertEqual(resource, "Maps/LanThreeHumanStartMap.h3m")
+        self.assertFalse((user_data / "Maps").is_symlink())
+        self.assertEqual((user_data / resource).read_bytes(), b"synthetic three-human map")
+        self.assertEqual(personal_map.read_bytes(), b"owned original map")
+        self.assertFalse((owned_maps / "LanThreeHumanStartMap.h3m").exists())
+
+    def test_generator_missing_map_rejects_gui_game_start(self):
+        workspace = self.base / "session"
+        user_data, config = stage_fixture(self.owned, workspace)
+        with patch("utils.lan_gui_acceptance.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0)):
+            with self.assertRaisesRegex(ValueError, "did not generate"):
+                generate_synthetic_start_map(
+                    self.base / "bin", user_data, workspace, acceptance_environment(workspace, config))
 
     def test_gui_acceptance_rejects_skips_even_on_green_gtest_exit(self):
         lobby = "LanModSyncTest.RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview"
