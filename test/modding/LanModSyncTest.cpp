@@ -5198,6 +5198,59 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				if(!firstHuman.empty() && !secondHuman.empty())
 					EXPECT_NE(firstHuman, secondHuman)
 						<< "Both LAN guests were assigned the same playable color";
+				// Both GUI guests must remain connected while the production server
+				// processes gameplay packets from its registered human host.
+				std::string mapName = fs::path(mapResource).filename().string();
+				std::transform(mapName.begin(), mapName.end(), mapName.begin(),
+					[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+				if(mapName == "lanthreehumanstartmap.h3m")
+				{
+					ASSERT_TRUE(host.ownedGameplayColor.has_value());
+					ASSERT_NE(host.activeGameState, nullptr);
+					network->getContext().restart();
+					const auto turnDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+					while(!host.notifiedGameplayTurns.contains(*host.ownedGameplayColor)
+						&& std::chrono::steady_clock::now() < turnDeadline)
+						network->getContext().run_one_for(std::chrono::milliseconds(50));
+					ASSERT_TRUE(host.notifiedGameplayTurns.contains(*host.ownedGameplayColor))
+						<< "Production server did not start the host turn with two GUI guests present";
+					const CGHeroInstance * hostHero = nullptr;
+					for(int heroIndex = 0; heroIndex < 3; ++heroIndex)
+					{
+						const auto * hero = host.activeGameState->getMap().getHero(HeroTypeID(heroIndex));
+						if(hero && hero->getOwner() == *host.ownedGameplayColor)
+							hostHero = hero;
+					}
+					ASSERT_NE(hostHero, nullptr);
+					const auto origin = hostHero->anchorPos();
+					const int3 destination(origin.x + 1, origin.y, origin.z);
+					MoveHero move({destination}, EPathfindingLayer::LAND, hostHero->id, false);
+					move.player = *host.ownedGameplayColor;
+					move.requestID = 2;
+					host.peer->sendPack(move);
+					network->getContext().restart();
+					const auto moveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+					while((!host.heroMoveAccepted.has_value() || !host.lastSuccessfulHeroDestination.has_value())
+						&& std::chrono::steady_clock::now() < moveDeadline)
+						network->getContext().run_one_for(std::chrono::milliseconds(50));
+					ASSERT_TRUE(host.heroMoveAccepted.has_value());
+					ASSERT_TRUE(host.heroMoveAccepted.value())
+						<< "Production server rejected host movement while both GUI guests were present";
+					ASSERT_TRUE(host.lastSuccessfulHeroDestination.has_value());
+					EXPECT_EQ(*host.lastSuccessfulHeroDestination, destination);
+
+					EndTurn finishTurn;
+					finishTurn.player = *host.ownedGameplayColor;
+					finishTurn.requestID = 1;
+					host.peer->sendPack(finishTurn);
+					network->getContext().restart();
+					const auto endDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+					while(!host.endTurnAccepted.has_value() && std::chrono::steady_clock::now() < endDeadline)
+						network->getContext().run_one_for(std::chrono::milliseconds(50));
+					ASSERT_TRUE(host.endTurnAccepted.has_value());
+					EXPECT_TRUE(host.endTurnAccepted.value())
+						<< "Production server rejected host end-turn while both GUI guests were present";
+				}
 				int firstStatus = 0;
 				int secondStatus = 0;
 				EXPECT_EQ(::waitpid(guiPid, &firstStatus, WNOHANG), 0)
