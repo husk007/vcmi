@@ -80,6 +80,31 @@ TEST(TinyH3MBuilderTest, TwoLevelMapHasTwoLayers)
 	EXPECT_EQ(header->mapLayers.size(), 2u);
 }
 
+TEST(TinyH3MBuilderTest, ThreeHumanLanStartMap)
+{
+	// Public LAN CI generates a map with three distinct playable slots.
+	// All objects and map bytes come from the test builder, not Heroes III assets.
+	auto bytes = TinyH3M::TinyH3MBuilder(EMapFormat::SOD)
+		.size(36, /*twoLevel*/ false)
+		.name("LanThreeHumanStartMap")
+		.playerActive(PlayerColor(0))
+		.playerActive(PlayerColor(1))
+		.playerActive(PlayerColor(2))
+		.randomTown({ 6,  6, 0}, PlayerColor(0))
+		.randomTown({18, 18, 0}, PlayerColor(1))
+		.randomTown({30, 30, 0}, PlayerColor(2))
+		.buildAndDump("LanThreeHumanStartMap");
+
+	auto header = loadHeader(bytes);
+	ASSERT_NE(header, nullptr);
+	EXPECT_EQ(std::count_if(header->players.begin(), header->players.end(),
+		[](const auto & player) { return player.canHumanPlay; }), 3);
+
+	auto loaded = loadMap(std::move(bytes));
+	ASSERT_NE(loaded.map, nullptr);
+	EXPECT_EQ(loaded.map->objects.size(), 3u);
+}
+
 TEST(TinyH3MBuilderTest, EmptyROEFullLoad)
 {
 	auto bytes = TinyH3M::TinyH3MBuilder(EMapFormat::ROE)

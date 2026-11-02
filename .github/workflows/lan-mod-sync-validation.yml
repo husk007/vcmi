@@ -185,6 +185,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Build an original, three-player map before the independent server
+          # starts. This exercises LobbyStartGame without requiring commercial maps.
+          mkdir -p "$RUNNER_TEMP/lan-map-cache" "$HOME/.local/share/vcmi/Maps"
+          XDG_CACHE_HOME="$RUNNER_TEMP/lan-map-cache" ./vcmitest \
+            --gtest_filter='TinyH3MBuilderTest.ThreeHumanLanStartMap' --gtest_color=no
+          map_file="$(find "$RUNNER_TEMP/lan-map-cache" -type f -name 'LanThreeHumanStartMap.h3m' -print -quit)"
+          test -n "$map_file" && test -s "$map_file"
+          cp "$map_file" "$HOME/.local/share/vcmi/Maps/LanThreeHumanStartMap.h3m"
+          export VCMI_LAN_TEST_START_MAP="MAPS/LANTHREEHUMANSTARTMAP.H3M"
           port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
           XDG_CONFIG_HOME="$RUNNER_TEMP/lan-host-config" ./vcmiserver --port "$port" > "$RUNNER_TEMP/lan-real-host.log" 2>&1 &
           host_pid=$!
