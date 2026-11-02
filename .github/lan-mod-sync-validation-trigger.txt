@@ -1,2 +1,2 @@
-Checkpoint: 0274e557c753ca4bebbf99f44ee48d81694ba550
-Reason: CI #41494462192 passed the independent vcmiserver three-peer EndTurn broadcast. Validate that all three LAN players finish their first turns and all connections receive NewTurn for day two.
+Checkpoint: 0e13f6b7d01ee6bd6eadf47ee3f6c5cab774efcf
+Reason: CI #41523810405 passed full build and 104/104 LAN tests. Validate a real MoveHero request from the relaunched mod-sync guest and the resulting successful movement broadcast to host and both guests, before the three-player round advances to day two.
