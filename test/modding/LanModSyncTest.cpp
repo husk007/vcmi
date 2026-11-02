@@ -3663,6 +3663,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool joined = false;
 		bool receivedStartPreparation = false;
 		bool receivedInitializedStart = false;
+		std::set<std::string> initializedHumanPlayers;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3693,6 +3694,13 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * started = dynamic_cast<LobbyStartGame *>(packet.get()))
 			{
 				receivedInitializedStart = started->initializedStartInfo && started->initializedGameState;
+				if(receivedInitializedStart)
+				{
+					initializedHumanPlayers.clear();
+					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
+						if(player.isControlledByHuman())
+							initializedHumanPlayers.insert(player.name);
+				}
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
