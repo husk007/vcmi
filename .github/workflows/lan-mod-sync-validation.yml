@@ -192,10 +192,19 @@ jobs:
                 [ -e "$mod" ] || continue
                 ln -s "$mod" "$host_data/Mods/$(basename "$mod")"
               done
+            elif [ "$(basename "$item")" = lan-mod-shares ]; then
+              # Host LAN archive offers reject symlinked directories and ZIPs.
+              cp -a "$item" "$host_data/lan-mod-shares"
             else
               ln -s "$item" "$host_data/$(basename "$item")"
             fi
           done
+          test -d "$host_data/lan-mod-shares"
+          test ! -L "$host_data/lan-mod-shares"
+          test -f "$host_data/lan-mod-shares/lan-ci-fixture.zip"
+          test ! -L "$host_data/lan-mod-shares/lan-ci-fixture.zip"
+          test -f "$host_data/lan-mod-shares/lan-ci-extra.zip"
+          test ! -L "$host_data/lan-mod-shares/lan-ci-extra.zip"
           test -f out/build/linux-gcc-test/bin/test/testdata/vcmi-test/mod.json
           cp -a out/build/linux-gcc-test/bin/test/testdata/vcmi-test "$host_data/Mods/vcmi-test"
           python3 - <<'PY'
