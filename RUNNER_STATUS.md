@@ -1,6 +1,6 @@
 # VCMI Hourly Runner — current state
 
-**Last management review:** 2026-11-02, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
+**Last management review:** 2026-11-03, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
 
 ## Configuration
 
@@ -14,13 +14,13 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41504853246](https://github.com/husk007/vcmi/actions/runs/41504853246) passed on `c39dfe1`: full Linux client/server/vcmitest build and 104/104 LAN tests, including a three-player headless round advancing to day two. GUI gameplay not tested. | BUILD_PASS / TEST_PASS (validated commit) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41540778437](https://github.com/husk007/vcmi/actions/runs/41540778437) passed on `82f8e56`: full Linux client/server/vcmitest build and 104/104 LAN tests, including headless movement broadcast to three peers. GUI gameplay not tested. | BUILD_PASS / TEST_PASS (validated commit) |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
 | M1 host preview / capability negotiation | Existing opt-in UDP/TCP host manifest, legacy fallback and cache labels passed previous CI. LAN room preview now labels the individual installed-only mod activations/deactivations (pending the next CI), not just their totals. The opt-in host preview now reports whether lobby accepts players and blocks stale joins; CI #40976444839 passed. A rejected automatic post-relaunch join now immediately restores the original preset and exits the stale join UI (new change awaits CI). Host ZIP transfer and staging are already implemented under M4. | CODE_ONLY (new busy gate); TEST_PASS (previous) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41344249608 passed 103/103 real vcmitest tests including live host refresh: unchanged archive stays a cache hit; changed SHA-256 transfers only the modified root. GUI reuse still untested. | TEST_PASS (headless) |
 | M4 host-to-guest transfer | [CI #41290727321](https://github.com/husk007/vcmi/actions/runs/41290727321) passed on `d5a4127`: production server serves two active mod roots (including an active submod) to two guests, supports SHA-256-verified cache reuse, and restores temporary presets; 102 tests passed. One-command publisher-to-client integration passed CI #41294799985. Linux launcher XDG config/data alignment passed CI #41303434591. Licensed-data GUI play remains untested. First-use trust dialog identifies root mods, enabled submods, versions and archive digests; CI #41323542905 passed. The host launcher refreshes modified active-root ZIPs automatically; CI #41334098057 and #41344249608 passed. First-use trust and ZIP staging are covered by earlier tests. | BUILD_PASS / TEST_PASS (prior) |
-| M5 two-client LAN acceptance | [CI #41504853246](https://github.com/husk007/vcmi/actions/runs/41504853246) passed real headless `vcmiserver` gameplay: three registered players ended their turns and all received day two. The new GUI acceptance harness generates an original three-human map without touching owned Maps; [CI #41523810405](https://github.com/husk007/vcmi/actions/runs/41523810405) is pending. Two licensed-data GUI clients playing a match remain unproven. | TEST_PASS (headless); CODE_ONLY (GUI harness) |
+| M5 two-client LAN acceptance | [CI #41540778437](https://github.com/husk007/vcmi/actions/runs/41540778437) passed 104/104: headless movement, broadcasts and full round. GUI harness generates an isolated map. New two-GUI host move/EndTurn scenario awaits [CI #41548405914](https://github.com/husk007/vcmi/actions/runs/41548405914); licensed-data GUI play remains unproven. | TEST_PASS (headless); CODE_ONLY (GUI harness) |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
 ## Specific recurring blocker — resolved as an execution dead end
@@ -31,7 +31,7 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Review CI #41523810405 for the generated GUI map fixture and full build/test results; fix only a demonstrated failure.
+1. Check CI #41548405914 for a real C++ build of two-GUI host MoveHero/EndTurn coverage; fix actual failures.
 2. Run `utils/lan_gui_acceptance.py` with owned Heroes III data; verify two GUI guests start on the generated map, then complete play/disconnect, cache-only rejoin and exact preset restoration.
 
 ## Evidence/reporting discipline
