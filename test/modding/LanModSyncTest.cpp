@@ -4227,8 +4227,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				&& std::string(requiredMod) == "lan-ci-fixture"
 				&& std::string(secondMod) == "lan-ci-extra")
 			{
-				const fs::path share = fs::path(VCMIDirs::get().userDataPath().native())
-					/ "lan-mod-shares" / (std::string(requiredMod) + ".zip");
+				const char * configuredShareDirectory = std::getenv("VCMI_LAN_TEST_HOST_SHARE_DIR");
+				const fs::path hostShareDirectory = configuredShareDirectory && *configuredShareDirectory
+					? fs::path(configuredShareDirectory)
+					: fs::path(VCMIDirs::get().userDataPath().native()) / "lan-mod-shares";
+				const fs::path share = hostShareDirectory / (std::string(requiredMod) + ".zip");
 				const fs::path originalCopy = isolated / "host-original.zip";
 				const fs::path replacement = share.parent_path()
 					/ (std::string(requiredMod) + "-lan-test-" + LanRelaunchToken::generate() + ".zip");

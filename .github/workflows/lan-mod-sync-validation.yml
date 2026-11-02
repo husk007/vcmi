@@ -250,6 +250,7 @@ jobs:
           export VCMI_LAN_TEST_SECOND_SUBMOD="lan-ci-extra.units"
           # Also verify selective retransfer of a republished host ZIP in this disposable fixture.
           export VCMI_LAN_TEST_SHARE_REFRESH="1"
+          export VCMI_LAN_TEST_HOST_SHARE_DIR="$RUNNER_TEMP/lan-host-data/vcmi/lan-mod-shares"
           # The public vcmi-test-data fixture has no complete Heroes III GUI sprites.
           # The previous graphical client smoke test reached CRADVNTR and exited
           # before attempting LAN rejoin. Do not report that as an M2 code failure.
