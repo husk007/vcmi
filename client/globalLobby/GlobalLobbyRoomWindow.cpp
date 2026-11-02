@@ -56,12 +56,12 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 
 	OBJECT_CONSTRUCTION;
 	pos.w = 200;
-	pos.h = 52;
+	pos.h = 64;
 	backgroundOverlay = std::make_shared<TransparentFilledRectangle>(Rect(0, 0, pos.w, pos.h), ColorRGBA(0, 0, 0, 128), ColorRGBA(64, 64, 64, 64), 1);
 
-	labelName = std::make_shared<CLabel>(5, 9, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
-	labelModId = std::make_shared<CLabel>(5, 26, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, modInfo.modId, 120);
-	labelVersion = std::make_shared<CLabel>(195, 26, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
+	labelName = std::make_shared<CLabel>(5, 6, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
+	labelModId = std::make_shared<CLabel>(5, 22, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, modInfo.modId, 120);
+	labelVersion = std::make_shared<CLabel>(195, 22, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
 	auto statusColor = Colors::RED;
 	if(modInfo.status == ModVerificationStatus::FULL_MATCH)
 		statusColor = ColorRGBA(128, 128, 128);
@@ -70,9 +70,10 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 	std::string statusText = LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status));
 	if(!modInfo.archiveStatusTextId.empty())
 		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.archiveStatusTextId);
+	labelStatus = std::make_shared<CLabel>(5, 39, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, statusText, 190);
 	if(!modInfo.lanActionTextId.empty())
-		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.lanActionTextId);
-	labelStatus = std::make_shared<CLabel>(5, 43, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, statusText);
+		labelAction = std::make_shared<CLabel>(5, 52, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate(modInfo.lanActionTextId), 190);
 }
 
 static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescription, const std::vector<GlobalLobbyRoomModInfo> & modVerificationList)
@@ -342,7 +343,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	};
 
 	modListBackground = std::make_shared<TransparentFilledRectangle>(Rect(178, 48, 220, 340), ColorRGBA(0, 0, 0, 64), ColorRGBA(64, 80, 128, 255), 1);
-	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 52), 6, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
+	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 64), 5, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 

@@ -52,6 +52,7 @@ class GlobalLobbyRoomModCard : public CIntObject
 	std::shared_ptr<CLabel> labelName;
 	std::shared_ptr<CLabel> labelModId;
 	std::shared_ptr<CLabel> labelStatus;
+	std::shared_ptr<CLabel> labelAction;
 	std::shared_ptr<CLabel> labelVersion;
 
 public:
