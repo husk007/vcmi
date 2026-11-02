@@ -3688,6 +3688,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::set<ui32> observedGameplayDays;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
+		std::optional<bool> heroMoveAccepted;
+		std::optional<int3> lastSuccessfulHeroDestination;
 		std::vector<std::string> observedGuestNames;
 
 		void onConnectionFailed(const std::string & reason) override { error = reason; }
@@ -3752,10 +3754,21 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				completedGameplayTurns.insert(ended->player);
 				return;
 			}
+			if(const auto * moved = dynamic_cast<TryMoveHero *>(packet.get()))
+			{
+				if(moved->result == TryMoveHero::SUCCESS)
+					lastSuccessfulHeroDestination = moved->end;
+				return;
+			}
 			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
 			{
-				if(applied->requestID == 1 && ownedGameplayColor && applied->player == *ownedGameplayColor)
-					endTurnAccepted = applied->result;
+				if(ownedGameplayColor && applied->player == *ownedGameplayColor)
+				{
+					if(applied->requestID == 1)
+						endTurnAccepted = applied->result;
+					else if(applied->requestID == 2)
+						heroMoveAccepted = applied->result;
+				}
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -3936,6 +3949,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		std::set<ui32> observedGameplayDays;
 		std::optional<PlayerColor> ownedGameplayColor;
 		std::optional<bool> endTurnAccepted;
+		std::optional<bool> heroMoveAccepted;
+		std::optional<int3> lastSuccessfulHeroDestination;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -4012,10 +4027,21 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				completedGameplayTurns.insert(ended->player);
 				return;
 			}
+			if(const auto * moved = dynamic_cast<TryMoveHero *>(packet.get()))
+			{
+				if(moved->result == TryMoveHero::SUCCESS)
+					lastSuccessfulHeroDestination = moved->end;
+				return;
+			}
 			if(const auto * applied = dynamic_cast<PackageApplied *>(packet.get()))
 			{
-				if(applied->requestID == 1 && ownedGameplayColor && applied->player == *ownedGameplayColor)
-					endTurnAccepted = applied->result;
+				if(ownedGameplayColor && applied->player == *ownedGameplayColor)
+				{
+					if(applied->requestID == 1)
+						endTurnAccepted = applied->result;
+					else if(applied->requestID == 2)
+						heroMoveAccepted = applied->result;
+				}
 				return;
 			}
 			if(const auto * accepted = dynamic_cast<LobbyClientConnected *>(packet.get()))
@@ -4663,9 +4689,15 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			ASSERT_EQ(ownedPlayers.size(), players.size())
 				<< "The three LAN connections must own different player colors";
 
+			std::string mapFilename = std::filesystem::path(mapResource).filename().string();
+			std::transform(mapFilename.begin(), mapFilename.end(), mapFilename.begin(),
+				[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+			const bool generatedThreeHumanMap = mapFilename == "lanthreehumanstartmap.h3m";
+
 			// Finish a complete human round through three independent connections.
 			// Player turns may become available sequentially or simultaneously.
 			std::set<PlayerColor> endedPlayers;
+			bool guestHeroMoved = false;
 			for(std::size_t turnIndex = 0; turnIndex < players.size(); ++turnIndex)
 			{
 				network->getContext().restart();
@@ -4685,6 +4717,40 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				ASSERT_NE(activeClient, players.end())
 					<< "Production server never granted a gameplay turn to the remaining LAN player";
 				ASSERT_FALSE(activeClient->appliedResult->has_value());
+				// The guest which activated the host's disabled mod must also be able
+				// to execute a real hero action, not only acknowledge a turn.
+				// The generated CI map has an unobstructed tile east of each hero.
+				if(generatedThreeHumanMap && activeClient->peer == resumedConnection.peer.get())
+				{
+					const CGHeroInstance * selectedHero = nullptr;
+					for(int heroIndex = 0; heroIndex < 3; ++heroIndex)
+					{
+						const auto * candidate = resumedConnection.activeGameState->getMap().getHero(HeroTypeID(heroIndex));
+						if(candidate && candidate->getOwner() == *activeClient->ownColor)
+							selectedHero = candidate;
+					}
+					ASSERT_NE(selectedHero, nullptr);
+					const auto origin = selectedHero->anchorPos();
+					const int3 destination(origin.x + 1, origin.y, origin.z);
+					MoveHero move({destination}, EPathfindingLayer::LAND, selectedHero->id, false);
+					move.player = *activeClient->ownColor;
+					move.requestID = 2;
+					activeClient->peer->sendPack(move);
+					network->getContext().restart();
+					const auto moveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+					while((!resumedConnection.heroMoveAccepted.has_value()
+						|| !resumedConnection.lastSuccessfulHeroDestination.has_value())
+						&& std::chrono::steady_clock::now() < moveDeadline)
+						network->getContext().run_one_for(std::chrono::milliseconds(50));
+					ASSERT_TRUE(resumedConnection.heroMoveAccepted.has_value())
+						<< "Production server never acknowledged the prepared guest's hero move";
+					ASSERT_TRUE(resumedConnection.heroMoveAccepted.value())
+						<< "Production server rejected the prepared guest's hero move";
+					ASSERT_TRUE(resumedConnection.lastSuccessfulHeroDestination.has_value())
+						<< "Prepared guest did not receive its successful hero movement packet";
+					EXPECT_EQ(*resumedConnection.lastSuccessfulHeroDestination, destination);
+					guestHeroMoved = true;
+				}
 				EndTurn finishTurn;
 				finishTurn.player = *activeClient->ownColor;
 				finishTurn.requestID = 1;
@@ -4713,6 +4779,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					<< "Second LAN guest missed a completed turn";
 				endedPlayers.insert(finishTurn.player);
 			}
+			if(generatedThreeHumanMap)
+				EXPECT_TRUE(guestHeroMoved) << "Prepared LAN guest never completed a hero move";
 			EXPECT_EQ(endedPlayers, ownedPlayers)
 				<< "Not every human player completed their first gameplay turn";
 
