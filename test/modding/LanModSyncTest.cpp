@@ -4511,10 +4511,13 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				<< "Second LAN guest did not receive the initialized game state";
 			const std::set<std::string> expectedHumans = {
 				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
-			for(const auto * participant : {&host, &resumedConnection, &concurrentPlayer})
+			// HostClient and JoinGuest are different types, but both expose the
+			// same set of human player names received from LobbyStartGame.
+			for(const auto * playerNames : {&host.initializedHumanPlayers,
+				&resumedConnection.initializedHumanPlayers, &concurrentPlayer.initializedHumanPlayers})
 			{
 				for(const auto & name : expectedHumans)
-					EXPECT_TRUE(participant->initializedHumanPlayers.contains(name))
+					EXPECT_TRUE(playerNames->contains(name))
 						<< "Initialized multiplayer game did not assign a human slot to " << name;
 			}
 			concurrentPlayer.connection->close();
