@@ -52,6 +52,7 @@
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/ModScope.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/StartInfo.h"
 #include "../../lib/mapping/CMapInfo.h"
 #include "../../lib/VCMIDirs.h"
 #include "../../lib/ScopeGuard.h"
@@ -3864,6 +3865,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		bool joined = false;
 		bool receivedStartPreparation = false;
 		bool receivedInitializedStart = false;
+		std::set<std::string> initializedHumanPlayers;
 		bool archiveOnly = false;
 		std::size_t otherJoinNotifications = 0;
 		std::string uuid = "00000000-0000-4000-8000-000000000002";
@@ -3901,6 +3903,13 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			if(const auto * started = dynamic_cast<LobbyStartGame *>(packet.get()))
 			{
 				receivedInitializedStart = started->initializedStartInfo && started->initializedGameState;
+				if(receivedInitializedStart)
+				{
+					initializedHumanPlayers.clear();
+					for(const auto & [color, player] : started->initializedStartInfo->playerInfos)
+						if(player.isControlledByHuman())
+							initializedHumanPlayers.insert(player.name);
+				}
 				return;
 			}
 			if(const auto * chunk = dynamic_cast<LobbyLanModArchiveChunk *>(packet.get()))
@@ -4484,6 +4493,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			LobbySetMap selectMap;
 			selectMap.mapInfo = chosenMap;
 			host.peer->sendPack(selectMap);
+			// The real client prepares the selected map before starting gameplay.
+			LobbyPrepareStartGame prepareSelectedMap;
+			host.peer->sendPack(prepareSelectedMap);
 			LobbyStartGame start;
 			host.peer->sendPack(start);
 			const auto startDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -4497,6 +4509,14 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				<< "Prepared LAN guest did not receive the initialized game state";
 			EXPECT_TRUE(concurrentPlayer.receivedInitializedStart)
 				<< "Second LAN guest did not receive the initialized game state";
+			const std::set<std::string> expectedHumans = {
+				"LAN integration host", "LAN integration guest", "LAN concurrent guest"};
+			for(const auto * participant : {&host, &resumedConnection, &concurrentPlayer})
+			{
+				for(const auto & name : expectedHumans)
+					EXPECT_TRUE(participant->initializedHumanPlayers.contains(name))
+						<< "Initialized multiplayer game did not assign a human slot to " << name;
+			}
 			concurrentPlayer.connection->close();
 			resumedConnection.connection->close();
 			relaunchedGuest.restoreLanSession();
