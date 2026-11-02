@@ -231,6 +231,14 @@ jobs:
           map_file="$(find "$RUNNER_TEMP/lan-map-cache" -type f -name 'LanThreeHumanStartMap.h3m' -print -quit)"
           test -n "$map_file" && test -s "$map_file"
           cp "$map_file" "$HOME/.local/share/vcmi/Maps/LanThreeHumanStartMap.h3m"
+          # Host data was isolated before this map was generated. Its XDG_DATA_HOME
+          # must contain the same map or vcmiserver cannot resolve LobbySetMap.
+          host_maps="$RUNNER_TEMP/lan-host-data/vcmi/Maps"
+          mkdir -p "$host_maps"
+          if [ ! -e "$host_maps/LanThreeHumanStartMap.h3m" ]; then
+            cp "$map_file" "$host_maps/LanThreeHumanStartMap.h3m"
+          fi
+          test -s "$host_maps/LanThreeHumanStartMap.h3m"
           export VCMI_LAN_TEST_START_MAP="MAPS/LANTHREEHUMANSTARTMAP.H3M"
           port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
           XDG_DATA_HOME="$RUNNER_TEMP/lan-host-data" XDG_CONFIG_HOME="$RUNNER_TEMP/lan-host-config" \
