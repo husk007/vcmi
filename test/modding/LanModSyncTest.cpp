@@ -4749,6 +4749,19 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					ASSERT_TRUE(resumedConnection.lastSuccessfulHeroDestination.has_value())
 						<< "Prepared guest did not receive its successful hero movement packet";
 					EXPECT_EQ(*resumedConnection.lastSuccessfulHeroDestination, destination);
+					// Gameplay movement must reach every connected player, not just its initiator.
+					network->getContext().restart();
+					const auto movementBroadcastDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+					while((!host.lastSuccessfulHeroDestination.has_value()
+						|| !concurrentPlayer.lastSuccessfulHeroDestination.has_value())
+						&& std::chrono::steady_clock::now() < movementBroadcastDeadline)
+						network->getContext().run_one_for(std::chrono::milliseconds(50));
+					ASSERT_TRUE(host.lastSuccessfulHeroDestination.has_value())
+						<< "Host never received the prepared guest's successful hero movement";
+					ASSERT_TRUE(concurrentPlayer.lastSuccessfulHeroDestination.has_value())
+						<< "Second LAN guest never received the prepared guest's successful hero movement";
+					EXPECT_EQ(*host.lastSuccessfulHeroDestination, destination);
+					EXPECT_EQ(*concurrentPlayer.lastSuccessfulHeroDestination, destination);
 					guestHeroMoved = true;
 				}
 				EndTurn finishTurn;
