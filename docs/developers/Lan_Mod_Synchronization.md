@@ -13,7 +13,19 @@ Allow guests to join a LAN game with the host's gameplay mod set without manuall
 - `lib/modding/ModManager.cpp`: preset export/import and activation, with the per-user `modSettings.json` configuration.
 - `launcher/modManager/modstatecontroller.cpp`: archive installation and existing mod validation logic.
 
-The first code milestone adds a reusable `ModSyncPlan` and `LanModSessionState`. They are not yet connected to the lobby or file-transfer implementation.
+## Implementation status
+
+The opt-in path is implemented from discovery to rejoin and covered by the headless `LanModSyncTest.*` suite in `test/modding/`. No LAN match with graphical clients and licensed Heroes III data has been run, so the feature is not release-ready. The evidence gates are in `ROADMAP.md`.
+
+| Step | Code |
+| --- | --- |
+| Capability negotiation | UDP probe `VCMI_DISCOVERY;lanModSync=preview` in `lib/network/NetworkDiscoveryProtocol.h`; legacy hosts and clients keep the unchanged probe and reply |
+| Preview with manifest | `LobbyQueryModSync` and `LobbyModSyncPreview` in `lib/networkPacks/PacksForLobby.h` |
+| Archive transfer | `LobbyQueryLanModArchiveChunk` and `LobbyLanModArchiveChunk`, served by `LanHostArchiveTransfer` to registered guests only |
+| Verified cache and staging | `ModArchiveDigest`, `LanModArchiveCache`, `LanModPackageStage` |
+| Temporary preset and recovery | `ModsPresetState`, `AtomicModSettings`, `LanModRecoveryJournal` |
+| Relaunch and rejoin | `--lan-relaunch-token`, `LanRelaunchProcess`, `LanRejoinTarget` |
+| Host publishing | `utils/lan_mod_share.py` writes archives to `userData/lan-mod-shares/` |
 
 ## Proposed session lifecycle
 
@@ -52,28 +64,31 @@ Do not reuse an archive merely because its name or declared version matches. Ver
 
 On a second match with unchanged host content, the expected transfer size is zero. On a changed mod release, transfer only affected packages, not the entire mod library. The user can later explicitly clear cached packages; leaving multiplayer does not delete them.
 
-The current `ModSyncPlan::buildSyncPlan` consumes two maps: expected archive SHA-256 values from the host and *already verified* cached SHA-256 values. The integrity verifier, persistent storage, and network transfer are separate upcoming implementations.
+`ModSyncPlan::buildSyncPlan` consumes two maps: expected archive SHA-256 values from the host and *already verified* cached SHA-256 values.
+
+A cache entry is stored as `userData/lan-mod-archives/<SHA-256 of root mod ID>/<archive SHA-256>.zip` and is rehashed before each use. `LanModPackageStage` extracts a verified archive into `userData/lan-mod-staged/`. A staged root is mounted only on a controlled relaunch, and only when that root mod is not installed locally. A partial download is written to `userCachePath()/lan-mod-incoming/` and removed after verification or failure.
+
+The host hashes each shared archive once per change of size or modification time. Every lobby preview lists all shared archives, so rehashing them for each request would stall the server network thread.
 
 ## Preset isolation and exact rollback
 
 `LanModSessionState::begin` clones the complete current preset into a reserved `__vcmi_lan_session` preset and stores `lanSession.originalPresetName` and `lanSession.originalPreset`. This retains disabled submods as well as enabled mods, and preserves the user's other presets. `restore` reinstates the original preset and its settings and removes the temporary preset.
 
-The helper is currently available through `ModsPresetState` / `ModManager`. The implementation now supports a **one-shot controlled relaunch marker**:
+The helper is available through `ModsPresetState` / `ModManager`. Joining with a changed mod set uses a **one-shot controlled relaunch marker**:
 
-- When a LAN session is active, the future launcher will generate an unpredictable local token, call `ModManager::prepareControlledRelaunch(token)` and only restart after the settings file has been written atomically.
-- The desktop client now accepts a one-shot `--lan-relaunch-token` argument. `EntryPoint.cpp` forwards it through `GameLibrary::initializeFilesystem`, `CModHandler`, and the `ModManager` constructor. An exact match consumes the marker on disk while keeping the temporary preset and original recovery snapshot.
-- A missing or mismatched token restores the original preset. If the client crashes after consuming a valid token, the next startup also restores automatically. Corrupt session snapshots raise an error rather than discarding recovery data.
-- The default constructor arguments supply no token, so existing clients retain safe interrupted-session restoration behavior.
-- Startup token propagation is implemented, but automatic token creation, passing it to a spawned process, controlled process restart, and rejoining the original LAN room are **not yet implemented**. The new CLI option does not by itself start or resume a multiplayer game.
+- `CModHandler::requestLanRelaunch` flags the relaunch while the temporary preset is active. On shutdown, after the game released its resources, `EntryPoint.cpp` calls `CModHandler::prepareControlledLanRelaunch`. It generates the token with `LanRelaunchToken::generate` and writes the marker atomically through `ModManager::prepareControlledRelaunch`. Only then `LanRelaunchProcess::spawnWithRollback` starts the replacement process with `--lan-relaunch-token`. If either step fails, the original preset is restored.
+- The token is forwarded through `GameLibrary::initializeFilesystem`, `CModHandler`, and the `ModManager` constructor. An exact match consumes the marker on disk while keeping the temporary preset and the original recovery snapshot, and the client opens the lobby of the stored `LanRejoinTarget`.
+- A missing or mismatched token restores the original preset. If the client crashes after consuming a valid token, the next startup also restores automatically. A corrupt session snapshot raises an error instead of discarding recovery data.
+- Under AppImage, the relaunch starts the original image instead of the temporary mount.
+- Leaving the session restores the original preset. On desktop, `requestLanRestoreRelaunch` then starts a client without a token so the personal mods load again.
+- `LanRelaunchProcess` is compiled out under `VCMI_MOBILE`. Mobile builds do not offer host-mod preparation in the preview, and a restored preset asks the player to restart manually.
+- The default constructor arguments supply no token, so clients without the feature keep interrupted-session restoration.
 
-Before enabling it in production:
+Open items:
 
-- Make the journal write crash-safe (write temporary file, fsync when supported, atomically replace).
-- Handle normal disconnect, host dropout, user cancellation, client crash, and restart recovery separately.
-- Generate a cryptographically unpredictable one-shot token when the client prepares a restart, persist it through `ModManager::prepareControlledRelaunch`, and propagate it to the next client process. Ensure process relaunch and room rejoin only proceed after durable writes.
-- If personal and host mod versions differ, keep the original personal version side by side; never overwrite it.
-- Restore the original preset **only after** the session has ended, then reload engine resources if necessary.
-- Treat an invalid journal as recoverable user data. Preserve a backup and present an actionable error instead of deleting it.
+- Run a real two-client match with licensed game data, including host disconnect and crash recovery.
+- Verify Windows. Android has no relaunch path.
+- Keep the original personal version side by side when personal and host mod versions differ; never overwrite it. The staging tree is separate from `userData/Mods`, and the mount is refused for an installed root.
 
 ## Security and legal constraints
 

@@ -13,7 +13,7 @@ The hourly task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUN
 ### M0 — Real build and regression evidence (highest-priority parallel gate)
 
 - [x] Add a narrowly triggered GitHub Actions workflow for a real Linux VCMI build and committed LAN tests: `.github/workflows/lan-mod-sync-validation.yml`.
-- [x] Obtain a real `vcmitest` build and execute `LanModSyncTest.*`: [CI run #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539) passed **71/71 tests** on commit `a1e2bf2e70eb9ac2636091c8baf6d1926087a374` after correcting the runtime data setup. The wider client build is a separate gate.
+- [x] Obtain a real `vcmitest` build and execute `LanModSyncTest.*`: [CI run #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539) passed **71/71 tests** on commit `a1e2bf2e70eb9ac2636091c8baf6d1926087a374` after correcting the runtime data setup. The wider client build is a separate gate. Latest completed run: [CI #41568986427](https://github.com/husk007/vcmi/actions/runs/41568986427) passed **104/104** on `7d67416` with the full Linux client/server/`vcmitest` build.
 - [ ] If GitHub Actions is disabled or quota-blocked on this fork, record the blocker once and ask for the **specific** enablement action; do not replay the same failed DNS probe every hour. Continue M1–M3 with source-level validation and explicitly keep M0 open.
 - [ ] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup.
 
@@ -67,14 +67,14 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 
 ### L0 — Compatibility, cache decisions, and reversible preset foundation — PARTIAL
 
-Source helpers and tests have been added, but this milestone remains unverified until the full build and real test suite succeed. Several crash-restore and cache helpers are now implemented beyond the initial draft. Do not repeat hardening without a failing validation or a dependency on M1–M4.
+The helpers and their tests compile and pass in the real `vcmitest` build (see M0). The open items below need a real client session. Do not repeat hardening without a failing validation or a dependency on M1–M4.
 
 - [x] Reuse `ModVerificationInfo::verifyListAgainstLocalMods` and existing `LobbyModsCheck` metadata.
 - [x] Add a pure `ModSyncPlan` for missing, disabled, excessive, and version-mismatched mods.
 - [x] Plan reuse of a previously verified cached archive when its SHA-256 matches the host manifest.
 - [x] Add a LAN-only preset snapshot helper retaining the original active preset and submod settings.
 - [x] Add targeted unit tests for both behaviors.
-- [ ] Verify compilation and run `vcmitest` on a compatible Linux build.
+- [x] Verify compilation and run `vcmitest` on a compatible Linux build: see M0, CI #41568986427.
 - [ ] Persist LAN session journal with crash-safe atomic writes and recovery semantics.
 - [ ] Complete guest lifecycle integration. Restore/cancellation hooks already exist in source, but actual host-selected mod activation and automatic LAN rejoin are not wired or validated in a real client.
 
