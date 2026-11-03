@@ -1,2 +1,2 @@
-Checkpoint: 29e2f571c39662082a847c20fd10ca20ee9295a6
-Reason: compile and validate real VCMI LAN tests after M5's two-GUI gameplay acceptance gains host-disconnect restoration checks. The scripted GUI branch needs owner-provided Heroes III data; CI can compile but cannot claim LAN_PASS. Prior CI #41568986427 passed full Linux VCMI build and 104/104 LanModSyncTest.*.
+Checkpoint: d563c443fefb942103eaecec79ba401c8e59adc3
+Reason: M1 real TCP registration must reject a fourth legacy guest after three human map slots are filled, while preserving archive-only connections and the original players. Verify the new production vcmiserver regression alongside the complete VCMI desktop build. Previous CI #41574744788 passed full Linux compilation and 104/104 LanModSyncTest.* on 3f10869.
