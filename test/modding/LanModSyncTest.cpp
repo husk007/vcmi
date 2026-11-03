@@ -4593,6 +4593,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	const auto * twoGuestLobby = dynamic_cast<LobbyModSyncPreview *>(simultaneousPlayers.response.get());
 	ASSERT_NE(twoGuestLobby, nullptr);
 	EXPECT_TRUE(twoGuestLobby->acceptingPlayers);
+	EXPECT_EQ(twoGuestLobby->humanPlayerSlots, 0U) << "Unknown map capacity must not appear as eight confirmed LAN slots";
 	EXPECT_EQ(twoGuestLobby->participantNames.size(), 3);
 	for(const auto & name : {"LAN integration host", "LAN integration guest", "LAN concurrent guest"})
 		EXPECT_EQ(std::count(twoGuestLobby->participantNames.begin(), twoGuestLobby->participantNames.end(), name), 1)
