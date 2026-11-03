@@ -4623,6 +4623,26 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			LobbySetMap selectMap;
 			selectMap.mapInfo = chosenMap;
 			host.peer->sendPack(selectMap);
+			network->getContext().restart();
+			network->getContext().run_for(std::chrono::milliseconds(500));
+			// A populated three-human map is full with the host and two guests.
+			// Opt-in preview must reject a fourth player; legacy wire replies stay intact.
+			PreviewGuest legacyAtCapacity(false);
+			PreviewGuest optInAtCapacity(true);
+			network->getContext().restart();
+			network->connectToRemote(legacyAtCapacity, "127.0.0.1", static_cast<std::uint16_t>(port));
+			network->connectToRemote(optInAtCapacity, "127.0.0.1", static_cast<std::uint16_t>(port));
+			network->getContext().run_for(std::chrono::seconds(4));
+			ASSERT_TRUE(legacyAtCapacity.error.empty()) << legacyAtCapacity.error;
+			ASSERT_TRUE(optInAtCapacity.error.empty()) << optInAtCapacity.error;
+			ASSERT_NE(dynamic_cast<LobbyModsCheck *>(legacyAtCapacity.response.get()), nullptr);
+			EXPECT_EQ(dynamic_cast<LobbyModSyncPreview *>(legacyAtCapacity.response.get()), nullptr);
+			const auto * occupied = dynamic_cast<LobbyModSyncPreview *>(optInAtCapacity.response.get());
+			ASSERT_NE(occupied, nullptr);
+			EXPECT_EQ(occupied->acceptingPlayers, chosenMap->amountOfHumanControllablePlayers > 3)
+				<< "LAN preview must reflect human player slots in the selected map";
+			legacyAtCapacity.connection->close();
+			optInAtCapacity.connection->close();
 			// The real client prepares the selected map before starting gameplay.
 			LobbyPrepareStartGame prepareSelectedMap;
 			host.peer->sendPack(prepareSelectedMap);

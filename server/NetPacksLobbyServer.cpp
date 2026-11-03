@@ -117,6 +117,14 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 		LobbyModSyncPreview preview;
 		static_cast<LobbyModsCheck &>(preview) = std::move(lms);
 		preview.acceptingPlayers = srv.getState() == EServerState::LOBBY;
+		if(preview.acceptingPlayers && !srv.si->playerInfos.empty())
+		{
+			// Once a map is selected, only unassigned human-playable slots can
+			// accept another LAN participant. Keep the legacy reply unchanged.
+			const auto playableSlots = std::count_if(srv.si->playerInfos.begin(), srv.si->playerInfos.end(),
+				[](const auto & entry){ return !entry.second.compOnly; });
+			preview.acceptingPlayers = srv.playerNames.size() < static_cast<std::size_t>(playableSlots);
+		}
 		preview.archives = ModVerificationInfo::buildHostArchiveManifest(
 			preview.mods, std::filesystem::path(VCMIDirs::get().userDataPath().native()));
 		connection->sendPack(preview);
