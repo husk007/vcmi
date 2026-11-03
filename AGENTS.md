@@ -284,4 +284,10 @@ This fork executes the feature work in [ROADMAP.md](ROADMAP.md) using the hourly
 - Negotiate new lobby features compatibly; clients without `lanModSync` continue to use the original join path. Do not mutate game state outside the authoritative server.
 - For WebAssembly, keep the engine/server native initially and bridge the browser via WebSocket. Keep user-provided Heroes III assets outside all distributed binaries, pages, and caches.
 
+### PlayStation 4 workstream
+
+- ROADMAP section C (P0–P4) is gated behind M0–M5. Do not start it earlier and do not take it instead of LAN work.
+- No jailbreak, exploit or firmware code. Toolchain is OpenOrbis only; nothing from the official Sony SDK enters the repository or CI.
+- Do not distribute Heroes III data. Mark hardware behavior as verified only with a log from a real console.
+
 When a run cannot safely change code, state `NO COMMIT` plus the precise blocker. Never create placeholder work to simulate progress.

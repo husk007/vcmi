@@ -153,6 +153,47 @@ The helpers and their tests compile and pass in the real `vcmitest` build (see M
 - [ ] Verify compatible mod lists, persistent cache, and post-session restoration across supported clients.
 - [ ] Publish only source and distributable engine assets; require users to import their own original game content.
 
+## C. PlayStation 4 homebrew port (third workstream, gated)
+
+**Gate:** do not start before M0–M5 are complete. Neither the hourly runner nor a contributor may take P-items ahead of LAN. Browser W0–W4 and PS4 P0–P4 are independent of each other.
+
+**Goal:** a homebrew build of the client for PS4 consoles that already run user-installed homebrew. The fork supplies only the application port.
+
+**Scope limits:**
+
+- No jailbreak, exploit, or firmware-modification code or instructions in this repository.
+- Toolchain is the community OpenOrbis SDK. No file from the official Sony SDK is added to the repository or to CI.
+- No Heroes III data is distributed. The player copies data from their own copy of the game.
+- Distributed binaries ship with the matching source (GPL).
+- Testing is done by volunteers who have homebrew. The maintainer's console stays on stock firmware.
+- Every P-item stays unverified until a log or test result from a real build or run is recorded. An emulator result is not proof of behavior on hardware.
+
+### P0 — Compilation spike (CI only)
+
+- [ ] Document which `lib/` dependencies (Boost, minizip, TBB, Lua/LuaJIT, FFmpeg, SDL2, ICU/Qt-free paths) have OpenOrbis-compatible builds or must be disabled.
+- [ ] Add a separate toolchain file and CMake preset for OpenOrbis; desktop presets stay unchanged.
+- [ ] Compile `vcmiMain` and the server library in a dedicated workflow, without GUI. The result is recorded as `BUILD_PASS` only from a real CI run.
+
+### P1 — Client backend and input
+
+- [ ] Choose the rendering path (SDL2 port available for OpenOrbis, or a custom backend behind `client/render/`) and record the decision with its limits.
+- [ ] Map the gamepad to the existing mouse/keyboard events, including a cursor emulation mode.
+- [ ] Resolution, memory and audio budgets are measured, not assumed.
+
+### P2 — Emulator run
+
+- [ ] Run the build in the shadPS4 emulator on PC through the main menu and a small map, and record the emulator version. Missing emulator support is recorded as `BLOCKED`, not worked around in engine code.
+
+### P3 — Packaging and tester kit
+
+- [ ] Package the application and write short instructions for testers: where to copy game data, how to start, how to collect `vcmi.log`.
+- [ ] Add the GPL notice and the attribution list to the package.
+
+### P4 — Hardware tests
+
+- [ ] At least two testers on different consoles complete start → map → save/load, with logs attached.
+- [ ] LAN mod sync from section A works between a PS4 client and a Linux host, using the same manifest and cache rules. Mod sync on PS4 requires the mobile-style path (no controlled relaunch) until a relaunch mechanism exists.
+
 ## Delivery rules
 
 - Follow repository `AGENTS.md` and `CONTRIBUTING.md`. No automated upstream issues or pull requests.
