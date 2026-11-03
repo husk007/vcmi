@@ -1,2 +1,2 @@
-Checkpoint: d76e08cd18bc2cf1e1296dd5d58cbd466227be38
-Reason: Prior CI #41540778437 passed a complete VCMI client/server/vcmitest build and 104/104 LAN tests. Compile the new licensed-data GUI acceptance path that drives a host hero move and EndTurn with both graphical guests joined; real GUI execution still requires the owner's full Heroes III assets.
+Checkpoint: d38e4fe197c7d160ffa3cc6a45e650fe8dfe22ee
+Reason: CI #41548405914 passed full Linux VCMI client/server/vcmitest build and 104/104 LAN tests. Compile the new two-GUI fixture: one guest activates installed mods, another mounts a verified SHA-256 host ZIP without an installed copy or network transfer. Real GUI execution still requires owned Heroes III assets.
