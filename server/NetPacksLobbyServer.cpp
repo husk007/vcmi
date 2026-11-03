@@ -153,6 +153,28 @@ void ClientPermissionsCheckerNetPackVisitor::visitLobbyClientConnected(LobbyClie
 
 void ApplyOnServerNetPackVisitor::visitLobbyClientConnected(LobbyClientConnected & pack)
 {
+	// A lobby preview is only a snapshot: a seat may be taken before the
+	// guest's subsequent TCP join. Enforce selected-map capacity at the actual
+	// registration boundary as well, including clients without LAN mod sync.
+	// An archive-only connection has no player names and occupies no map seat.
+	if(!pack.names.empty() && !srv.si->playerInfos.empty())
+	{
+		const auto humanSlots = static_cast<std::size_t>(std::count_if(
+			srv.si->playerInfos.begin(), srv.si->playerInfos.end(),
+			[](const auto & entry){ return !entry.second.compOnly; }));
+		const auto occupied = srv.playerNames.size();
+		if(occupied >= humanSlots || pack.names.size() > humanSlots - occupied)
+		{
+			logNetwork->warn("Rejecting LAN join: %zu requested player(s), %zu of %zu human slots occupied",
+				pack.names.size(), occupied, humanSlots);
+			// Do not issue a LobbyClientConnected acknowledgement with an invalid
+			// player identity or silently queue an impossible multiplayer join.
+			connection->getConnection()->close();
+			result = false;
+			return;
+		}
+	}
+
 	auto compatibleVersion = std::min(pack.version, ESerializationVersion::CURRENT);
 	connection->setSerializationVersion(compatibleVersion);
 

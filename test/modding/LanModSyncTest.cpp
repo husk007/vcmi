@@ -4649,6 +4649,32 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				<< "LAN preview must reflect human player slots in the selected map";
 			legacyAtCapacity.connection->close();
 			optInAtCapacity.connection->close();
+			if(chosenMap->amountOfHumanControllablePlayers == 3)
+			{
+				// The preview is not the admission gate: race an ordinary, legacy-
+				// protocol fourth player against an already full selected map.
+				// The production host must reject registration, not silently add
+				// an unassigned player who can never take a turn.
+				JoinGuest overflow;
+				overflow.uuid = "00000000-0000-4000-8000-000000000099";
+				overflow.playerName = "LAN overflow guest";
+				network->getContext().restart();
+				network->connectToRemote(overflow, "127.0.0.1", static_cast<std::uint16_t>(port));
+				network->getContext().run_for(std::chrono::seconds(3));
+				EXPECT_FALSE(overflow.joined) << "Full mapped lobby accepted a fourth player";
+
+				PreviewGuest afterRejectedJoin(true);
+				network->getContext().restart();
+				network->connectToRemote(afterRejectedJoin, "127.0.0.1", static_cast<std::uint16_t>(port));
+				network->getContext().run_for(std::chrono::seconds(3));
+				ASSERT_TRUE(afterRejectedJoin.error.empty()) << afterRejectedJoin.error;
+				const auto * stillFull = dynamic_cast<LobbyModSyncPreview *>(afterRejectedJoin.response.get());
+				ASSERT_NE(stillFull, nullptr);
+				EXPECT_FALSE(stillFull->acceptingPlayers);
+				EXPECT_EQ(stillFull->participantNames.size(), 3U)
+					<< "Rejected overflow join must not reserve a player slot";
+				afterRejectedJoin.connection->close();
+			}
 			// The real client prepares the selected map before starting gameplay.
 			LobbyPrepareStartGame prepareSelectedMap;
 			host.peer->sendPack(prepareSelectedMap);
