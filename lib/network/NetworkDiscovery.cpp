@@ -11,6 +11,7 @@
 #include "StdInc.h"
 #include "NetworkDiscovery.h"
 #include "NetworkInterface.h"
+#include "NetworkDiscoveryProtocol.h"
 
 ServerDiscovery::ServerDiscovery(NetworkContext & context, IServerDiscoveryObserver & observer)
 	: context(context), observer(observer)
@@ -62,17 +63,20 @@ void ServerDiscovery::start()
 		if(!ec && len > 0)
 		{
 			std::string resp(recvBuf->data(), recvBuf->data() + len);
-			if(resp.rfind("VCMI_SERVER:", 0) == 0)
+			if(const auto reply = LanModDiscovery::parseReply(resp))
 			{
-				std::string portStr = resp.substr(12);
 				DiscoveredServer server;
 				server.address = senderEndpoint->address().to_string();
-				server.port = static_cast<uint16_t>(std::stoi(portStr));
-				
-				auto serverKey = std::make_pair(server.address, server.port);
-				if(self->discoveredServers.insert(serverKey).second)
+				server.port = reply->port;
+				server.lanModSyncPreview = reply->supportsModPreview;
+
+				const auto serverKey = std::make_pair(server.address, server.port);
+				auto [known, inserted] = self->discoveredServers.try_emplace(serverKey, server.lanModSyncPreview);
+				const bool retainedPreview = LanModDiscovery::retainPreviewCapability(known->second, server.lanModSyncPreview);
+				if(inserted || retainedPreview != known->second)
 				{
-				    logGlobal->info("Discovered server: %s", resp.c_str());
+					known->second = retainedPreview;
+					logGlobal->info("Discovered server: %s", resp.c_str());
 					self->observer.onServerDiscovered(server);
 				}
 			}
@@ -93,21 +97,31 @@ void ServerDiscovery::start()
 			return;
 		}
 		
-		std::string message = "VCMI_DISCOVERY";
-		boost::asio::ip::udp::endpoint broadcastEndpoint(boost::asio::ip::address_v4::broadcast(), 3030);
-		socket->async_send_to(boost::asio::buffer(message), broadcastEndpoint,
-			[self, sendHandler](const boost::system::error_code& ec, std::size_t)
+		const boost::asio::ip::udp::endpoint broadcastEndpoint(boost::asio::ip::address_v4::broadcast(), 3030);
+
+		// Probe upgraded hosts and preserve the exact legacy probe for older hosts.
+		// Keep both UDP buffers alive until their asynchronous sends complete.
+		auto previewMessage = std::make_shared<std::string>(LanModDiscovery::previewProbe);
+		socket->async_send_to(boost::asio::buffer(*previewMessage), broadcastEndpoint,
+			[previewMessage](const boost::system::error_code & sendError, std::size_t)
 			{
-				if(ec && ec != boost::asio::error::operation_aborted && ec != boost::asio::error::bad_descriptor)
-					logGlobal->error("Discovery send error: %s", ec.message());
-				else if(!ec)
+				if(sendError && sendError != boost::asio::error::operation_aborted && sendError != boost::asio::error::bad_descriptor)
+					logGlobal->warn("Optional LAN preview discovery failed: %s", sendError.message());
+			});
+
+		auto legacyMessage = std::make_shared<std::string>(LanModDiscovery::legacyProbe);
+		socket->async_send_to(boost::asio::buffer(*legacyMessage), broadcastEndpoint,
+			[self, sendHandler, legacyMessage](const boost::system::error_code & sendError, std::size_t)
+			{
+				if(sendError && sendError != boost::asio::error::operation_aborted && sendError != boost::asio::error::bad_descriptor)
+					logGlobal->error("Discovery send error: %s", sendError.message());
+
+				if(sendError != boost::asio::error::operation_aborted && sendError != boost::asio::error::bad_descriptor)
 				{
-					// Schedule next broadcast in 1 second
 					self->sendTimer->expires_after(std::chrono::seconds(1));
 					self->sendTimer->async_wait(*sendHandler);
 				}
-			}
-		);
+			});
 	};
 	
 	// Start receiving
@@ -115,6 +129,74 @@ void ServerDiscovery::start()
 	
 	// Send first broadcast immediately
 	(*sendHandler)(boost::system::error_code());
+}
+
+
+bool ServerDiscovery::probeHostPreview(const std::string & host, std::uint16_t tcpPort, std::uint16_t discoveryPort)
+{
+	if(host.empty() || tcpPort == 0 || discoveryPort == 0)
+		return false;
+
+	try
+	{
+		NetworkContext probeContext;
+		using Udp = boost::asio::ip::udp;
+		boost::system::error_code error;
+		Udp::resolver resolver(probeContext);
+		const auto endpoints = resolver.resolve(Udp::v4(), host, std::to_string(discoveryPort), error);
+		if(error || endpoints.empty())
+			return false;
+		const auto target = endpoints.begin()->endpoint();
+
+		Udp::socket socket(probeContext);
+		socket.open(Udp::v4(), error);
+		if(error)
+			return false;
+		socket.bind(Udp::endpoint(Udp::v4(), 0), error);
+		if(error)
+			return false;
+
+		std::array<char, 128> responseBuffer{};
+		Udp::endpoint responseSender;
+		bool supportsPreview = false;
+		std::function<void()> receiveNext;
+		receiveNext = [&]()
+		{
+			socket.async_receive_from(boost::asio::buffer(responseBuffer), responseSender,
+				[&](const boost::system::error_code & receiveError, std::size_t size)
+				{
+					if(receiveError)
+						return;
+					if(responseSender.address() == target.address())
+					{
+						const auto response = LanModDiscovery::parseReply(std::string_view(responseBuffer.data(), size));
+						if(response && response->supportsModPreview && response->port == tcpPort)
+						{
+							supportsPreview = true;
+							return;
+						}
+					}
+					// A legacy or unrelated UDP reply must not hide a later opt-in response.
+					receiveNext();
+				});
+		};
+		receiveNext();
+
+		const std::string message(LanModDiscovery::previewProbe);
+		socket.send_to(boost::asio::buffer(message), target, 0, error);
+		if(!error)
+			probeContext.run_for(std::chrono::milliseconds(250));
+
+		socket.cancel(error);
+		probeContext.restart();
+		probeContext.poll();
+		return supportsPreview;
+	}
+	catch(const std::exception & e)
+	{
+		logGlobal->warn("Direct LAN preview capability probe failed: %s", e.what());
+		return false;
+	}
 }
 
 std::vector<std::string> ServerDiscovery::ipAddresses()
@@ -204,10 +286,13 @@ void ServerDiscoveryListener::asyncReceive()
 			{
 				std::string msg(recvBuffer.data(), recvBuffer.data() + len);
 
-				if(msg == "VCMI_DISCOVERY" && self->announcer.isInLobby())
+				if(self->announcer.isInLobby())
 				{
-					std::string response = "VCMI_SERVER:" + std::to_string(self->announcer.getPort());
-					socketPtr->send_to(boost::asio::buffer(response), remoteEndpoint);
+					// Extended replies are sent only to a client explicitly asking
+					// for preview capability; old clients always get the old format.
+					const std::string response = LanModDiscovery::replyForProbe(msg, self->announcer.getPort());
+					if(!response.empty())
+						socketPtr->send_to(boost::asio::buffer(response), remoteEndpoint);
 				}
 			}
 

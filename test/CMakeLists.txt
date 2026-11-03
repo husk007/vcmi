@@ -41,6 +41,8 @@ set(test_SRCS
 		filesystem/FilesystemTest.cpp
 		filesystem/SavegamePathTest.cpp
 
+		modding/LanModSyncTest.cpp
+
 		game/BattleSpellCastTest.cpp
 		game/HeroRecruitmentTest.cpp
 		game/HeroMovementTest.cpp

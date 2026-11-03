@@ -229,7 +229,13 @@ void CResourceHandler::load(const std::string &fsConfigURI, bool extractArchives
 
 	const JsonNode fsConfig(reinterpret_cast<std::byte *>(fsConfigData.first.get()), fsConfigData.second, fsConfigURI);
 
-	addFilesystem("data", ModScope::scopeBuiltin(), createFileSystem("", fsConfig["filesystem"], extractArchives));
+	// Core must remain extensible even when the installation resolves to one data source.
+	// Controlled LAN relaunch adds approved staged mods to this view before loading mods.
+	auto coreFiles = createFileSystem("", fsConfig["filesystem"], extractArchives);
+	auto coreList = std::make_unique<CFilesystemList>();
+	if(coreFiles)
+		coreList->addLoader(std::move(coreFiles), false);
+	addFilesystem("data", ModScope::scopeBuiltin(), std::move(coreList));
 }
 
 void CResourceHandler::addFilesystem(const std::string & parent, const std::string & identifier, std::unique_ptr<ISimpleResourceLoader> loader)

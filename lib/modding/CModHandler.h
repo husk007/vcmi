@@ -10,6 +10,10 @@
 #pragma once
 
 #include "../json/JsonNode.h"
+#include "ModVerificationInfo.h"
+#include "LanRejoinTarget.h"
+
+#include <atomic>
 
 class CModHandler;
 class ModDescription;
@@ -23,6 +27,8 @@ using TModID = std::string;
 class DLL_LINKAGE CModHandler final : boost::noncopyable
 {
 	std::unique_ptr<ModManager> modManager;
+	std::atomic_bool lanRelaunchRequested{false};
+	std::atomic_bool lanRestoreRelaunchRequested{false};
 	std::map<std::string, uint32_t> modChecksums;
 	std::set<std::string> validationPassed;
 
@@ -77,6 +83,30 @@ public:
 	void load();
 	void afterLoad();
 
-	explicit CModHandler(bool useTestPreset = false);
+	/// Read-only guest preflight using verified archives in the persistent user-data directory.
+	ModSyncPlan planLanModSync(const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256) const;
+	/// Start a recoverable temporary mod preset before applying LAN gameplay changes.
+	void beginLanSession();
+	/// Persist an installed-only LAN preset and signal a controlled client restart.
+	bool prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods, const LanRejoinTarget & target);
+	/// Use previously approved, verified ZIP roots not yet installed; relaunch to mount them.
+	/// Does not replace an existing private mod version.
+	bool prepareCachedLanSession(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives, const LanRejoinTarget & target);
+	/// Available exactly once after a matching one-shot relaunch token was consumed.
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
+	/// Restore the saved personal preset when a LAN join or session is cancelled.
+	/// True only when an active temporary LAN preset was restored; loaded assets need a restart.
+	bool restoreLanSession();
+	/// Request a one-shot relaunch after gameplay resources are released.
+	void requestLanRelaunch();
+	bool consumeLanRelaunchRequest();
+	/// Restart a desktop client with its restored personal preset, without rejoining the LAN host.
+	void requestLanRestoreRelaunch();
+	bool consumeLanRestoreRelaunchRequest();
+	std::string prepareControlledLanRelaunch();
+	/// Restore the player's original preset on a clean shutdown, unless relaunch is pending.
+	void restoreLanSessionOnShutdown();
+
+	explicit CModHandler(bool useTestPreset = false, const std::string & lanRelaunchToken = {});
 	~CModHandler();
 };

@@ -28,6 +28,8 @@
 
 #include "../../lib/modding/CModHandler.h"
 #include "../../lib/modding/ModDescription.h"
+#include "../../lib/modding/LanModArchiveCache.h"
+#include "../../lib/VCMIDirs.h"
 #include "../../lib/texts/CGeneralTextHandler.h"
 #include "../../lib/texts/MetaString.h"
 #include "../../lib/GameLibrary.h"
@@ -54,17 +56,24 @@ GlobalLobbyRoomModCard::GlobalLobbyRoomModCard(const GlobalLobbyRoomModInfo & mo
 
 	OBJECT_CONSTRUCTION;
 	pos.w = 200;
-	pos.h = 40;
+	pos.h = 64;
 	backgroundOverlay = std::make_shared<TransparentFilledRectangle>(Rect(0, 0, pos.w, pos.h), ColorRGBA(0, 0, 0, 128), ColorRGBA(64, 64, 64, 64), 1);
 
-	labelName = std::make_shared<CLabel>(5, 10, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
-	labelVersion = std::make_shared<CLabel>(195, 30, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
+	labelName = std::make_shared<CLabel>(5, 6, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::WHITE, modInfo.modName, 190);
+	labelModId = std::make_shared<CLabel>(5, 22, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, modInfo.modId, 120);
+	labelVersion = std::make_shared<CLabel>(195, 22, FONT_SMALL, ETextAlignment::CENTERRIGHT, Colors::YELLOW, modInfo.version);
 	auto statusColor = Colors::RED;
 	if(modInfo.status == ModVerificationStatus::FULL_MATCH)
 		statusColor = ColorRGBA(128, 128, 128);
-	else if(modInfo.status == ModVerificationStatus::VERSION_MISMATCH)
+	else if(modInfo.status == ModVerificationStatus::DISABLED || modInfo.status == ModVerificationStatus::EXCESSIVE)
 		statusColor = Colors::YELLOW;
-	labelStatus = std::make_shared<CLabel>(5, 30, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status)));
+	std::string statusText = LIBRARY->generaltexth->translate("vcmi.lobby.mod.state." + statusToString.at(modInfo.status));
+	if(!modInfo.archiveStatusTextId.empty())
+		statusText += " / " + LIBRARY->generaltexth->translate(modInfo.archiveStatusTextId);
+	labelStatus = std::make_shared<CLabel>(5, 39, FONT_SMALL, ETextAlignment::CENTERLEFT, statusColor, statusText, 190);
+	if(!modInfo.lanActionTextId.empty())
+		labelAction = std::make_shared<CLabel>(5, 52, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate(modInfo.lanActionTextId), 190);
 }
 
 static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescription, const std::vector<GlobalLobbyRoomModInfo> & modVerificationList)
@@ -88,7 +97,7 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 	if (localVersion.major != hostVersion.major || localVersion.minor != hostVersion.minor)
 		return "vcmi.lobby.preview.error.version";
 
-	if (roomDescription.playerLimit == roomDescription.participants.size())
+	if (roomDescription.playerLimit > 0 && roomDescription.participants.size() >= roomDescription.playerLimit)
 		return "vcmi.lobby.preview.error.full";
 
 	if (privateRoom)
@@ -105,9 +114,8 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 			case ModVerificationStatus::NOT_INSTALLED:
 			case ModVerificationStatus::DISABLED:
 			case ModVerificationStatus::EXCESSIVE:
-				return "vcmi.lobby.preview.error.mods";
-				break;
 			case ModVerificationStatus::VERSION_MISMATCH:
+				return "vcmi.lobby.preview.error.mods";
 			case ModVerificationStatus::FULL_MATCH:
 				break;
 			default:
@@ -117,24 +125,81 @@ static std::string getJoinRoomErrorMessage(const GlobalLobbyRoom & roomDescripti
 	return "";
 }
 
-GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel)
+GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel,
+	bool lanPreview, ModArchiveManifest hostArchives, std::function<void()> onDownload)
 	: CWindowObject(BORDERED)
 	, onJoinCallback(onJoin)
 	, onCancelCallback(onCancel)
+	, onDownloadCallback(onDownload)
 {
 	OBJECT_CONSTRUCTION;
 
 	pos.w = 400;
 	pos.h = 400;
 
-	for(const auto & modEntry : ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList))
+	const auto modStatuses = ModVerificationInfo::verifyListAgainstLocalMods(roomDescription.modList);
+	const auto localPlan = lanPreview ? ModVerificationInfo::buildInstalledOnlyPlan(modStatuses) : std::nullopt;
+	// Rehash each required root at most once, even when several missing submods
+	// refer to the same host package. Reuse this result for cards and totals.
+	const LanArchivePreview archiveAvailability = lanPreview && !hostArchives.empty()
+		? ModVerificationInfo::inspectHostArchiveAvailability(modStatuses, hostArchives,
+			std::filesystem::path(VCMIDirs::get().userDataPath().native()))
+		: LanArchivePreview{};
+	bool completeHostOffer = false;
+#if !defined(VCMI_MOBILE)
+	if(lanPreview && onDownloadCallback)
+		completeHostOffer = ModVerificationInfo::canPrepareMissingHostArchives(
+			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
+#endif
+	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
+		modInfo.modId = modEntry.first;
 		modInfo.status = modEntry.second;
+		if(lanPreview)
+		{
+			const auto rootId = modEntry.first.substr(0, modEntry.first.find('.'));
+			const auto found = archiveAvailability.find(rootId);
+			const auto archiveState = found == archiveAvailability.end()
+				? LanArchivePreviewState::UNAVAILABLE : found->second;
+			switch(ModVerificationInfo::getLanPreviewAction(modEntry.second, archiveState, completeHostOffer))
+			{
+				case LanModPreviewAction::ENABLE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionEnable";
+					break;
+				case LanModPreviewAction::DISABLE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDisable";
+					break;
+				case LanModPreviewAction::USE_CACHE:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionUseCache";
+					break;
+				case LanModPreviewAction::DOWNLOAD:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionDownload";
+					break;
+				case LanModPreviewAction::MANUAL:
+					modInfo.lanActionTextId = "vcmi.lobby.preview.lanActionManual";
+					break;
+				case LanModPreviewAction::NONE:
+					break;
+			}
+		}
+		if(modEntry.second == ModVerificationStatus::NOT_INSTALLED || modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
+		{
+			const auto rootId = modEntry.first.substr(0, modEntry.first.find('.'));
+			if(const auto found = archiveAvailability.find(rootId); found != archiveAvailability.end())
+			{
+				if(found->second == LanArchivePreviewState::VERIFIED_IN_CACHE)
+					modInfo.archiveStatusTextId = "vcmi.lobby.preview.lanArchiveCached";
+				else if(found->second == LanArchivePreviewState::OFFERED_BY_HOST)
+					modInfo.archiveStatusTextId = "vcmi.lobby.preview.lanArchiveOffered";
+			}
+		}
 		if (modEntry.second == ModVerificationStatus::EXCESSIVE)
 			modInfo.version = LIBRARY->modh->getModInfo(modEntry.first).getVersion().toString();
 		else
 			modInfo.version = roomDescription.modList.at(modEntry.first).version.toString();
+		if(modEntry.second == ModVerificationStatus::VERSION_MISMATCH)
+			modInfo.version = LIBRARY->modh->getModInfo(modEntry.first).getVersion().toString() + " -> " + modInfo.version;
 
 		if (modEntry.second == ModVerificationStatus::NOT_INSTALLED)
 			modInfo.modName = roomDescription.modList.at(modEntry.first).name;
@@ -169,19 +234,94 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 
 	buttonJoin = std::make_shared<CButton>(Point(10, 360), AnimationPath::builtin("MuBchck"), CButton::tooltip(), [this](){ this->onJoin(); }, EShortcut::GLOBAL_ACCEPT);
 	buttonClose = std::make_shared<CButton>(Point(100, 360), AnimationPath::builtin("MuBcanc"), CButton::tooltip(), [this](){ this->onClose(); }, EShortcut::GLOBAL_CANCEL);
-
 	MetaString joinStatusText;
 	std::string errorMessage = getJoinRoomErrorMessage(roomDescription, modVerificationList);
+	directJoinAllowed = errorMessage.empty();
+	bool allowInstalledOnlyPreparation = false;
+	bool allowCachedPreparation = false;
+#if !defined(VCMI_MOBILE)
+	// A missing root already prepared in the LAN archive cache can be enabled
+	// only after explicit trust approval. The Join callback enforces that
+	// approval and prepares the token-gated temporary preset; do not offer this
+	// for conflicting private root versions or incomplete host packages.
+	if(lanPreview && onDownloadCallback && errorMessage == "vcmi.lobby.preview.error.mods")
+		allowCachedPreparation = completeHostOffer;
+#endif
+	cachedLanJoinCandidate = allowCachedPreparation;
+	if(cachedLanJoinCandidate)
+	{
+		cachedLanHostFingerprint = ModVerificationInfo::fingerprintLanHostOffer(roomDescription.modList, hostArchives);
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		// A cached ZIP is reusable without another consent only when the
+		// identical host offer was previously approved by this player.
+		cachedLanJoinPrepared = LanModArchiveCache::hasApprovedHostOffer(userData, cachedLanHostFingerprint)
+			&& std::all_of(archiveAvailability.begin(), archiveAvailability.end(),
+				[](const auto & entry){ return entry.second == LanArchivePreviewState::VERIFIED_IN_CACHE; });
+	}
+	// Never offer a partial download that cannot lead to a usable LAN preset.
+	// A previously approved, verified offer already has a direct Join action.
+	if(allowCachedPreparation && !cachedLanJoinPrepared)
+	{
+		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
+			CButton::tooltip(), [this](){ onDownloadCallback(); });
+		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
+	}
 	if (!errorMessage.empty())
 	{
-		joinStatusText.appendTextID("vcmi.lobby.preview.error.header");
-		joinStatusText.appendRawString("\n");
-		joinStatusText.appendTextID(errorMessage);
+		// The TCP lobby response already carries the host's active mod list.
+		// A locally installed mod can now be staged in the recoverable LAN preset.
+		// Mobile builds keep Join disabled until a restart mechanism is available.
+		if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && localPlan && localPlan->requiresChanges())
+		{
+			#if !defined(VCMI_MOBILE)
+			allowInstalledOnlyPreparation = true;
+			#endif
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
+			joinStatusText.appendRawString("\n+" + std::to_string(localPlan->activate.size())
+				+ " / -" + std::to_string(localPlan->deactivate.size()));
+		}
+		else if(allowCachedPreparation)
+		{
+			joinStatusText.appendTextID(cachedLanJoinPrepared
+				? "vcmi.lobby.preview.lanApprovedCachedJoinHint"
+				: "vcmi.lobby.preview.lanStagedJoinHint");
+		}
+		else
+		{
+			joinStatusText.appendTextID("vcmi.lobby.preview.error.header");
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID(errorMessage);
+		}
 	}
 	else
 		joinStatusText.appendTextID("vcmi.lobby.preview.allowed");
 
-	labelJoinStatus = std::make_shared<CTextBox>(joinStatusText.toString(&GAME->translator()), Rect(10, 280, 150, 70), 0, FONT_SMALL, ETextAlignment::TOPLEFT, Colors::WHITE);
+	if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods")
+	{
+		std::size_t offered = 0;
+		std::size_t cached = 0;
+		for(const auto & [rootId, state] : archiveAvailability)
+		{
+			if(state != LanArchivePreviewState::UNAVAILABLE)
+				++offered;
+			if(state == LanArchivePreviewState::VERIFIED_IN_CACHE)
+				++cached;
+		}
+		if(offered)
+		{
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanArchiveAvailability");
+			joinStatusText.appendRawString(" " + std::to_string(offered) + " / " + std::to_string(cached));
+			joinStatusText.appendRawString("\n");
+			joinStatusText.appendTextID("vcmi.lobby.preview.lanArchiveUncached");
+			const auto uncachedBytes = ModVerificationInfo::estimateUncachedArchiveBytes(archiveAvailability, hostArchives);
+			joinStatusText.appendRawString(" " + std::to_string((uncachedBytes + 1023) / 1024) + " KiB");
+		}
+	}
+
+	lanTransferOriginalStatus = joinStatusText.toString(&GAME->translator());
+	labelJoinStatus = std::make_shared<CTextBox>(lanTransferOriginalStatus, Rect(10, 280, 150, 70), 0, FONT_SMALL, ETextAlignment::TOPLEFT, Colors::WHITE);
 
 	const auto & createAccountCardCallback = [participants = roomDescription.participants](size_t index) -> std::shared_ptr<CIntObject>
 	{
@@ -193,7 +333,10 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	accountListBackground = std::make_shared<TransparentFilledRectangle>(Rect(8, 98, 150, 180), ColorRGBA(0, 0, 0, 64), ColorRGBA(64, 80, 128, 255), 1);
 	accountList = std::make_shared<CListBox>(createAccountCardCallback, Point(10, 116), Point(0, 40), 4, roomDescription.participants.size(), 0, 1 | 4, Rect(130, 0, 160, 160));
 	accountList->setRedrawParent(true);
-	accountListTitle = std::make_shared<CLabel>( 12, 109, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.players").toString(&GAME->translator()));
+	std::string playerCountText = MetaString::createFromTextID("vcmi.lobby.preview.players").toString(&GAME->translator());
+	if(roomDescription.playerLimit > 0)
+		playerCountText += " (" + std::to_string(roomDescription.participants.size()) + "/" + std::to_string(roomDescription.playerLimit) + ")";
+	accountListTitle = std::make_shared<CLabel>(12, 109, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, playerCountText);
 
 	const auto & createModCardCallback = [this](size_t index) -> std::shared_ptr<CIntObject>
 	{
@@ -203,11 +346,13 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	};
 
 	modListBackground = std::make_shared<TransparentFilledRectangle>(Rect(178, 48, 220, 340), ColorRGBA(0, 0, 0, 64), ColorRGBA(64, 80, 128, 255), 1);
-	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 40), 8, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
+	modList = std::make_shared<CListBox>(createModCardCallback, Point(180, 66), Point(0, 64), 5, modVerificationList.size(), 0, 1 | 4, Rect(200, 0, 320, 320));
 	modList->setRedrawParent(true);
 	modListTitle = std::make_shared<CLabel>( 182, 59, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.mods").toString(&GAME->translator()));
 
-	buttonJoin->block(!errorMessage.empty());
+	// An offered or even SHA-256 cached package is not approval to execute it.
+	// Keep Join blocked until all required archives have been prepared after consent.
+	buttonJoin->block(!errorMessage.empty() && !allowInstalledOnlyPreparation && !cachedLanJoinPrepared);
 	filledBackground->setPlayerColor(PlayerColor(1));
 	center();
 }
@@ -221,8 +366,58 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const s
 
 void GlobalLobbyRoomWindow::onJoin()
 {
+	if(cachedLanJoinCandidate && !cachedLanJoinPrepared)
+		return;
 	if(onJoinCallback)
 		onJoinCallback();
+}
+
+bool GlobalLobbyRoomWindow::approvePreparedLanJoin(const std::string & hostFingerprint)
+{
+	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint)
+		return false;
+	cachedLanJoinPrepared = true;
+	lanTransferInProgress = false;
+	if(buttonDownload)
+		buttonDownload->block(true);
+	buttonJoin->block(false);
+	return true;
+}
+
+void GlobalLobbyRoomWindow::showLanArchiveProgress(const std::string & hostFingerprint,
+	std::size_t prepared, std::size_t total, std::size_t currentPercent)
+{
+	if(!cachedLanJoinCandidate || cachedLanHostFingerprint != hostFingerprint || !buttonDownload)
+		return;
+	lanTransferInProgress = true;
+	buttonDownload->block(true);
+	labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
+		+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
+		+ " (" + std::to_string(currentPercent) + "%)");
+}
+
+void GlobalLobbyRoomWindow::resetLanArchiveProgress(const std::string & hostFingerprint)
+{
+	if(!lanTransferInProgress || cachedLanHostFingerprint != hostFingerprint)
+		return;
+	lanTransferInProgress = false;
+	if(buttonDownload)
+		buttonDownload->block(false);
+	labelJoinStatus->setText(lanTransferOriginalStatus);
+}
+
+void GlobalLobbyRoomWindow::joinApprovedLanSession(const std::string & hostFingerprint)
+{
+	if(cachedLanJoinCandidate && cachedLanJoinPrepared && cachedLanHostFingerprint == hostFingerprint)
+		onJoin();
+}
+
+bool GlobalLobbyRoomWindow::joinIfCompatible()
+{
+	if(!directJoinAllowed)
+		return false;
+	onJoin();
+	return true;
 }
 
 void GlobalLobbyRoomWindow::onClose()

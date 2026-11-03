@@ -29,8 +29,11 @@ struct ModVerificationInfo;
 struct GlobalLobbyRoomModInfo
 {
 	std::string modName;
+	std::string modId;
 	std::string version;
 	ModVerificationStatus status;
+	std::string archiveStatusTextId; // LAN-only host offer or verified cache badge
+	std::string lanActionTextId;
 };
 
 class GlobalLobbyRoomAccountCard : public CIntObject
@@ -47,7 +50,9 @@ class GlobalLobbyRoomModCard : public CIntObject
 {
 	std::shared_ptr<TransparentFilledRectangle> backgroundOverlay;
 	std::shared_ptr<CLabel> labelName;
+	std::shared_ptr<CLabel> labelModId;
 	std::shared_ptr<CLabel> labelStatus;
+	std::shared_ptr<CLabel> labelAction;
 	std::shared_ptr<CLabel> labelVersion;
 
 public:
@@ -59,6 +64,13 @@ class GlobalLobbyRoomWindow : public CWindowObject
 	std::vector<GlobalLobbyRoomModInfo> modVerificationList;
 	std::function<void()> onJoinCallback;
 	std::function<void()> onCancelCallback;
+	std::function<void()> onDownloadCallback;
+	bool directJoinAllowed = false;
+	bool cachedLanJoinCandidate = false;
+	bool cachedLanJoinPrepared = false;
+	std::string cachedLanHostFingerprint;
+	std::string lanTransferOriginalStatus;
+	bool lanTransferInProgress = false;
 
 	std::shared_ptr<FilledTexturePlayerColored> filledBackground;
 	std::shared_ptr<CLabel> labelTitle;
@@ -78,11 +90,25 @@ class GlobalLobbyRoomWindow : public CWindowObject
 
 	std::shared_ptr<CButton> buttonJoin;
 	std::shared_ptr<CButton> buttonClose;
+	std::shared_ptr<CButton> buttonDownload;
+	std::shared_ptr<CLabel> labelDownload;
 
 	void onJoin();
 	void onClose();
 
 public:
-	GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel = nullptr);
+	GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescription, std::function<void()> onJoin, std::function<void()> onCancel = nullptr,
+		bool lanPreview = false, ModArchiveManifest hostArchives = {}, std::function<void()> onDownload = {});
 	GlobalLobbyRoomWindow(GlobalLobbyWindow * window, const std::string & roomUUID);
+	/// Complete an approved LAN join only if the fresh preview is compatible.
+	bool joinIfCompatible();
+	/// Unlock Join only after the matching host archives were explicitly approved and fully staged.
+	bool approvePreparedLanJoin(const std::string & hostFingerprint);
+	/// Continue the approved Join flow from a GUI confirmation after staging completes.
+	void joinApprovedLanSession(const std::string & hostFingerprint);
+	/// Show actual TCP download progress and prevent duplicate Prepare requests.
+	void showLanArchiveProgress(const std::string & hostFingerprint, std::size_t prepared,
+		std::size_t total, std::size_t currentPercent);
+	/// Restore the preview and enable retry after a failed or cancelled transfer.
+	void resetLanArchiveProgress(const std::string & hostFingerprint);
 };

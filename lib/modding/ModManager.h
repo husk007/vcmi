@@ -11,6 +11,10 @@
 
 #include "../json/JsonNode.h"
 #include "../filesystem/ResourcePath.h"
+#include "LanRejoinTarget.h"
+#include "ModVerificationInfo.h"
+
+#include <filesystem>
 
 class JsonNode;
 class ModDescription;
@@ -32,23 +36,70 @@ public:
 	double getInstalledModSizeMegabytes(const TModID & modName) const;
 };
 
+enum class LanSessionStartupAction
+{
+	NONE,
+	RESTORED,
+	RESUMED
+};
+
+/// Keeps the player's original mod preset intact during temporary LAN sessions.
+struct ModSyncPlan;
+
+class DLL_LINKAGE LanModSessionState
+{
+public:
+	static const std::string & temporaryPresetName();
+	/// Restore validated original settings when the primary JSON is damaged.
+	static JsonNode restoreDamagedSettings(const std::filesystem::path & settings);
+	/// Use the complete independent snapshot when it belongs to the current LAN session.
+	static bool restoreCompleteBackupIfPresent(JsonNode & restored, const JsonNode & sessionConfig,
+		const std::filesystem::path & settings);
+	static void begin(JsonNode & config);
+	/// Apply an installed-only host diff exclusively to the temporary LAN preset.
+	static void applyInstalledOnlyPlan(JsonNode & config, const ModSyncPlan & plan);
+	/// Store and recover the exact host selected by the player for a controlled relaunch.
+	static void setRejoinTarget(JsonNode & config, const LanRejoinTarget & target);
+	/// Persist explicitly approved, verified LAN roots only in the temporary session.
+	static void setStagedMods(JsonNode & config, const ModArchiveHashes & staged);
+	/// Only the matching one-shot relaunch token may expose staged roots to discovery.
+	static ModArchiveHashes stagedModsForControlledRelaunch(const JsonNode & config, const std::string & token);
+	static std::optional<LanRejoinTarget> getRejoinTarget(const JsonNode & config);
+	/// Refuse personal preset operations while the LAN recovery snapshot is active.
+	static void requirePersonalPresetUnlocked(const JsonNode & config);
+	static void prepareControlledRelaunch(JsonNode & config, const std::string & relaunchToken);
+	static LanSessionStartupAction recoverOnStartup(JsonNode & config, const std::string & relaunchToken);
+	static bool restore(JsonNode & config);
+	/// Skip shutdown rollback only while a controlled client relaunch is pending.
+	static bool shouldRestoreOnShutdown(const JsonNode & config);
+};
+
 /// Provides interface to access or change current mod preset
 class ModsPresetState : boost::noncopyable
 {
 	JsonNode modConfig;
 	JsonPath settingsPath; // which mod-settings file we read AND write
+	std::optional<LanRejoinTarget> pendingLanRejoinTarget;
 
+	bool saveConfigurationState(const JsonNode & state) const;
 	void createInitialPreset();
 	void importInitialPreset();
 
 	const JsonNode & getActivePresetConfig() const;
 
 public:
-	explicit ModsPresetState(bool useTestPreset = false);
+	explicit ModsPresetState(bool useTestPreset = false, const std::string & relaunchToken = {});
 
 	void createNewPreset(const std::string & presetName);
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
+	void beginLanSession();
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target);
+	void prepareLanSessionWithStagedMods(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModArchiveHashes & staged);
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
+	void prepareControlledRelaunch(const std::string & relaunchToken);
+	void restoreLanSession();
+	void restoreLanSessionOnShutdown();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;
@@ -136,7 +187,7 @@ class DLL_LINKAGE ModManager : boost::noncopyable
 
 public:
 	/// newMods - installed mods to activate together with mods from active preset
-	ModManager(const JsonNode & repositoryList, bool useTestPreset = false, const TModList & newMods = {});
+	ModManager(const JsonNode & repositoryList, bool useTestPreset = false, const TModList & newMods = {}, const std::string & relaunchToken = {});
 	ModManager();
 	~ModManager();
 
@@ -158,6 +209,15 @@ public:
 	void createNewPreset(const std::string & presetName);
 	void deletePreset(const std::string & presetName);
 	void activatePreset(const std::string & presetName);
+	void beginLanSession();
+	void prepareInstalledOnlyLanSession(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModCompatibilityInfo & hostMods);
+	void prepareLanSessionWithStagedMods(const ModSyncPlan & plan, const LanRejoinTarget & target, const ModArchiveHashes & staged);
+	std::optional<LanRejoinTarget> consumeLanRejoinTarget();
+	/// Persist a new one-shot token before spawning a replacement client.
+	std::string prepareControlledRelaunch();
+	void prepareControlledRelaunch(const std::string & relaunchToken);
+	void restoreLanSession();
+	void restoreLanSessionOnShutdown();
 	void renamePreset(const std::string & oldPresetName, const std::string & newPresetName);
 
 	std::vector<std::string> getAllPresets() const;

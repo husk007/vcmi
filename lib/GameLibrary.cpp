@@ -30,6 +30,9 @@
 #include "campaign/CampaignRegionsHandler.h"
 #include "mapping/MapFormatSettings.h"
 #include "modding/CModHandler.h"
+#include "modding/ModManager.h"
+#include "modding/LanModPackageStage.h"
+#include "modding/LanRelaunchTokenFormat.h"
 #include "modding/IdentifierStorage.h"
 #include "modding/CModVersion.h"
 #include "CStopWatch.h"
@@ -149,7 +152,7 @@ void GameLibrary::loadFilesystem(bool extractArchives)
 	logGlobal->info("\tData loading: %d ms", loadTime.getDiff());
 }
 
-void GameLibrary::loadModFilesystem(bool useTestPreset)
+void GameLibrary::loadModFilesystem(bool useTestPreset, const std::string & lanRelaunchToken)
 {
 	CStopWatch loadTime;
 	// Test preset discovers the vcmi-test fixtures mod from test/testdata/ instead of the
@@ -159,7 +162,42 @@ void GameLibrary::loadModFilesystem(bool useTestPreset)
 		auto loader = std::make_unique<CFilesystemLoader>("MODS/", "test/testdata/", 64);
 		dynamic_cast<CFilesystemList*>(CResourceHandler::get("initial"))->addLoader(std::move(loader), false);
 	}
-	modh = std::make_unique<CModHandler>(useTestPreset);
+
+	// Only the one-shot LAN relaunch may expose downloaded mods to discovery.
+	// Normal startup, crash recovery, other presets and the dedicated test
+	// preset continue to see the user's unmodified personal installations.
+	if(!useTestPreset && LanRelaunchTokenFormat::isValid(lanRelaunchToken))
+	{
+		try
+		{
+			const auto path = JsonPath::builtin("config/modSettings.json");
+			if(CResourceHandler::get("local")->existsResource(ResourcePath(path)))
+			{
+				JsonParsingSettings parsing;
+				parsing.strict = true;
+				const JsonNode saved(path, parsing);
+				const auto staged = LanModSessionState::stagedModsForControlledRelaunch(saved, lanRelaunchToken);
+				if(!staged.empty())
+				{
+					auto * initial = dynamic_cast<CFilesystemList *>(CResourceHandler::get("initial"));
+					auto * core = dynamic_cast<CFilesystemList *>(CResourceHandler::get("core"));
+					const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
+					if(!initial || !core || !LanModPackageStage::mountControlledStagedMods(*initial, *core, userData, staged))
+						logGlobal->warn("Approved LAN staging could not be mounted; rejoin will require recovery");
+					else
+					{
+						for(const auto & entry : staged)
+							logGlobal->info("Mounted verified LAN host mod: %s", entry.first);
+					}
+				}
+			}
+		}
+		catch(const std::exception & error)
+		{
+			logGlobal->warn("LAN staging unavailable; preserving normal mod startup: %s", error.what());
+		}
+	}
+	modh = std::make_unique<CModHandler>(useTestPreset, lanRelaunchToken);
 	identifiersHandler = std::make_unique<CIdentifierStorage>();
 	logGlobal->info("\tMod handler: %d ms", loadTime.getDiff());
 
@@ -173,13 +211,13 @@ void createHandler(std::unique_ptr<Handler> & handler)
 	handler = std::make_unique<Handler>();
 }
 
-void GameLibrary::initializeFilesystem(bool extractArchives, bool useTestPreset)
+void GameLibrary::initializeFilesystem(bool extractArchives, bool useTestPreset, const std::string & lanRelaunchToken)
 {
 	loadFilesystem(extractArchives);
 	settings.init("config/settings.json", "vcmi:settings");
 	persistentStorage.init("config/persistentStorage.json", "");
 	keyBindingsConfig.init("config/keyBindingsConfig.json", "");
-	loadModFilesystem(useTestPreset);
+	loadModFilesystem(useTestPreset, lanRelaunchToken);
 
 	// Detect game data mode after filesystem is loaded
 	gameDataMode = GameDataMode::SOD;

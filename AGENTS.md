@@ -262,3 +262,32 @@ More details in [`docs/developers/Logging_API.md`](docs/developers/Logging_API.m
 ## Dependencies
 
 Major dependencies are managed by Conan — see `dependencies/conanfile.py` for the full list. Notably: Lua/LuaJIT scripting (optional), see [`docs/developers/Lua_Scripting_System.md`](docs/developers/Lua_Scripting_System.md).
+
+## Fork workstreams: LAN mod sync and WebAssembly
+
+This fork executes the feature work in [ROADMAP.md](ROADMAP.md) using the hourly policy in [RUNNER.md](RUNNER.md). Read the **M0–M5 critical path** and the short current state in [RUNNER_STATUS.md](RUNNER_STATUS.md) before each run. The lower L0–L4 sections define requirements, not a reason to keep hardening the same unverified helper forever.
+
+### Execution and evidence
+
+- Work only in `husk007/vcmi` on `feature/lan-mod-sync-and-web-roadmap`. Fetch the latest HEAD, compare diffs against `develop`, and use file-SHA-safe updates. Do not write to `develop` or upstream; obey the no-AI-PR/no-issue/no-comment contribution rule above.
+- Prioritize **functional integration**, not commit count: (M0 real build and LAN tests in parallel) → (M1 capability/manifest/guest preview) → (M2 join with installed mods and full rollback) → (M3 verified cache reuse) → (M4 host archive transfer) → (M5 real LAN tests) → browser W0–W4.
+- A known container DNS error or unavailable compiler is a bounded verification blocker. Do not repeat failed checkout probes every hour or keep implementing unrelated rare edge-case cache fixes. Continue with the next safe functional call-chain when full compilation is blocked.
+- Build evidence must come from an actual VCMI compile; test evidence must come from the committed suite. Standalone snippets, WinAPI shims, or source assertions count only as `CODE_ONLY`. Never mark an untested implementation DONE.
+- The feature branch has a narrowly triggered validation workflow `.github/workflows/lan-mod-sync-validation.yml`; explicitly request checkpoint validation via its trigger file or manual dispatch where available. Do not require a PR just to obtain CI and do not flood Actions with hourly rebuilds.
+- Limit `RUNNER_STATUS.md` to the current checkpoint, verified evidence, known blocker, and next actions (about 6 KB). History is already in commits; don't append hourly narratives or status-only commits when nothing important changed.
+
+### LAN and browser invariants
+
+- Preserve the complete personal preset, prior active name, and disabled/enabled submod flags in a durable, crash-recoverable journal **before** joining a mod-altered LAN session. Restore on cancellation, disconnect, failure and crash; never overwrite private mod versions.
+- Cache redistributable host archives persistently and by verified SHA-256. For subsequent identical sessions: **zero bytes retransferred**; use an already installed matching mod via temporary activation. Changed hashes require selective refresh.
+- Host content is untrusted: require explicit first-use trust, enforce archive limits and safe paths, verify hashes and license permission, and never transfer the commercial Heroes III base assets.
+- Negotiate new lobby features compatibly; clients without `lanModSync` continue to use the original join path. Do not mutate game state outside the authoritative server.
+- For WebAssembly, keep the engine/server native initially and bridge the browser via WebSocket. Keep user-provided Heroes III assets outside all distributed binaries, pages, and caches.
+
+### PlayStation 4 workstream
+
+- ROADMAP section C (P0–P4) is gated behind M0–M5. Do not start it earlier and do not take it instead of LAN work.
+- No jailbreak, exploit or firmware code. Toolchain is OpenOrbis only; nothing from the official Sony SDK enters the repository or CI.
+- Do not distribute Heroes III data. Mark hardware behavior as verified only with a log from a real console.
+
+When a run cannot safely change code, state `NO COMMIT` plus the precise blocker. Never create placeholder work to simulate progress.

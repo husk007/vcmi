@@ -203,6 +203,66 @@ struct DLL_LINKAGE LobbyModsCheck : public CPackForLobby
 	}
 };
 
+/// Dedicated packet IDs negotiate LAN mod preview without changing the legacy TCP wire format.
+/// These packets are exchanged only when the host advertises the opt-in feature over UDP.
+struct DLL_LINKAGE LobbyQueryModSync : public LobbyQueryState
+{
+};
+
+struct DLL_LINKAGE LobbyModSyncPreview : public LobbyModsCheck
+{
+	ModArchiveManifest archives;
+	bool acceptingPlayers = true;
+	std::uint32_t humanPlayerSlots = 0; ///< Zero until a host map is selected.
+
+	template <typename Handler> void serialize(Handler & h)
+	{
+		LobbyModsCheck::serialize(h);
+		h & archives;
+		h & acceptingPlayers;
+		h & humanPlayerSlots;
+	}
+};
+
+/// A separate opt-in packet ID keeps the existing LAN preview wire format stable.
+/// Only an already registered lobby guest may request archive bytes.
+struct DLL_LINKAGE LobbyQueryLanModArchiveChunk : public LobbyQueryState
+{
+	TModID rootId;
+	std::string sha256;
+	std::int64_t offset = 0;
+
+	template <typename Handler> void serialize(Handler & h)
+	{
+		h & rootId;
+		h & sha256;
+		h & offset;
+	}
+};
+
+/// One bounded archive fragment; never install directly from this packet.
+/// The guest must verify the complete SHA-256 before publishing to its cache.
+struct DLL_LINKAGE LobbyLanModArchiveChunk : public LobbyModsCheck
+{
+	TModID rootId;
+	std::string sha256;
+	std::int64_t offset = 0;
+	std::int64_t totalBytes = 0;
+	std::string data;
+	bool granted = false;
+
+	template <typename Handler> void serialize(Handler & h)
+	{
+		LobbyModsCheck::serialize(h);
+		h & rootId;
+		h & sha256;
+		h & offset;
+		h & totalBytes;
+		h & data;
+		h & granted;
+	}
+};
+
 struct DLL_LINKAGE LobbyUpdateState : public CLobbyPackToPropagate
 {
 	LobbyState state;

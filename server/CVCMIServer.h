@@ -13,6 +13,9 @@
 
 #include "../lib/network/NetworkInterface.h"
 #include "../lib/StartInfo.h"
+#include "../lib/modding/LanHostArchiveTransfer.h"
+
+#include <map>
 
 class CMapInfo;
 
@@ -73,6 +76,9 @@ public:
 
 	/// List of all active connections
 	std::vector<std::shared_ptr<GameConnection>> activeConnections;
+
+	/// Pinned, verified host ZIP stream for each registered lobby guest (at most one per guest).
+	std::map<GameConnectionID, std::unique_ptr<LanHostArchiveTransfer>> lanHostArchiveTransfers;
 
 	uint16_t prepare(bool connectToLobby, bool listenForConnections);
 

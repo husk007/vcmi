@@ -42,6 +42,7 @@
 
 #include "windows/InfoWindows.h"
 #include "windows/GUIClasses.h"
+#include "widgets/Buttons.h"
 
 #include "../lib/CConfigHandler.h"
 #include "../lib/GameLibrary.h"
@@ -59,7 +60,13 @@
 #include "../lib/mapping/CMapInfo.h"
 #include "../lib/mapObjects/CGTownInstance.h"
 #include "../lib/mapObjects/MiscObjects.h"
+#include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModIncompatibility.h"
+#include "../lib/modding/LanModArchiveCache.h"
+#include "../lib/modding/LanModPackageStage.h"
+#include "../lib/modding/LanRelaunchToken.h"
+
+#include <fstream>
 #include "../lib/rmg/CMapGenOptions.h"
 #include "../lib/serializer/GameConnection.h"
 #include "../lib/UnlockGuard.h"
@@ -70,6 +77,52 @@
 
 #include <vcmi/events/EventBus.h>
 
+// The LAN preset is already restored on disk. Exit the old asset-loading process
+// through the GUI loop, then launch the normal client with no rejoin token.
+static void restartAfterRestoringLanMods()
+{
+	if(!ENGINE || !LIBRARY || !LIBRARY->modh)
+		return;
+#if !defined(VCMI_MOBILE)
+	LIBRARY->modh->requestLanRestoreRelaunch();
+	ENGINE->dispatchMainThread([]()
+	{
+		GAME->onShutdownRequested(false);
+	});
+#else
+	CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+#endif
+}
+
+
+// Continue LAN Join on the next GUI frame after the player has approved
+// the host packages. A network-chunk callback must not initiate a relaunch.
+static void showLanArchiveReadyForJoin(const std::string & fingerprint, std::size_t preparedCount)
+{
+	if(!ENGINE)
+		return;
+
+	std::string message = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadDone")
+		+ " (" + std::to_string(preparedCount) + ")";
+	for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+	{
+		if(!room->approvePreparedLanJoin(fingerprint))
+			continue;
+
+		// First-use trust was already confirmed before staging. Continue
+		// automatically without a second confirmation, while still allowing
+		// the player to close the room before the next frame.
+		std::weak_ptr<GlobalLobbyRoomWindow> weakRoom(room);
+		ENGINE->dispatchMainThread([weakRoom, fingerprint]()
+		{
+			if(auto openRoom = weakRoom.lock())
+				openRoom->joinApprovedLanSession(fingerprint);
+		});
+		return;
+	}
+
+	CInfoWindow::showInfoDialog(message, {});
+}
 
 CServerHandler::~CServerHandler()
 {
@@ -266,7 +319,34 @@ void CServerHandler::onConnectionFailed(const std::string & errorMessage)
 	else
 	{
 		// remote server refused connection - show error message
+		if(lanArchiveDownloading)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
 		setState(EClientState::NONE);
+		if(lobbyPreviewMode)
+		{
+			// A failed TCP preview must not leave a blocked Join screen behind.
+			lobbyPreviewMode = false;
+			lobbyPreviewCapabilityAdvertised = false;
+			lobbyPreviewAutoJoinAfterRelaunch = false;
+			onLobbyPreviewJoin = {};
+			if(ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>())
+				ENGINE->windows().popWindows(1);
+		}
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after failed server connection: %s", e.what());
+			}
+		}
 		CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.mainMenu.serverConnectionFailed"), {});
 	}
 }
@@ -282,6 +362,18 @@ void CServerHandler::onTimer()
 		logNetwork->info("Connection aborted by player!");
 		serverRunner->wait();
 		serverRunner.reset();
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after cancelled local server connection: %s", e.what());
+			}
+		}
 		if (ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>() != nullptr)
 			ENGINE->windows().popWindows(1);
 		return;
@@ -310,13 +402,23 @@ void CServerHandler::onConnectionEstablished(const NetworkConnectionPtr & netCon
 	}
 
 	logicConnection = std::make_shared<GameConnection>(netConnection);
-	logicConnection->uuid = uuid;
+	// Reuse the legacy registration packet, but explicitly mark a temporary
+	// archive-only socket. Older servers can still treat this as an opaque UUID.
+	logicConnection->uuid = lanArchiveDownloading ? "vcmi-lan-archive:" + uuid : uuid;
 	logicConnection->enterLobbyConnectionMode();
 
 	if(lobbyPreviewMode)
 	{
-		LobbyQueryState lqs;
-		sendLobbyPack(lqs);
+		if(lobbyPreviewCapabilityAdvertised)
+		{
+			LobbyQueryModSync query;
+			sendLobbyPack(query);
+		}
+		else
+		{
+			LobbyQueryState query;
+			sendLobbyPack(query);
+		}
 	}
 	else
 	{
@@ -424,8 +526,9 @@ ui16 CServerHandler::getCurrentPort() const
 void CServerHandler::sendClientConnecting() const
 {
 	LobbyClientConnected lcc;
-	lcc.uuid = uuid;
-	lcc.names = localPlayerNames;
+	lcc.uuid = logicConnection->uuid;
+	// Archive downloaders need a connection ID but must not occupy player slots.
+	lcc.names = lanArchiveDownloading ? std::vector<std::string>{} : localPlayerNames;
 	lcc.mode = si->mode;
 	sendLobbyPack(lcc);
 }
@@ -458,6 +561,21 @@ void CServerHandler::sendClientDisconnecting()
 	networkConnection.reset();
 	logicConnection.reset();
 	waitForServerShutdown();
+
+	// Leaving the lobby does not call endGameplay(), so restore its LAN preset here.
+	// In gameplay, endGameplay() restores only after the client has released its resources.
+	if(!client && loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			if(LIBRARY->modh->restoreLanSession())
+				restartAfterRestoringLanMods();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after leaving multiplayer lobby: %s", e.what());
+		}
+	}
 }
 
 void CServerHandler::setCampaignState(std::shared_ptr<CampaignState> newCampaign)
@@ -754,14 +872,21 @@ void CServerHandler::showHighScoresAndEndGameplay(PlayerColor player, bool victo
 		scenarioHighScores.parameters.push_back(param);
 		scenarioHighScores.isCampaign = false;
 
-		endGameplay();
+		const bool restoreAfterResults = endGameplay(EGameplayExitMode::DEFER_RESULTS_RESTART);
 		GAME->mainmenu()->menu->switchToTab("main");
 		if(!ENGINE->isDemoData())
-			ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(victory, scenarioHighScores, statistic);
+		{
+			// Keep victory/defeat and the optional high-score list visible before
+			// reloading the restored personal mod resources.
+			ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(victory, scenarioHighScores, statistic,
+				restoreAfterResults ? std::function<void()>([]() { restartAfterRestoringLanMods(); }) : std::function<void()>{});
+		}
+		else if(restoreAfterResults)
+			restartAfterRestoringLanMods();
 	}
 }
 
-void CServerHandler::endGameplay()
+bool CServerHandler::endGameplay(EGameplayExitMode mode)
 {
 	// a running replay holds the live session hostage - it has to be gone before anything is torn down.
 	// Every caller of this method owns the interface mutex, which the replay thread needs to finish.
@@ -796,6 +921,19 @@ void CServerHandler::endGameplay()
 	client->endGame();
 	client.reset();
 
+	bool restoredPersonalLanMods = false;
+	if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			restoredPersonalLanMods = LIBRARY->modh->restoreLanSession();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after multiplayer game: %s", e.what());
+		}
+	}
+
 	if (GAME->mainmenu())
 	{
 		GAME->mainmenu()->enable();
@@ -805,6 +943,17 @@ void CServerHandler::endGameplay()
 
 	if(ENGINE)
 		ENGINE->discord().setStatus("", "", {0, 0});
+
+	if(restoredPersonalLanMods)
+	{
+		if(mode == EGameplayExitMode::NORMAL)
+			restartAfterRestoringLanMods();
+		else if(mode == EGameplayExitMode::SHOW_RESULTS)
+			CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+		// DEFER_RESULTS_RESTART lets the result screens finish before the reload;
+		// APPLICATION_EXIT restores the preset but must never reopen VCMI.
+	}
+	return restoredPersonalLanMods;
 }
 
 std::optional<std::string> CServerHandler::canQuickLoadGame(const std::string & path) const
@@ -879,14 +1028,21 @@ void CServerHandler::startCampaignScenario(HighScoreParameter param, std::shared
 	campaignScoreCalculator->isCampaign = true;
 	campaignScoreCalculator->parameters = cs->highscoreParameters;
 
-	endGameplay();
+	// A completed LAN campaign must finish its epilogue, outro and score screens
+	// before reloading the player's restored mod preset. An ongoing campaign
+	// keeps its existing lobby transition and manual restart notice.
+	const bool finishedCampaign = ourCampaign->isCampaignFinished();
+	const bool restoredPersonalLanMods = endGameplay(finishedCampaign
+		? EGameplayExitMode::DEFER_RESULTS_RESTART : EGameplayExitMode::SHOW_RESULTS);
+	const std::function<void()> afterFinalResults = finishedCampaign && restoredPersonalLanMods
+		? std::function<void()>([]() { restartAfterRestoringLanMods(); }) : std::function<void()>{};
 
 	// the game just took its campaign texts down with it, but the epilogue still has to render
 	// them - this keeps them up until the transition hands over to the next lobby
 	auto campaignTexts = std::make_shared<TranslatorOverlay>(ourCampaign->getTexts());
 
 	auto & epilogue = ourCampaign->scenario(*ourCampaign->lastScenario()).epilog;
-	auto finisher = [ourCampaign, campaignScoreCalculator, statistic, campaignTexts]()
+	auto finisher = [ourCampaign, campaignScoreCalculator, statistic, campaignTexts, afterFinalResults]()
 	{
 		if(ourCampaign->campaignSet != "" && ourCampaign->isCampaignFinished())
 		{
@@ -905,12 +1061,12 @@ void CServerHandler::startCampaignScenario(HighScoreParameter param, std::shared
 				auto rim = ourCampaign->getVideoRim().empty() ? ImagePath::builtin("INTRORIM") : ourCampaign->getVideoRim();
 				if(ourCampaign->getVideoRim() == ImagePath::builtin("NONE"))
 					rim = ImagePath();
-				ENGINE->windows().createAndPushWindow<VideoWindow>(ourCampaign->getOutroVideo(), rim, false, 1, [campaignScoreCalculator, statistic](bool skipped){
-					ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic);
+				ENGINE->windows().createAndPushWindow<VideoWindow>(ourCampaign->getOutroVideo(), rim, false, 1, [campaignScoreCalculator, statistic, afterFinalResults](bool skipped){
+					ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic, afterFinalResults);
 				});
 			}
 			else
-				ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic);
+				ENGINE->windows().createAndPushWindow<CHighScoreInputScreen>(true, *campaignScoreCalculator, statistic, afterFinalResults);
 		}
 	};
 
@@ -1073,6 +1229,42 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		return;
 	}
 
+	if(lanArchiveDownloading)
+	{
+		// The socket has already disconnected; cleanup must not send another packet.
+		finishLanArchiveDownload(false, false, true);
+		return;
+	}
+	if(lobbyPreviewMode)
+	{
+		// The query connection has no game lobby screen. An unexpected disconnect
+		// must not dispatch LobbyClientDisconnected to a nonexistent lobby.
+		// Restore a temporary mod preset if a post-relaunch preview has failed.
+		lobbyPreviewMode = false;
+		lobbyPreviewCapabilityAdvertised = false;
+		lobbyPreviewAutoJoinAfterRelaunch = false;
+		onLobbyPreviewJoin = {};
+		logicConnection.reset();
+		networkConnection.reset();
+		setState(EClientState::NONE);
+		if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+		{
+			try
+			{
+				if(LIBRARY->modh->restoreLanSession())
+					restartAfterRestoringLanMods();
+			}
+			catch(const std::exception & e)
+			{
+				logNetwork->error("Unable to restore LAN mod preset after preview disconnection: %s", e.what());
+			}
+		}
+		if(ENGINE && ENGINE->windows().topWindow<CSimpleJoinScreen>())
+			ENGINE->windows().popWindows(1);
+		showServerError(LIBRARY->generaltexth->translate("vcmi.server.errors.disconnected"));
+		return;
+	}
+
 	logNetwork->error("Lost connection to server! Connection has been closed");
 
 	if(client)
@@ -1086,6 +1278,21 @@ void CServerHandler::onDisconnected(const std::shared_ptr<INetworkConnection> & 
 		LobbyClientDisconnected lcd;
 		lcd.clientId = logicConnection->connectionID;
 		applyPackOnLobbyScreen(lcd);
+	}
+
+	if(loadMode == ELoadMode::MULTI && !hotseatMode && LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			// A lobby disconnect can restore the preset on disk while the loaded resources
+			// still belong to the LAN host. Make the required reload visible to the player.
+			if(LIBRARY->modh->restoreLanSession())
+				restartAfterRestoringLanMods();
+		}
+		catch(const std::exception & e)
+		{
+			logNetwork->error("Unable to restore LAN mod preset after server disconnection: %s", e.what());
+		}
 	}
 
 	networkConnection.reset();
@@ -1198,16 +1405,245 @@ void CServerHandler::sendGamePack(const CPackForServer & pack) const
 	logicConnection->sendPack(pack);
 }
 
-void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin)
+void CServerHandler::startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised, bool autoJoinAfterRelaunch, std::string approvedHostModsSha256)
 {
+	lanArchiveApprovedHostOffer.clear(); // A different preview needs fresh content approval.
+	lobbyPreviewExpectedHostModsSha256 = std::move(approvedHostModsSha256);
 	lobbyPreviewMode = true;
+	lobbyPreviewCapabilityAdvertised = capabilityAdvertised;
+	lobbyPreviewAutoJoinAfterRelaunch = autoJoinAfterRelaunch;
 	onLobbyPreviewJoin = std::move(onJoin);
 	connectToServer(addr, port);
 }
 
+
+bool CServerHandler::beginLanArchiveDownload(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives)
+{
+	if(lanArchiveDownloading || getState() != EClientState::NONE || networkConnection
+		|| !LIBRARY || !LIBRARY->modh || serverHostname.empty() || serverPort == 0)
+		return false;
+	const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, archives, userData);
+	// Enforce the same complete-offer gate as the preview. Never download a
+	// subset of host mods when joining would still be impossible afterwards.
+	if(!ModVerificationInfo::canPrepareMissingHostArchives(statuses, available, LIBRARY->modh->getAllMods()))
+		return false;
+	std::deque<PendingLanArchive> pending;
+	std::size_t prepared = 0;
+	for(const auto & [rootId, state] : available)
+	{
+		const auto & offer = archives.at(rootId);
+		if(state == LanArchivePreviewState::VERIFIED_IN_CACHE)
+		{
+			if(!LanModPackageStage::stageVerifiedArchive(userData, rootId, offer.sha256))
+				return false;
+			++prepared; // Already cached: zero bytes requested from the host.
+		}
+		else if(state == LanArchivePreviewState::OFFERED_BY_HOST)
+			pending.push_back({rootId, offer.sha256, offer.bytes});
+	}
+	if(pending.empty())
+	{
+		if(prepared)
+		{
+			lanArchiveApprovedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
+			if(!LanModArchiveCache::rememberApprovedHostOffer(userData, lanArchiveApprovedHostOffer))
+				logNetwork->warn("LAN mod approval could not be saved; consent will be requested again");
+			showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, prepared);
+		}
+		return prepared != 0;
+	}
+	lanArchivePending = std::move(pending);
+	lanArchiveRequestedHostOffer = ModVerificationInfo::fingerprintLanHostOffer(hostMods, archives);
+	lanArchiveStaging.clear();
+	lanArchiveOffset = 0;
+	lanArchiveCachedCount = prepared;
+	lanArchiveLastProgressPercent = 101;
+	lanArchiveDownloading = true;
+	reportLanArchiveProgress();
+	// The existing server requires a registered lobby guest for archive chunks.
+	// This temporary connection never starts gameplay or changes installed mods.
+	connectToServer(serverHostname, serverPort);
+	return true;
+}
+
+void CServerHandler::onLanArchiveGuestRegistered()
+{
+	if(lanArchiveDownloading)
+		requestNextLanArchiveChunk();
+}
+
+void CServerHandler::reportLanArchiveProgress()
+{
+	if(!lanArchiveDownloading || lanArchivePending.empty() || !ENGINE)
+		return;
+	const auto & current = lanArchivePending.front();
+	if(current.totalBytes <= 0)
+		return;
+	const auto percent = static_cast<std::size_t>(
+		(static_cast<std::uint64_t>(lanArchiveOffset) * 100) / static_cast<std::uint64_t>(current.totalBytes));
+	if(percent == lanArchiveLastProgressPercent)
+		return; // Avoid repainting the lobby on every 64 KiB TCP chunk.
+	lanArchiveLastProgressPercent = percent;
+	for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+		room->showLanArchiveProgress(lanArchiveRequestedHostOffer, lanArchiveCachedCount,
+			lanArchiveCachedCount + lanArchivePending.size(), percent);
+}
+
+void CServerHandler::requestNextLanArchiveChunk()
+{
+	if(!lanArchiveDownloading)
+		return;
+	if(lanArchivePending.empty())
+	{
+		finishLanArchiveDownload(true);
+		return;
+	}
+	if(!logicConnection || logicConnection->connectionID == GameConnectionID::INVALID)
+	{
+		finishLanArchiveDownload(false);
+		return;
+	}
+	if(lanArchiveOffset == 0)
+	{
+		try
+		{
+			// The OS temp directory can be a size-limited tmpfs or missing (Android).
+			const std::filesystem::path incoming = std::filesystem::path(VCMIDirs::get().userCachePath().native()) / "lan-mod-incoming";
+			std::filesystem::create_directories(incoming);
+			lanArchiveStaging = incoming / ("vcmi-lan-" + LanRelaunchToken::generate() + ".part");
+			std::ofstream stage(lanArchiveStaging, std::ios::binary | std::ios::trunc);
+			if(!stage)
+			{
+				finishLanArchiveDownload(false);
+				return;
+			}
+		}
+		catch(const std::filesystem::filesystem_error &)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+	}
+	const auto & next = lanArchivePending.front();
+	LobbyQueryLanModArchiveChunk query;
+	query.rootId = next.rootId;
+	query.sha256 = next.sha256;
+	query.offset = lanArchiveOffset;
+	logicConnection->sendPack(query);
+}
+
+void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
+{
+	if(!lanArchiveDownloading || lanArchivePending.empty())
+		return;
+	const auto & current = lanArchivePending.front();
+	if(!chunk.granted || chunk.rootId != current.rootId
+		|| !ModArchiveDigest::sameSha256(chunk.sha256, current.sha256)
+		|| chunk.offset != lanArchiveOffset || chunk.totalBytes != current.totalBytes
+		|| chunk.data.empty() || chunk.data.size() > 64 * 1024
+		|| current.totalBytes <= 0
+		|| static_cast<std::uintmax_t>(current.totalBytes) > LanModArchiveCache::maxArchiveBytes
+		|| static_cast<std::int64_t>(chunk.data.size()) > current.totalBytes - lanArchiveOffset)
+	{
+		finishLanArchiveDownload(false);
+		return;
+	}
+	{
+		std::ofstream stage(lanArchiveStaging, std::ios::binary | std::ios::app);
+		stage.write(chunk.data.data(), static_cast<std::streamsize>(chunk.data.size()));
+		stage.flush();
+		if(!stage)
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+	}
+	lanArchiveOffset += static_cast<std::int64_t>(chunk.data.size());
+	if(lanArchiveOffset == current.totalBytes)
+	{
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(!LanModArchiveCache::publishVerifiedArchive(userData, current.rootId, current.sha256, lanArchiveStaging)
+			|| !LanModPackageStage::stageVerifiedArchive(userData, current.rootId, current.sha256))
+		{
+			finishLanArchiveDownload(false);
+			return;
+		}
+		std::error_code cleanup;
+		std::filesystem::remove(lanArchiveStaging, cleanup);
+		lanArchiveStaging.clear();
+		lanArchiveOffset = 0;
+		lanArchivePending.pop_front();
+		++lanArchiveCachedCount;
+		lanArchiveLastProgressPercent = 101; // Show 0% at the start of the next archive.
+	}
+	reportLanArchiveProgress();
+	requestNextLanArchiveChunk();
+}
+
+void CServerHandler::cancelLanArchiveDownload()
+{
+	if(lanArchiveDownloading)
+		finishLanArchiveDownload(false, true);
+}
+
+void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlayer, bool connectionLost)
+{
+	if(!lanArchiveDownloading)
+		return;
+	const auto cachedCount = lanArchiveCachedCount;
+	const auto requestedOffer = lanArchiveRequestedHostOffer;
+	if(success)
+	{
+		lanArchiveApprovedHostOffer = lanArchiveRequestedHostOffer;
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(!LanModArchiveCache::rememberApprovedHostOffer(userData, lanArchiveApprovedHostOffer))
+			logNetwork->warn("LAN mod approval could not be saved; consent will be requested again");
+	}
+	else
+		lanArchiveApprovedHostOffer.clear();
+	lanArchiveRequestedHostOffer.clear();
+	lanArchiveDownloading = false;
+	lanArchivePending.clear();
+	lanArchiveOffset = 0;
+	lanArchiveLastProgressPercent = 101;
+	if(!success && ENGINE)
+		for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+			room->resetLanArchiveProgress(requestedOffer);
+	std::error_code error;
+	if(!lanArchiveStaging.empty())
+		std::filesystem::remove(lanArchiveStaging, error);
+	lanArchiveStaging.clear();
+	if(!connectionLost && logicConnection && logicConnection->connectionID != GameConnectionID::INVALID)
+	{
+		LobbyClientDisconnected leaving;
+		leaving.clientId = logicConnection->connectionID;
+		logicConnection->sendPack(leaving);
+	}
+	const auto oldConnection = std::move(networkConnection);
+	logicConnection.reset();
+	setState(EClientState::NONE);
+	if(oldConnection)
+		oldConnection->close();
+	if(success)
+		showLanArchiveReadyForJoin(lanArchiveApprovedHostOffer, cachedCount);
+	else if(!cancelledByPlayer && ENGINE)
+		CInfoWindow::showInfoDialog(
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadFailed"), {});
+}
+
 void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 {
+	const auto * extendedPreview = dynamic_cast<LobbyModSyncPreview *>(&pack);
+	const bool canPreviewLocalPreparation = lobbyPreviewCapabilityAdvertised && extendedPreview != nullptr;
+	const ModArchiveManifest hostArchives = canPreviewLocalPreparation ? extendedPreview->archives : ModArchiveManifest{};
+	const bool resumeApprovedJoin = lobbyPreviewAutoJoinAfterRelaunch;
+	const std::string approvedHostModsSha256 = std::move(lobbyPreviewExpectedHostModsSha256);
+	lobbyPreviewExpectedHostModsSha256.clear();
 	lobbyPreviewMode = false;
+	lobbyPreviewCapabilityAdvertised = false;
+	lobbyPreviewAutoJoinAfterRelaunch = false;
 
 	// Close the temporary query connection
 	if(networkConnection)
@@ -1216,11 +1652,12 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		networkConnection.reset();
 	}
 	logicConnection.reset();
+	setState(EClientState::NONE);
 
 	GlobalLobbyRoom roomDescription;
 	roomDescription.gameVersion = pack.vcmiVersion;
-	roomDescription.statusID = "open";
-	roomDescription.playerLimit = 8;
+	roomDescription.statusID = canPreviewLocalPreparation && !extendedPreview->acceptingPlayers ? "busy" : "open";
+	roomDescription.playerLimit = canPreviewLocalPreparation ? extendedPreview->humanPlayerSlots : 0;
 	roomDescription.modList = pack.mods;
 	roomDescription.hostAccountDisplayName = pack.hostAccountDisplayName;
 	roomDescription.description = "";
@@ -1232,19 +1669,132 @@ void CServerHandler::onLobbyPreviewResponse(LobbyModsCheck & pack)
 		roomDescription.participants.push_back(account);
 	}
 
+	const ModCompatibilityInfo hostMods = pack.mods;
+	const LanRejoinTarget selectedHost{serverHostname, serverPort, canPreviewLocalPreparation,
+		localPlayerNames, screenType == ESelectionScreen::loadGame,
+		canPreviewLocalPreparation ? ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) : std::string{}};
+	if(canPreviewLocalPreparation)
+	{
+		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
+		if(LanModArchiveCache::hasApprovedHostOffer(userData, selectedHost.approvedHostModsSha256))
+		{
+			const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+			const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, hostArchives, userData);
+			if(!available.empty() && std::all_of(available.begin(), available.end(),
+				[](const auto & entry){ return entry.second == LanArchivePreviewState::VERIFIED_IN_CACHE; }))
+				lanArchiveApprovedHostOffer = selectedHost.approvedHostModsSha256;
+		}
+	}
 	ENGINE->windows().createAndPushWindow<GlobalLobbyRoomWindow>(
 		roomDescription,
-		[this]()
+		[this, hostMods, hostArchives, canPreviewLocalPreparation, selectedHost]()
 		{
+			if(canPreviewLocalPreparation)
+			{
+				const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+				const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+				bool relaunchPrepared = false;
+				try
+				{
+					if(plan && plan->requiresChanges())
+						relaunchPrepared = LIBRARY->modh->prepareInstalledOnlyLanSession(hostMods, selectedHost);
+					else if(!plan)
+					{
+						// A cached ZIP is not an authorization to execute unknown scripts.
+						// "Prepare host mods" asks for explicit trust first.
+						if(lanArchiveApprovedHostOffer == selectedHost.approvedHostModsSha256)
+							relaunchPrepared = LIBRARY->modh->prepareCachedLanSession(hostMods, hostArchives, selectedHost);
+						if(!relaunchPrepared)
+						{
+							CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
+							return;
+						}
+					}
+				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to prepare LAN mods for controlled relaunch: %s", e.what());
+					CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanPreparationFailed"), {});
+					return;
+				}
+				if(relaunchPrepared)
+					throw GameShutdownException();
+			}
 			ENGINE->windows().popWindows(1);
 			if(onLobbyPreviewJoin)
 				onLobbyPreviewJoin();
 		},
-		[]()
+		[this]()
 		{
+			cancelLanArchiveDownload();
+			// A cancelled post-relaunch preview must not leave the temporary LAN preset active.
+			if(LIBRARY && LIBRARY->modh)
+			{
+				try
+				{
+					if(LIBRARY->modh->restoreLanSession())
+						restartAfterRestoringLanMods();
+				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to restore LAN mod preset after preview cancellation: %s", e.what());
+				}
+			}
 			ENGINE->windows().popWindows(1);
 			// Also close the CSimpleJoinScreen that was underneath the preview
 			if(auto w = ENGINE->windows().topWindow<CSimpleJoinScreen>())
 				ENGINE->windows().popWindows(1);
+		},
+		canPreviewLocalPreparation, hostArchives,
+		[this, hostMods, hostArchives]()
+		{
+			const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+			const auto available = ModVerificationInfo::inspectHostArchiveAvailability(statuses, hostArchives,
+				std::filesystem::path(VCMIDirs::get().userDataPath().native()));
+			const auto bytes = ModVerificationInfo::estimateUncachedArchiveBytes(available, hostArchives);
+			std::string question = LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadConsent")
+				+ "\n" + std::to_string((bytes + 1023) / 1024) + " KiB";
+			// Trust approval must identify the actual host packages, not just their combined size.
+			// Include cached archives too: a cache hit alone does not authorize first-time execution.
+			for(const auto & description : ModVerificationInfo::describeLanArchiveConsent(hostMods, available, hostArchives))
+				question += "\n" + description;
+			CInfoWindow::showYesNoDialog(question, {},
+				[this, hostMods, hostArchives]()
+				{
+					if(!beginLanArchiveDownload(hostMods, hostArchives))
+						CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadFailed"), {});
+				}, []() {});
 		});
+
+	// The player approved this LAN room before relaunch. The host may have changed.
+	// Continue only if the fresh preview permits joining without further changes.
+	if(resumeApprovedJoin)
+	{
+		if(auto room = ENGINE->windows().topWindow<GlobalLobbyRoomWindow>())
+		{
+			const bool unchangedHostMods = approvedHostModsSha256.empty()
+				|| (canPreviewLocalPreparation
+					&& ModVerificationInfo::fingerprintLanHostOffer(hostMods, hostArchives) == approvedHostModsSha256);
+			if(!unchangedHostMods || !room->joinIfCompatible())
+			{
+				// The approved host may have changed while the client was restarting.
+				// Do not leave the temporary LAN preset active after a rejected rejoin.
+				try
+				{
+					if(LIBRARY->modh->restoreLanSession())
+						restartAfterRestoringLanMods();
+				}
+				catch(const std::exception & e)
+				{
+					logNetwork->error("Unable to restore LAN mod preset after rejected automatic rejoin: %s", e.what());
+				}
+				ENGINE->windows().popWindows(1);
+				if(ENGINE->windows().topWindow<CSimpleJoinScreen>())
+					ENGINE->windows().popWindows(1);
+				onLobbyPreviewJoin = {};
+				CInfoWindow::showInfoDialog(
+					LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRejoinRejected"), {});
+			}
+		}
+	}
 }

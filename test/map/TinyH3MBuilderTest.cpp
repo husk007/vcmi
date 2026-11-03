@@ -80,6 +80,48 @@ TEST(TinyH3MBuilderTest, TwoLevelMapHasTwoLayers)
 	EXPECT_EQ(header->mapLayers.size(), 2u);
 }
 
+TEST(TinyH3MBuilderTest, ThreeHumanLanStartMap)
+{
+	// Public LAN CI generates a map with three distinct playable slots.
+	// All objects and map bytes come from the test builder, not Heroes III assets.
+	auto bytes = TinyH3M::TinyH3MBuilder(EMapFormat::SOD)
+		.size(36, /*twoLevel*/ false)
+		.name("LanThreeHumanStartMap")
+		.playerActive(PlayerColor(0))
+		.playerActive(PlayerColor(1))
+		.playerActive(PlayerColor(2))
+		.randomTown({ 6,  6, 0}, PlayerColor(0))
+		.randomTown({18, 18, 0}, PlayerColor(1))
+		.randomTown({30, 30, 0}, PlayerColor(2))
+		// A town-only map validates lobby startup but cannot exercise hero turns.
+		.hero({ 9, 10, 0}, HeroTypeID(0), PlayerColor(0))
+		.heroGarrison({{CreatureID(0), 20}})
+		.hero({21, 22, 0}, HeroTypeID(1), PlayerColor(1))
+		.heroGarrison({{CreatureID(0), 20}})
+		.hero({28, 25, 0}, HeroTypeID(2), PlayerColor(2))
+		.heroGarrison({{CreatureID(0), 20}})
+		.buildAndDump("LanThreeHumanStartMap");
+
+	auto header = loadHeader(bytes);
+	ASSERT_NE(header, nullptr);
+	EXPECT_EQ(std::count_if(header->players.begin(), header->players.end(),
+		[](const auto & player) { return player.canHumanPlay; }), 3);
+
+	auto loaded = loadMap(std::move(bytes));
+	ASSERT_NE(loaded.map, nullptr);
+	EXPECT_EQ(loaded.map->objects.size(), 6u);
+	for(int player = 0; player < 3; ++player)
+	{
+		const auto owner = PlayerColor(player);
+		EXPECT_EQ(std::count_if(loaded.map->objects.begin(), loaded.map->objects.end(),
+			[owner](const auto & object)
+			{
+				const auto * hero = dynamic_cast<const CGHeroInstance *>(object.get());
+				return hero && hero->getOwner() == owner && hero->hasStackAtSlot(SlotID(0));
+			}), 1) << "Each LAN player needs one playable starting hero";
+	}
+}
+
 TEST(TinyH3MBuilderTest, EmptyROEFullLoad)
 {
 	auto bytes = TinyH3M::TinyH3MBuilder(EMapFormat::ROE)

@@ -31,6 +31,8 @@ struct DLL_LINKAGE DiscoveredServer
 {
 	std::string address;
 	uint16_t port;
+	/// Advisory UDP discovery hint, not an authenticated transfer capability.
+	bool lanModSyncPreview = false;
 };
 
 /// Base class for connections with other services, either incoming or outgoing

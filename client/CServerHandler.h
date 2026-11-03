@@ -12,6 +12,10 @@
 #include "Translator.h"
 
 #include "../lib/CStopWatch.h"
+#include "../lib/modding/ModVerificationInfo.h"
+
+#include <deque>
+#include <filesystem>
 
 #include "../lib/network/NetworkInterface.h"
 #include "../lib/StartInfo.h"
@@ -31,6 +35,7 @@ struct CPackForLobby;
 struct CPackForServer;
 struct CPackForClient;
 struct LobbyModsCheck;
+struct LobbyLanModArchiveChunk;
 
 class HighScoreParameter;
 
@@ -122,7 +127,29 @@ class CServerHandler final : public IServerAPI, public LobbyInfo, public INetwor
 
 	std::atomic<EClientState> state;
 	bool lobbyPreviewMode = false;
+	bool lobbyPreviewCapabilityAdvertised = false;
+	bool lobbyPreviewAutoJoinAfterRelaunch = false;
+	std::string lobbyPreviewExpectedHostModsSha256;
 	std::function<void()> onLobbyPreviewJoin;
+
+	// Explicitly approved registered guest transfer. Cache only; no installation.
+	struct PendingLanArchive
+	{
+		TModID rootId;
+		std::string sha256;
+		std::int64_t totalBytes = 0;
+	};
+	std::deque<PendingLanArchive> lanArchivePending;
+	std::filesystem::path lanArchiveStaging;
+	std::int64_t lanArchiveOffset = 0;
+	std::size_t lanArchiveCachedCount = 0;
+	std::size_t lanArchiveLastProgressPercent = 101;
+	bool lanArchiveDownloading = false;
+	std::string lanArchiveRequestedHostOffer;
+	std::string lanArchiveApprovedHostOffer;
+	void requestNextLanArchiveChunk();
+	void reportLanArchiveProgress();
+	void finishLanArchiveDownload(bool success, bool cancelledByPlayer = false, bool connectionLost = false);
 
 	void threadRunNetwork();
 	void waitForServerShutdown();
@@ -229,7 +256,8 @@ public:
 	void stopNetwork();
 	void waitForNetworkThread();
 	void endNetwork();
-	void endGameplay();
+	enum class EGameplayExitMode { NORMAL, SHOW_RESULTS, DEFER_RESULTS_RESTART, APPLICATION_EXIT };
+	bool endGameplay(EGameplayExitMode mode = EGameplayExitMode::NORMAL);
 	void restartGameplay();
 	void startCampaignScenario(HighScoreParameter param, std::shared_ptr<CampaignState> cs, const StatisticDataSet & statistic);
 	void showServerError(const std::string & txt) const;
@@ -248,6 +276,11 @@ public:
 
 	void sendGamePack(const CPackForServer & pack) const;
 
-	void startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin);
+	void startLobbyPreview(const std::string & addr, ui16 port, std::function<void()> onJoin, bool capabilityAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 	void onLobbyPreviewResponse(LobbyModsCheck & pack);
+	bool beginLanArchiveDownload(const ModCompatibilityInfo & hostMods, const ModArchiveManifest & archives);
+	bool isLanArchiveDownloading() const { return lanArchiveDownloading; }
+	void onLanArchiveGuestRegistered();
+	void onLanArchiveChunk(LobbyLanModArchiveChunk & chunk);
+	void cancelLanArchiveDownload();
 };

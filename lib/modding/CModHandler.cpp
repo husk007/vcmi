@@ -15,8 +15,10 @@
 #include "ModDescription.h"
 #include "ModManager.h"
 #include "ModScope.h"
+#include "LanModPackageStage.h"
 
 #include "../CConfigHandler.h"
+#include "../VCMIDirs.h"
 #include "../CCreatureHandler.h"
 #include "../GameSettings.h"
 #include "../GameLibrary.h"
@@ -29,13 +31,137 @@
 #include <tbb/parallel_invoke.h>
 #include <zlib.h>
 
-CModHandler::CModHandler(bool useTestPreset)
+CModHandler::CModHandler(bool useTestPreset, const std::string & lanRelaunchToken)
 	: content(std::make_shared<CContentHandler>())
-	, modManager(std::make_unique<ModManager>(JsonNode(), useTestPreset))
+	, modManager(std::make_unique<ModManager>(JsonNode(), useTestPreset, TModList{}, lanRelaunchToken))
 {
 }
 
 CModHandler::~CModHandler() = default;
+
+ModSyncPlan CModHandler::planLanModSync(
+	const ModListVerificationStatus & statuses, const ModArchiveHashes & expectedSha256) const
+{
+	const std::filesystem::path userDataPath(VCMIDirs::get().userDataPath().native());
+	return ModVerificationInfo::buildSyncPlanFromPersistentCache(statuses, expectedSha256, userDataPath);
+}
+
+void CModHandler::beginLanSession()
+{
+	modManager->beginLanSession();
+}
+
+bool CModHandler::prepareInstalledOnlyLanSession(const ModCompatibilityInfo & hostMods, const LanRejoinTarget & target)
+{
+	const auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	if(!plan)
+		throw std::runtime_error("Host requires missing or incompatible mod versions");
+	if(!plan->requiresChanges())
+		return false;
+
+	modManager->prepareInstalledOnlyLanSession(*plan, target, hostMods);
+	try
+	{
+		requestLanRelaunch();
+	}
+	catch(...)
+	{
+		restoreLanSession();
+		throw;
+	}
+	return true;
+}
+
+
+bool CModHandler::prepareCachedLanSession(const ModCompatibilityInfo & hostMods,
+	const ModArchiveManifest & archives, const LanRejoinTarget & target)
+{
+	auto statuses = ModVerificationInfo::verifyListAgainstLocalMods(hostMods);
+	const auto installed = getAllMods();
+	const std::filesystem::path userData(VCMIDirs::get().userDataPath().native());
+	ModArchiveHashes staged;
+	for(auto & [modId, status] : statuses)
+	{
+		if(status == ModVerificationStatus::VERSION_MISMATCH)
+			return false; // Never mix staged content with an installed private version.
+		if(status != ModVerificationStatus::NOT_INSTALLED)
+			continue;
+		const auto rootId = modId.substr(0, modId.find('.'));
+		if(vstd::contains(installed, rootId))
+			return false; // An installed root with a missing child is not replaceable.
+		const auto offered = archives.find(rootId);
+		if(offered == archives.end()
+			|| !LanModPackageStage::stageVerifiedArchive(userData, rootId, offered->second.sha256))
+			return false; // Must be in the verified cache and safe staging already.
+		staged.emplace(rootId, offered->second.sha256);
+		status = ModVerificationStatus::DISABLED;
+	}
+	if(staged.empty())
+		return false;
+	const auto plan = ModVerificationInfo::buildInstalledOnlyPlan(statuses);
+	if(!plan || !plan->requiresChanges())
+		return false;
+
+	modManager->prepareLanSessionWithStagedMods(*plan, target, staged);
+	try
+	{
+		requestLanRelaunch();
+	}
+	catch(...)
+	{
+		restoreLanSession();
+		throw;
+	}
+	return true;
+}
+
+std::optional<LanRejoinTarget> CModHandler::consumeLanRejoinTarget()
+{
+	return modManager->consumeLanRejoinTarget();
+}
+
+bool CModHandler::restoreLanSession()
+{
+	lanRelaunchRequested.store(false, std::memory_order_release);
+	const bool hadLanPreset = modManager->getActivePreset() == LanModSessionState::temporaryPresetName();
+	modManager->restoreLanSession();
+	return hadLanPreset;
+}
+
+void CModHandler::requestLanRelaunch()
+{
+	if(modManager->getActivePreset() != LanModSessionState::temporaryPresetName())
+		throw std::runtime_error("Cannot relaunch without an active LAN mod preset");
+	lanRelaunchRequested.store(true, std::memory_order_release);
+}
+
+bool CModHandler::consumeLanRelaunchRequest()
+{
+	return lanRelaunchRequested.exchange(false, std::memory_order_acq_rel);
+}
+
+void CModHandler::requestLanRestoreRelaunch()
+{
+	if(modManager->getActivePreset() == LanModSessionState::temporaryPresetName())
+		throw std::runtime_error("Cannot restart personal mods before restoring the LAN preset");
+	lanRestoreRelaunchRequested.store(true, std::memory_order_release);
+}
+
+bool CModHandler::consumeLanRestoreRelaunchRequest()
+{
+	return lanRestoreRelaunchRequested.exchange(false, std::memory_order_acq_rel);
+}
+
+std::string CModHandler::prepareControlledLanRelaunch()
+{
+	return modManager->prepareControlledRelaunch();
+}
+
+void CModHandler::restoreLanSessionOnShutdown()
+{
+	modManager->restoreLanSessionOnShutdown();
+}
 
 std::vector<std::string> CModHandler::getAllMods() const
 {

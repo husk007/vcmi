@@ -44,7 +44,9 @@
 #include "../lib/GameLibrary.h"
 #include "../lib/ScopeGuard.h"
 #include "../lib/VCMIDirs.h"
+#include "LanRelaunchProcess.h"
 
+#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/program_options.hpp>
 #include <vstd/StringUtils.h>
 
@@ -162,8 +164,10 @@ int main(int argc, char * argv[])
 #endif
 
 #if !defined(VCMI_MOBILE)
-	// Correct working dir executable folder (not bundle folder) so we can use executable relative paths
-	boost::filesystem::current_path(boost::filesystem::system_complete(argv[0]).parent_path());
+	// argv[0] may be a PATH command or symlink; relaunch the actual running binary.
+	const std::filesystem::path lanRelaunchExecutable(boost::dll::program_location().native());
+	// Use the real executable directory for relative paths, even when started through PATH or a symlink.
+	boost::filesystem::current_path(boost::filesystem::path(lanRelaunchExecutable.parent_path().native()));
 #endif
 	std::cout << "Starting... " << std::endl;
 	po::options_description opts("Allowed options");
@@ -190,7 +194,8 @@ int main(int argc, char * argv[])
 		("nointro,i", "skips intro movies")
 		("donotstartserver,d","do not attempt to start server and just connect to it instead server")
 		("serverport", po::value<si64>(), "override port specified in config file")
-		("savefrequency", po::value<si64>(), "limit auto save creation to each N days");
+		("savefrequency", po::value<si64>(), "limit auto save creation to each N days")
+		("lan-relaunch-token", po::value<std::string>(), "one-time marker for controlled LAN mod session relaunch");
 
 	if(argc > 1)
 	{
@@ -222,6 +227,13 @@ int main(int argc, char * argv[])
 #else
 		return 0;
 #endif
+	}
+
+	const std::string lanRelaunchToken = vm.count("lan-relaunch-token") ? vm["lan-relaunch-token"].as<std::string>() : std::string{};
+	if(vm.count("lan-relaunch-token") && !LanRelaunchProcess::isValidToken(lanRelaunchToken))
+	{
+		std::cerr << "LAN relaunch token must contain 64 lowercase hexadecimal characters" << std::endl;
+		return 1;
 	}
 
 	// Init old logging system and new (temporary) logging system
@@ -259,7 +271,7 @@ int main(int argc, char * argv[])
 	try
 	{
 		LIBRARY = new GameLibrary;
-		LIBRARY->initializeFilesystem(false);
+		LIBRARY->initializeFilesystem(false, false, lanRelaunchToken);
 	}
 	catch (const DataLoadingException & e)
 	{
@@ -403,7 +415,31 @@ int main(int argc, char * argv[])
 		{
 			GAME->mainmenu()->makeActiveInterface();
 
-			bool playIntroVideo = !vm.count("battle") && !vm.count("nointro") && settings["video"]["showIntro"].Bool();
+			bool rejoiningLan = false;
+#if !defined(VCMI_MOBILE)
+			// The endpoint is exposed only after the matching one-shot relaunch marker was accepted.
+			if(!lanRelaunchToken.empty())
+			{
+				if(const auto target = LIBRARY->modh->consumeLanRejoinTarget())
+				{
+					try
+					{
+						CMainMenu::openLobby(target->loadGame ? ESelectionScreen::loadGame : ESelectionScreen::newGame,
+							false, target->playerNames.empty() ? CMultiMode::getPlayersNames() : target->playerNames,
+							ELoadMode::MULTI, false, false, target->hostname, target->port, target->previewCapability, true, target->approvedHostModsSha256);
+						rejoiningLan = true;
+						logGlobal->info("Rejoining selected LAN host after mod preset relaunch");
+					}
+					catch(const std::exception & error)
+					{
+						logGlobal->error("Unable to rejoin LAN host: %s", error.what());
+						LIBRARY->modh->restoreLanSession();
+					}
+				}
+			}
+#endif
+
+			bool playIntroVideo = !rejoiningLan && !vm.count("battle") && !vm.count("nointro") && settings["video"]["showIntro"].Bool();
 			if(playIntroVideo)
 				GAME->mainmenu()->playIntroVideos();
 			else
@@ -436,10 +472,10 @@ int main(int argc, char * argv[])
 			}
 		};
 
-		const auto & cleanupEngine = [&logConfigurator]()
+		const auto & cleanupEngine = [&]()
 		{
 			if(settings["session"]["headless"].Bool() && GAME->server().client)
-				GAME->server().endGameplay();
+				GAME->server().endGameplay(CServerHandler::EGameplayExitMode::APPLICATION_EXIT);
 
 			if(ENGINE)
 			{
@@ -455,7 +491,7 @@ int main(int argc, char * argv[])
 			if(!settings["session"]["headless"].Bool())
 			{
 				if(GAME->server().client)
-					GAME->server().endGameplay();
+					GAME->server().endGameplay(CServerHandler::EGameplayExitMode::APPLICATION_EXIT);
 
 				if (ENGINE)
 					ENGINE->windows().clear();
@@ -476,6 +512,50 @@ int main(int argc, char * argv[])
 				ENGINE->async().wait();
 
 				ENGINE.reset();
+			}
+
+#if !defined(VCMI_MOBILE)
+			if(LIBRARY && LIBRARY->modh && LIBRARY->modh->consumeLanRelaunchRequest())
+			{
+				try
+				{
+					const auto pid = LanRelaunchProcess::spawnWithRollback(lanRelaunchExecutable,
+						[&]() { return LIBRARY->modh->prepareControlledLanRelaunch(); },
+						[&]() { LIBRARY->modh->restoreLanSession(); });
+					logGlobal->info("Started controlled LAN client relaunch, process ID: %llu", static_cast<unsigned long long>(pid));
+				}
+				catch(const std::exception & e)
+				{
+					logGlobal->error("Controlled LAN client relaunch failed: %s", e.what());
+				}
+			}
+			else if(LIBRARY && LIBRARY->modh && LIBRARY->modh->consumeLanRestoreRelaunchRequest())
+			{
+				try
+				{
+					const auto pid = LanRelaunchProcess::spawnRestoredPreset(lanRelaunchExecutable);
+					logGlobal->info("Restarted client with personal mods, process ID: %llu", static_cast<unsigned long long>(pid));
+				}
+				catch(const std::exception & error)
+				{
+					logGlobal->error("Unable to restart client with personal mods: %s", error.what());
+				}
+			}
+#endif
+
+			// Restore personal mod settings only after the game has released its resources.
+			// A pending controlled relaunch keeps the temporary preset for the next process.
+			if(LIBRARY && LIBRARY->modh)
+			{
+				try
+				{
+					LIBRARY->modh->restoreLanSessionOnShutdown();
+				}
+				catch(const std::exception & e)
+				{
+					// The recovery journal stays on disk; the next startup will retry.
+					logGlobal->error("Unable to restore LAN mod preset on shutdown: %s", e.what());
+				}
 			}
 
 			delete LIBRARY;

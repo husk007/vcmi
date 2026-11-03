@@ -20,13 +20,15 @@ public:
 	void start() override;
 	void abort() override;
 	static std::vector<std::string> ipAddresses();
+	/// Probe a manually entered host before sending opt-in lobby packets; old hosts retain the legacy preview.
+	static bool probeHostPreview(const std::string & host, std::uint16_t tcpPort, std::uint16_t discoveryPort = 3030);
 
 private:
 	NetworkContext & context;
 	IServerDiscoveryObserver & observer;
 	std::shared_ptr<boost::asio::ip::udp::socket> socket;
 	std::shared_ptr<boost::asio::steady_timer> sendTimer;
-	std::set<std::pair<std::string, uint16_t>> discoveredServers;
+	std::map<std::pair<std::string, uint16_t>, bool> discoveredServers;
 };
 
 class ServerDiscoveryListener : public IServerDiscoveryListener, public std::enable_shared_from_this<ServerDiscoveryListener>

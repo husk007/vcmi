@@ -40,8 +40,8 @@
 #include "../../lib/serializer/JsonSerializer.h"
 #include "../../lib/serializer/JsonDeserializer.h"
 
-CHighScoreScreen::CHighScoreScreen(HighScorePage highscorepage, int highlighted)
-	: CWindowObject(BORDERED), highscorepage(highscorepage), highlighted(highlighted)
+CHighScoreScreen::CHighScoreScreen(HighScorePage highscorepage, int highlighted, std::function<void()> afterClose)
+	: CWindowObject(BORDERED), highscorepage(highscorepage), highlighted(highlighted), afterClose(std::move(afterClose))
 {
 	addUsedEvents(LCLICK);
 	addUsedEvents(SHOW_POPUP);
@@ -191,8 +191,11 @@ void CHighScoreScreen::buttonResetClick()
 
 void CHighScoreScreen::buttonExitClick()
 {
+	auto onClosed = std::move(afterClose);
 	close();
 	GAME->mainmenu()->playMusic();
+	if(onClosed)
+		onClosed();
 }
 
 void CHighScoreScreen::showAll(Canvas & to)
@@ -202,8 +205,8 @@ void CHighScoreScreen::showAll(Canvas & to)
 	CWindowObject::showAll(to);
 }
 
-CHighScoreInputScreen::CHighScoreInputScreen(bool won, HighScoreCalculation calc, const StatisticDataSet & statistic)
-	: CWindowObject(BORDERED), won(won), calc(calc), stat(statistic)
+CHighScoreInputScreen::CHighScoreInputScreen(bool won, HighScoreCalculation calc, const StatisticDataSet & statistic, std::function<void()> afterClose)
+	: CWindowObject(BORDERED), won(won), calc(calc), stat(statistic), afterClose(std::move(afterClose))
 {
 	addUsedEvents(LCLICK | KEYBOARD);
 
@@ -245,8 +248,11 @@ CHighScoreInputScreen::CHighScoreInputScreen(bool won, HighScoreCalculation calc
 
 void CHighScoreInputScreen::stopMusicAndClose()
 {
+	auto onClosed = std::move(afterClose);
 	GAME->mainmenu()->playMusic();
 	close();
+	if(onClosed)
+		onClosed();
 }
 
 void CHighScoreInputScreen::onVideoPlaybackFinished()
@@ -338,8 +344,9 @@ void CHighScoreInputScreen::clickPressed(const Point & cursorPosition)
 			if(!text.empty())
 			{
 				int pos = addEntry(text);
+				auto onClosed = std::move(afterClose);
 				close();
-				ENGINE->windows().createAndPushWindow<CHighScoreScreen>(calc.isCampaign ? CHighScoreScreen::HighScorePage::CAMPAIGN : CHighScoreScreen::HighScorePage::SCENARIO, pos);
+				ENGINE->windows().createAndPushWindow<CHighScoreScreen>(calc.isCampaign ? CHighScoreScreen::HighScorePage::CAMPAIGN : CHighScoreScreen::HighScorePage::SCENARIO, pos, std::move(onClosed));
 			}
 			else
 				stopMusicAndClose();

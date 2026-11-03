@@ -1,0 +1,284 @@
+name: LAN Mod Sync - Linux validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/lan-mod-sync-and-web-roadmap
+    paths:
+      - .github/workflows/lan-mod-sync-validation.yml
+      - .github/lan-mod-sync-validation-trigger.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lan-mod-sync-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-and-lan-tests:
+    name: Compile actual VCMI and run LAN tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out full repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -y --no-install-recommends install \
+            cmake ninja-build build-essential pkg-config ccache p7zip-full xvfb xauth \
+            libcurl4-openssl-dev libboost-dev libboost-filesystem-dev \
+            libboost-date-time-dev libboost-program-options-dev \
+            libboost-iostreams-dev libsdl2-dev libsdl2-image-dev \
+            libsdl2-mixer-dev libsdl2-ttf-dev qt6-base-dev qt6-svg-dev \
+            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
+            zlib1g-dev libavformat-dev libswscale-dev libtbb-dev \
+            libluajit-5.1-dev libminizip-dev libsqlite3-dev \
+            libsquish-dev libfmt-dev gettext
+
+      - name: Validate LAN publisher and isolated GUI acceptance fixture
+        run: python3 -m unittest utils/test_lan_mod_share.py utils/test_lan_gui_acceptance.py
+
+      - name: Configure VCMI with real test dependencies
+        run: |
+          cmake --preset linux-gcc-test \
+            -DENABLE_MMAI=OFF \
+            -DENABLE_DISCORD=OFF \
+            -DENABLE_EDITOR=OFF \
+            -DENABLE_LAUNCHER=OFF \
+            -DENABLE_PCH=OFF \
+            -DENABLE_STRICT_COMPILATION=OFF
+
+      - name: Build vcmitest
+        run: cmake --build --preset linux-gcc-test --target vcmitest --parallel 2
+
+      - name: Build lobby preview client code
+        run: cmake --build --preset linux-gcc-test --target vcmiclientcommon --parallel 2
+
+      - name: Build LAN host lobby TCP code
+        run: cmake --build --preset linux-gcc-test --target vcmiservercommon --parallel 2
+
+      - name: Build real LAN host executable
+        run: cmake --build --preset linux-gcc-test --target vcmiserver --parallel 2
+
+      - name: Link complete desktop client and validate its entry point
+        run: |
+          cmake --build --preset linux-gcc-test --target vcmiclient --parallel 2
+          out/build/linux-gcc-test/bin/vcmiclient --help > /dev/null
+
+      - name: Stage runtime assets for vcmitest
+        run: |
+          # Running only the vcmitest target does not deploy the runtime assets.
+          # VCMIDirs::developmentMode requires config/, Mods/ and vcmitest
+          # together in the current working directory.
+          test -f config/filesystem.json
+          test -d Mods
+          test -x out/build/linux-gcc-test/bin/vcmitest
+          # CMake can already stage these assets as symlinks after the client build.
+          # Copy only missing assets to avoid cp rejecting a source/destination match.
+          for asset in config Mods scripts; do
+            if [ ! -e "out/build/linux-gcc-test/bin/$asset" ]; then
+              cp -a "$asset" out/build/linux-gcc-test/bin/
+            fi
+          done
+          test -f out/build/linux-gcc-test/bin/config/filesystem.json
+
+      - name: Prepare VCMI's public CI test fixture
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/vcmi-mods/vcmi-test-data/releases/download/v2.0/heroes3.7z" \
+            --output "${RUNNER_TEMP}/heroes3.7z"
+          mkdir -p "$HOME/.local/share/vcmi"
+          7z x -y "${RUNNER_TEMP}/heroes3.7z" -o"$HOME/.local/share/vcmi"
+          # A tiny locally generated mod makes the real host require an installed
+          # gameplay mod that is intentionally disabled in the guest test preset.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-fixture"
+          cat > "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/mod.json" <<'JSON'
+          {
+            "name": "LAN CI installed-only fixture",
+            "author": "VCMI LAN integration tests",
+            "version": "1.0",
+            "modType": "Mechanics",
+            "keepDisabled": true,
+            "settings": {}
+          }
+          JSON
+          # Publish the actual installed mod through the same tool hosts use,
+          # then serve the resulting ZIP from production vcmiserver to two guests.
+          # Deterministic incompressible fixture must cross the 64 KiB chunk boundary.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/assets"
+          python3 - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          output = Path.home() / ".local/share/vcmi/Mods/lan-ci-fixture/assets/payload.bin"
+          with output.open("wb") as target:
+              for index in range(2200):
+                  target.write(sha256(f"vcmi-lan-fixture-{index}".encode()).digest())
+          PY
+          # The second active root proves a single host preset can publish
+          # several independently selected archives in one invocation.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-extra/assets"
+          cat > "$HOME/.local/share/vcmi/Mods/lan-ci-extra/mod.json" <<'JSON'
+          {
+            "name": "LAN CI second gameplay fixture",
+            "author": "VCMI LAN integration tests",
+            "version": "2.0",
+            "modType": "Mechanics",
+            "keepDisabled": true,
+            "settings": {}
+          }
+          JSON
+          cp "$HOME/.local/share/vcmi/Mods/lan-ci-fixture/assets/payload.bin" \
+            "$HOME/.local/share/vcmi/Mods/lan-ci-extra/assets/payload.bin"
+          # This host enables a real nested gameplay submod. The opt-in
+          # preview and root ZIP transfer must both cover that submod.
+          mkdir -p "$HOME/.local/share/vcmi/Mods/lan-ci-extra/Mods/units"
+          cat > "$HOME/.local/share/vcmi/Mods/lan-ci-extra/Mods/units/mod.json" <<'JSON'
+          {
+            "name": "LAN CI second mod units",
+            "author": "VCMI LAN integration tests",
+            "version": "2.0",
+            "modType": "Mechanics",
+            "keepDisabled": true,
+            "settings": {}
+          }
+          JSON
+          # Keep host-specific settings separate from the vcmitest guest settings.
+          mkdir -p "$RUNNER_TEMP/lan-host-config/vcmi"
+          cat > "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" <<'JSON'
+          {
+            "activePreset": "default",
+            "presets": {
+              "default": {
+                "mods": ["vcmi", "lan-ci-fixture", "lan-ci-extra"],
+                "settings": {"lan-ci-extra": {"units": true}}
+              }
+            }
+          }
+          JSON
+          # Use the host's active preset rather than a handwritten mod list.
+          # Consent covers each archive selected by this explicit command.
+          python3 utils/lan_mod_share.py --active-from-settings \
+            "$RUNNER_TEMP/lan-host-config/vcmi/modSettings.json" \
+            --user-data "$HOME/.local/share/vcmi" --confirm-redistributable \
+            --launch-client "$PWD/out/build/linux-gcc-test/bin/vcmiclient" \
+            --client-arg=--help > "$RUNNER_TEMP/lan-host-client-launch.log"
+          grep -q -- "lan-relaunch-token" "$RUNNER_TEMP/lan-host-client-launch.log"
+          archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-fixture.zip"
+          test -s "$archive"
+          test "$(stat -c %s "$archive")" -gt 65536
+          second_archive="$HOME/.local/share/vcmi/lan-mod-shares/lan-ci-extra.zip"
+          test -s "$second_archive"
+          test "$(stat -c %s "$second_archive")" -gt 65536
+
+          # vcmitest has vcmi-test enabled in its isolated fixture preset.
+          # The independent server must resolve the same test-only identifiers
+          # when receiving LobbySetMap, but guest data and published ZIPs stay untouched.
+          host_data="$RUNNER_TEMP/lan-host-data/vcmi"
+          mkdir -p "$host_data/Mods"
+          for item in "$HOME/.local/share/vcmi/"*; do
+            [ -e "$item" ] || continue
+            if [ "$(basename "$item")" = Mods ]; then
+              for mod in "$item"/*; do
+                [ -e "$mod" ] || continue
+                ln -s "$mod" "$host_data/Mods/$(basename "$mod")"
+              done
+            elif [ "$(basename "$item")" = lan-mod-shares ]; then
+              # Host LAN archive offers reject symlinked directories and ZIPs.
+              cp -a "$item" "$host_data/lan-mod-shares"
+            else
+              ln -s "$item" "$host_data/$(basename "$item")"
+            fi
+          done
+          test -d "$host_data/lan-mod-shares"
+          test ! -L "$host_data/lan-mod-shares"
+          test -f "$host_data/lan-mod-shares/lan-ci-fixture.zip"
+          test ! -L "$host_data/lan-mod-shares/lan-ci-fixture.zip"
+          test -f "$host_data/lan-mod-shares/lan-ci-extra.zip"
+          test ! -L "$host_data/lan-mod-shares/lan-ci-extra.zip"
+          test -f out/build/linux-gcc-test/bin/test/testdata/vcmi-test/mod.json
+          cp -a out/build/linux-gcc-test/bin/test/testdata/vcmi-test "$host_data/Mods/vcmi-test"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          settings_path = Path(os.environ["RUNNER_TEMP"]) / "lan-host-config/vcmi/modSettings.json"
+          settings = json.loads(settings_path.read_text())
+          settings["presets"]["default"]["mods"].append("vcmi-test")
+          settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+          PY
+
+      - name: Run committed LAN tests against independent VCMI host
+        working-directory: out/build/linux-gcc-test/bin
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Build an original, three-player map before the independent server
+          # starts. This exercises LobbyStartGame without requiring commercial maps.
+          mkdir -p "$RUNNER_TEMP/lan-map-cache" "$HOME/.local/share/vcmi/Maps"
+          XDG_CACHE_HOME="$RUNNER_TEMP/lan-map-cache" ./vcmitest \
+            --gtest_filter='TinyH3MBuilderTest.ThreeHumanLanStartMap' --gtest_color=no
+          map_file="$(find "$RUNNER_TEMP/lan-map-cache" -type f -name 'LanThreeHumanStartMap.h3m' -print -quit)"
+          test -n "$map_file" && test -s "$map_file"
+          cp "$map_file" "$HOME/.local/share/vcmi/Maps/LanThreeHumanStartMap.h3m"
+          # Host data was isolated before this map was generated. Its XDG_DATA_HOME
+          # must contain the same map or vcmiserver cannot resolve LobbySetMap.
+          host_maps="$RUNNER_TEMP/lan-host-data/vcmi/Maps"
+          mkdir -p "$host_maps"
+          if [ ! -e "$host_maps/LanThreeHumanStartMap.h3m" ]; then
+            cp "$map_file" "$host_maps/LanThreeHumanStartMap.h3m"
+          fi
+          test -s "$host_maps/LanThreeHumanStartMap.h3m"
+          export VCMI_LAN_TEST_START_MAP="MAPS/LANTHREEHUMANSTARTMAP.H3M"
+          port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+          XDG_DATA_HOME="$RUNNER_TEMP/lan-host-data" XDG_CONFIG_HOME="$RUNNER_TEMP/lan-host-config" \
+            ./vcmiserver --port "$port" > "$RUNNER_TEMP/lan-real-host.log" 2>&1 &
+          host_pid=$!
+          trap 'kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true' EXIT
+          # A disposable TCP readiness probe would shut down a host without players.
+          # The integration test registers a real lobby host before previewing it.
+          sleep 10
+          if ! kill -0 "$host_pid" 2>/dev/null; then
+            tail -n 120 "$RUNNER_TEMP/lan-real-host.log"
+            exit 1
+          fi
+          export VCMI_LAN_TEST_SERVER_PORT="$port"
+          export VCMI_LAN_TEST_REQUIRED_MOD="lan-ci-fixture"
+          export VCMI_LAN_TEST_SECOND_MOD="lan-ci-extra"
+          export VCMI_LAN_TEST_SECOND_SUBMOD="lan-ci-extra.units"
+          # Also verify selective retransfer of a republished host ZIP in this disposable fixture.
+          export VCMI_LAN_TEST_SHARE_REFRESH="1"
+          export VCMI_LAN_TEST_HOST_SHARE_DIR="$RUNNER_TEMP/lan-host-data/vcmi/lan-mod-shares"
+          # The public vcmi-test-data fixture has no complete Heroes III GUI sprites.
+          # The previous graphical client smoke test reached CRADVNTR and exited
+          # before attempting LAN rejoin. Do not report that as an M2 code failure.
+          # Run the opt-in GUI branch of LanModSyncTest only on a machine with
+          # the owner\x27s legally installed full Heroes III graphical data.
+          echo "::notice title=GUI LAN rejoin not validated::Public fixture lacks full Heroes III graphical resources (CRADVNTR). Real GUI M2 acceptance requires a licensed local installation."
+          export SDL_AUDIODRIVER=dummy
+          xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+            ./vcmitest --gtest_filter='LanModSyncTest.*' --gtest_color=no || {
+            tail -n 120 "$RUNNER_TEMP/lan-real-host.log"
+            exit 1
+          }
+
+      - name: Preserve configure/build logs for debugging
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lan-build-diagnostics
+          path: |
+            out/build/linux-gcc-test/CMakeFiles/CMakeConfigureLog.yaml
+            out/build/linux-gcc-test/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 7

@@ -117,6 +117,8 @@ public:
 	std::shared_ptr<CGStatusBar> statusBar;
 	std::vector<std::shared_ptr<CLabel>> labelsJoin;
 	std::vector<std::shared_ptr<CButton>> buttonsJoin;
+	std::map<std::pair<std::string, uint16_t>, size_t> discoveredServerRows;
+	std::map<std::pair<std::string, uint16_t>, std::shared_ptr<DiscoveredServer>> discoveredServerEntries;
 	std::shared_ptr<IServerDiscovery> serverDiscovery;
 
 	JoinScreen(ESelectionScreen ScreenType, const std::vector<std::string> & playerNames);
@@ -179,7 +181,7 @@ public:
 	void activate() override;
 	void onScreenResize() override;
 	void makeActiveInterface();
-	static void openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode = false, std::string server = {}, ui16 port = 0);
+	static void openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode = false, std::string server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 	static void openCampaignLobby(const std::string & campaignFileName, std::string campaignSet = "");
 	static void openCampaignLobby(std::shared_ptr<CampaignState> campaign);
 	static void startTutorial();
@@ -202,6 +204,9 @@ class CSimpleJoinScreen : public WindowBase
 	std::shared_ptr<CGStatusBar> statusBar;
 	std::shared_ptr<CTextInput> inputAddress;
 	std::shared_ptr<CTextInput> inputPort;
+	bool lanModPreviewAdvertised = false;
+	bool autoJoinAfterRelaunch = false;
+	std::string approvedHostModsSha256;
 
 	void connectToServer();
 	void leaveScreen();
@@ -209,7 +214,7 @@ class CSimpleJoinScreen : public WindowBase
 	void startConnection(const std::string & addr = {}, ui16 port = 0);
 
 public:
-	CSimpleJoinScreen(bool host = true, const std::string & server = {}, ui16 port = 0);
+	CSimpleJoinScreen(bool host = true, const std::string & server = {}, ui16 port = 0, bool lanModPreviewAdvertised = false, bool autoJoinAfterRelaunch = false, std::string approvedHostModsSha256 = {});
 };
 
 class CLoadingScreen : virtual public CWindowObject, virtual public Load::Progress

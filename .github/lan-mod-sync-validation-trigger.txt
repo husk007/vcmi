@@ -1,0 +1,2 @@
+Checkpoint: d563c443fefb942103eaecec79ba401c8e59adc3
+Reason: M1 real TCP registration must reject a fourth legacy guest after three human map slots are filled, while preserving archive-only connections and the original players. Verify the new production vcmiserver regression alongside the complete VCMI desktop build. Previous CI #41574744788 passed full Linux compilation and 104/104 LanModSyncTest.* on 3f10869.

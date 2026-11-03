@@ -11,6 +11,7 @@
 #include "CMainMenu.h"
 
 #include "../../lib/network/NetworkDiscovery.h"
+#include "../../lib/network/NetworkDiscoveryProtocol.h"
 #include "CCampaignScreen.h"
 #include "CHighScoreScreen.h"
 #include "CreditsScreen.h"
@@ -433,14 +434,14 @@ void CMainMenu::makeActiveInterface()
 	menu->switchToTab(menu->getActiveTab());
 }
 
-void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port)
+void CMainMenu::openLobby(ESelectionScreen screenType, bool host, const std::vector<std::string> & names, ELoadMode loadMode, bool battleMode, bool hotseatMode, std::string server, ui16 port, bool lanModPreviewAdvertised, bool autoJoinAfterRelaunch, std::string approvedHostModsSha256)
 {
 	GAME->server().resetStateForLobby(screenType == ESelectionScreen::newGame ? EStartMode::NEW_GAME : EStartMode::LOAD_GAME, screenType, EServerMode::LOCAL, names);
 	GAME->server().loadMode = loadMode;
 	GAME->server().hotseatMode = hotseatMode;
 	GAME->server().battleMode = battleMode;
 
-	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port);
+	ENGINE->windows().createAndPushWindow<CSimpleJoinScreen>(host, server, port, lanModPreviewAdvertised, autoJoinAfterRelaunch, std::move(approvedHostModsSha256));
 }
 
 void CMainMenu::openCampaignLobby(const std::string & campaignFileName, std::string campaignSet)
@@ -611,18 +612,41 @@ void JoinScreen::onServerDiscovered(const DiscoveredServer & server)
 	{
 		OBJECT_CONSTRUCTION;
 
+		const auto key = std::make_pair(server.address, server.port);
+		const auto labelFor = [](const DiscoveredServer & entry)
+		{
+			const std::string badge = entry.lanModSyncPreview
+				? " [" + LIBRARY->generaltexth->translate("vcmi.mainMenu.lanModPreviewTag") + "]"
+				: "";
+			return entry.address + ":" + std::to_string(entry.port) + badge;
+		};
+
+		// The extended response may arrive after the legacy one. The Join button
+		// must use the upgraded entry, not the first UDP result it captured.
+		if(const auto found = discoveredServerRows.find(key); found != discoveredServerRows.end())
+		{
+			auto & entry = *discoveredServerEntries.at(key);
+			entry.lanModSyncPreview = LanModDiscovery::retainPreviewCapability(entry.lanModSyncPreview, server.lanModSyncPreview);
+			labelsJoin[found->second]->setText(labelFor(entry));
+			redraw();
+			return;
+		}
 		if(buttonsJoin.size() >= 12)
 			return; //max 12 servers displayed
 
-		auto button = std::make_shared<CButton>(Point(174, 114 + buttonsJoin.size() * 25), AnimationPath::builtin("GSPBUT2.DEF"), CButton::tooltip(), [this, server]{ 
+		auto entry = std::make_shared<DiscoveredServer>(server);
+		discoveredServerEntries.emplace(key, entry);
+		discoveredServerRows.emplace(key, buttonsJoin.size());
+		auto button = std::make_shared<CButton>(Point(174, 114 + buttonsJoin.size() * 25), AnimationPath::builtin("GSPBUT2.DEF"), CButton::tooltip(), [this, entry]{
 			auto savedScreenType = screenType;
 			auto savedPlayerNames = playerNames;
 			close();
-			CMainMenu::openLobby(savedScreenType, false, savedPlayerNames, ELoadMode::MULTI, false, false, server.address, server.port);
+			CMainMenu::openLobby(savedScreenType, false, savedPlayerNames, ELoadMode::MULTI, false, false,
+				entry->address, entry->port, entry->lanModSyncPreview);
 		});
 		button->setTextOverlay(LIBRARY->generaltexth->translate("vcmi.mainMenu.join"), FONT_SMALL, Colors::WHITE);
 		buttonsJoin.push_back(button);
-		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, server.address + ":" + std::to_string(server.port)));
+		labelsJoin.push_back(std::make_shared<CLabel>(107, 124 + labelsJoin.size() * 25, FONT_SMALL, ETextAlignment::CENTER, Colors::WHITE, labelFor(*entry)));
 		redraw();
 	});
 }
@@ -737,7 +761,10 @@ void CMultiPlayers::enterSelectionScreen()
 	CMainMenu::openLobby(screenType, host, playerNames, loadMode, false, hotseat);
 }
 
-CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port)
+CSimpleJoinScreen::CSimpleJoinScreen(bool host, const std::string & server, ui16 port, bool advertised, bool autoJoin, std::string approvedMods)
+	: lanModPreviewAdvertised(advertised)
+	, autoJoinAfterRelaunch(autoJoin)
+	, approvedHostModsSha256(std::move(approvedMods))
 {
 	OBJECT_CONSTRUCTION;
 	if(!ENGINE->isRoeData())
@@ -805,6 +832,30 @@ void CSimpleJoinScreen::leaveScreen()
 {
 	textTitle->setText(LIBRARY->generaltexth->translate("vcmi.mainMenu.serverClosing"));
 	GAME->server().setState(EClientState::CONNECTION_CANCELLED);
+	if(LIBRARY && LIBRARY->modh)
+	{
+		try
+		{
+			// Restoring the preset on disk does not unload LAN assets already
+			// loaded by the current process. Cancel must return to personal mods.
+			if(LIBRARY->modh->restoreLanSession())
+			{
+#ifndef VCMI_MOBILE
+				LIBRARY->modh->requestLanRestoreRelaunch();
+				ENGINE->dispatchMainThread([]()
+				{
+					GAME->onShutdownRequested(false);
+				});
+#else
+				CInfoWindow::showInfoDialog(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanRestoreRestartRequired"), {});
+#endif
+			}
+		}
+		catch(const std::exception & e)
+		{
+			logGlobal->error("Unable to restore LAN mod preset after cancelling join: %s", e.what());
+		}
+	}
 	close();
 }
 
@@ -822,11 +873,17 @@ void CSimpleJoinScreen::startConnection(const std::string & addr, ui16 port)
 	}
 	else
 	{
-		// Show lobby preview before fully connecting as a player
+		// Direct-IP joins negotiate the same optional preview as broadcast-discovered hosts.
+		// No response from an older host preserves the legacy lobby packet flow.
+		// A discovered host or saved relaunch target may now point to a legacy server.
+		// Only send the opt-in TCP query after a fresh UDP capability check.
+		const bool supportsLanPreview = ServerDiscovery::probeHostPreview(addr, port);
+		if(lanModPreviewAdvertised && !supportsLanPreview)
+			logGlobal->info("LAN host %s:%d no longer advertises mod sync; using legacy preview", addr, port);
 		GAME->server().startLobbyPreview(addr, port, [addr, port]()
 		{
 			GAME->server().connectToServer(addr, port);
-		});
+		}, supportsLanPreview, autoJoinAfterRelaunch, approvedHostModsSha256);
 	}
 }
 

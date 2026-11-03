@@ -37,6 +37,7 @@
 #include "../../lib/networkPacks/PacksForLobby.h"
 #include "../../lib/rmg/CMapGenOptions.h"
 #include "../../lib/GameLibrary.h"
+#include "../../lib/modding/CModHandler.h"
 
 CLobbyScreen::CLobbyScreen(ESelectionScreen screenType, bool hideScreen)
 	: CSelectionBase(screenType), bonusSel(nullptr)

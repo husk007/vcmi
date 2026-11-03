@@ -16,6 +16,8 @@
 
 #include "MinizipExtensions.h"
 
+#include <cstdint>
+
 class CZipStream : public CBufferedStream
 {
 	unzFile file;
@@ -66,7 +68,16 @@ public:
 	ZipArchive(const boost::filesystem::path & from);
 	~ZipArchive();
 
+	struct FileEntry
+	{
+		std::string name;
+		std::uint64_t uncompressedSize = 0;
+		std::uint32_t externalAttributes = 0;
+		std::uint32_t madeBy = 0;
+	};
 	std::vector<std::string> listFiles();
+	std::vector<FileEntry> listEntries();
+	bool extractLimited(const boost::filesystem::path & where, const std::string & what, std::uint64_t maximumBytes);
 	bool extract(const boost::filesystem::path & where, const std::vector<std::string> & what);
 	bool extract(const boost::filesystem::path & where, const std::string & what);
 };

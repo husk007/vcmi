@@ -14,6 +14,7 @@
 #include "CGameHandler.h"
 
 #include "../lib/StartInfo.h"
+#include "../lib/VCMIDirs.h"
 #include "../lib/GameLibrary.h"
 #include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModDescription.h"
@@ -46,12 +47,58 @@ void ApplyOnServerAfterAnnounceNetPackVisitor::visitForLobby(CPackForLobby & pac
 
 void ClientPermissionsCheckerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 {
-	// Anyone can query lobby state without being a registered player
+	// Archive bytes are available only to a server-registered player in this
+	// still-running lobby. Anonymous compatibility previews remain read-only.
+	if(dynamic_cast<LobbyQueryLanModArchiveChunk *>(&pack))
+	{
+		result = srv.getState() == EServerState::LOBBY
+			&& connection->connectionID != GameConnectionID::INVALID;
+		return;
+	}
+	// Anyone can query compatibility metadata without joining as a player.
 	result = true;
 }
 
 void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 {
+	if(auto * request = dynamic_cast<LobbyQueryLanModArchiveChunk *>(&pack))
+	{
+		LobbyLanModArchiveChunk response;
+		response.rootId = request->rootId;
+		response.sha256 = request->sha256;
+		response.offset = request->offset;
+		ModCompatibilityInfo activeMods;
+		for(const auto & modId : LIBRARY->modh->getActiveMods())
+			activeMods.emplace(modId, LIBRARY->modh->getModInfo(modId).getVerificationInfo());
+		// A 64 KiB request must not trigger another full ZIP SHA-256 pass.
+		// Bind the verified, pinned source to this registered guest until EOF.
+		if(request->offset == 0)
+		{
+			srv.lanHostArchiveTransfers.erase(connection->connectionID);
+			auto transfer = LanHostArchiveTransfer::open(activeMods,
+				std::filesystem::path(VCMIDirs::get().userDataPath().native()),
+				request->rootId, request->sha256);
+			if(transfer)
+				srv.lanHostArchiveTransfers.emplace(connection->connectionID, std::move(transfer));
+		}
+		const auto found = srv.lanHostArchiveTransfers.find(connection->connectionID);
+		if(found != srv.lanHostArchiveTransfers.end())
+		{
+			const auto chunk = found->second->next(request->rootId, request->sha256, request->offset);
+			if(chunk)
+			{
+				response.totalBytes = chunk->totalBytes;
+				response.data = chunk->data;
+				response.granted = true;
+			}
+			if(!chunk || found->second->complete())
+				srv.lanHostArchiveTransfers.erase(found);
+		}
+		connection->sendPack(response);
+		result = false;
+		return;
+	}
+
 	LobbyModsCheck lms;
 	lms.vcmiVersion = VCMI_VERSION_STRING;
 
@@ -65,7 +112,26 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 			lms.hostAccountDisplayName = player.name;
 	}
 
-	connection->sendPack(lms);
+	if(dynamic_cast<LobbyQueryModSync *>(&pack))
+	{
+		LobbyModSyncPreview preview;
+		static_cast<LobbyModsCheck &>(preview) = std::move(lms);
+		preview.acceptingPlayers = srv.getState() == EServerState::LOBBY;
+		if(preview.acceptingPlayers && !srv.si->playerInfos.empty())
+		{
+			// Once a map is selected, only unassigned human-playable slots can
+			// accept another LAN participant. Keep the legacy reply unchanged.
+			const auto playableSlots = std::count_if(srv.si->playerInfos.begin(), srv.si->playerInfos.end(),
+				[](const auto & entry){ return !entry.second.compOnly; });
+			preview.humanPlayerSlots = static_cast<std::uint32_t>(playableSlots);
+			preview.acceptingPlayers = srv.playerNames.size() < static_cast<std::size_t>(playableSlots);
+		}
+		preview.archives = ModVerificationInfo::buildHostArchiveManifest(
+			preview.mods, std::filesystem::path(VCMIDirs::get().userDataPath().native()));
+		connection->sendPack(preview);
+	}
+	else
+		connection->sendPack(lms);
 	result = false;
 }
 
@@ -87,6 +153,28 @@ void ClientPermissionsCheckerNetPackVisitor::visitLobbyClientConnected(LobbyClie
 
 void ApplyOnServerNetPackVisitor::visitLobbyClientConnected(LobbyClientConnected & pack)
 {
+	// A lobby preview is only a snapshot: a seat may be taken before the
+	// guest's subsequent TCP join. Enforce selected-map capacity at the actual
+	// registration boundary as well, including clients without LAN mod sync.
+	// An archive-only connection has no player names and occupies no map seat.
+	if(!pack.names.empty() && !srv.si->playerInfos.empty())
+	{
+		const auto humanSlots = static_cast<std::size_t>(std::count_if(
+			srv.si->playerInfos.begin(), srv.si->playerInfos.end(),
+			[](const auto & entry){ return !entry.second.compOnly; }));
+		const auto occupied = srv.playerNames.size();
+		if(occupied >= humanSlots || pack.names.size() > humanSlots - occupied)
+		{
+			logNetwork->warn("Rejecting LAN join: %zu requested player(s), %zu of %zu human slots occupied",
+				pack.names.size(), occupied, humanSlots);
+			// Do not issue a LobbyClientConnected acknowledgement with an invalid
+			// player identity or silently queue an impossible multiplayer join.
+			connection->getConnection()->close();
+			result = false;
+			return;
+		}
+	}
+
 	auto compatibleVersion = std::min(pack.version, ESerializationVersion::CURRENT);
 	connection->setSerializationVersion(compatibleVersion);
 
