@@ -4964,7 +4964,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		const auto secondCacheHome = sandbox / "second-cache";
 		const char * secondRequiredMod = std::getenv("VCMI_LAN_TEST_SECOND_MOD");
 		ASSERT_NE(secondRequiredMod, nullptr);
-		const auto stageIsolatedGuestData = [&](const fs::path & dataHome)
+		const auto stageIsolatedGuestData = [&](const fs::path & dataHome, bool installedRequiredMod)
 		{
 			const auto userData = dataHome / "vcmi";
 			fs::create_directories(userData / "Mods");
@@ -4980,19 +4980,39 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			}
 			for(const auto & modId : {std::string(requiredMod), std::string(secondRequiredMod)})
 			{
+				if(!installedRequiredMod && modId == requiredMod)
+					continue; // The second GUI must load this root from its own verified cache.
 				const auto source = sharedUserData / "Mods" / modId;
 				if(!fs::is_directory(source))
 					throw std::runtime_error("LAN GUI fixture is missing installed mod: " + modId);
 				fs::copy(source, userData / "Mods" / modId, fs::copy_options::recursive);
 			}
 		};
-		ASSERT_NO_THROW(stageIsolatedGuestData(firstDataHome));
-		ASSERT_NO_THROW(stageIsolatedGuestData(secondDataHome));
+		ASSERT_NO_THROW(stageIsolatedGuestData(firstDataHome, true));
+		ASSERT_NO_THROW(stageIsolatedGuestData(secondDataHome, false));
 		ASSERT_FALSE(fs::exists(firstDataHome / "vcmi" / "lan-mod-shares"));
 		ASSERT_FALSE(fs::exists(secondDataHome / "vcmi" / "lan-mod-shares"));
 		ASSERT_FALSE(fs::is_symlink(firstDataHome / "vcmi" / "Mods" / requiredMod));
-		ASSERT_FALSE(fs::is_symlink(secondDataHome / "vcmi" / "Mods" / requiredMod));
+		ASSERT_FALSE(fs::exists(secondDataHome / "vcmi" / "Mods" / requiredMod));
 		ASSERT_NE(fs::canonical(firstDataHome), fs::canonical(secondDataHome));
+
+		// Simulate a previously trusted LAN download. The second GUI has no
+		// installed copy and must mount the matching package without TCP transfer.
+		const auto cachedOffer = syncedMods->archives.find(requiredMod);
+		ASSERT_NE(cachedOffer, syncedMods->archives.end());
+		const auto secondUserData = secondDataHome / "vcmi";
+		const auto hostPackage = sharedUserData / "lan-mod-shares" / (std::string(requiredMod) + ".zip");
+		ASSERT_TRUE(fs::is_regular_file(hostPackage));
+		ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(
+			secondUserData, requiredMod, cachedOffer->second.sha256, hostPackage));
+		const ModListVerificationStatus absentFromSecondGuest = {
+			{requiredMod, ModVerificationStatus::NOT_INSTALLED}
+		};
+		const ModArchiveHashes expectedCachedRoot = {{requiredMod, cachedOffer->second.sha256}};
+		const auto secondCachePlan = ModVerificationInfo::buildSyncPlanFromPersistentCache(
+			absentFromSecondGuest, expectedCachedRoot, secondUserData);
+		ASSERT_TRUE(secondCachePlan.downloadOrUpdate.empty());
+		ASSERT_TRUE(secondCachePlan.reuseCachedArchive.contains(requiredMod));
 
 		JsonNode secondOriginal = original;
 		secondOriginal["activePreset"].String() = "second-personal";
@@ -5000,6 +5020,7 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		JsonNode secondStaged = secondOriginal;
 		LanModSessionState::begin(secondStaged);
 		LanModSessionState::applyInstalledOnlyPlan(secondStaged, installed);
+		LanModSessionState::setStagedMods(secondStaged, expectedCachedRoot);
 		LanModSessionState::setRejoinTarget(secondStaged,
 			{"127.0.0.1", static_cast<std::uint16_t>(port), true, {secondGuiGuestName}, false,
 				ModVerificationInfo::fingerprintLanHostOffer(syncedMods->mods, syncedMods->archives)});
@@ -5198,6 +5219,18 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				if(!firstHuman.empty() && !secondHuman.empty())
 					EXPECT_NE(firstHuman, secondHuman)
 						<< "Both LAN guests were assigned the same playable color";
+				if(!secondHuman.empty())
+				{
+					std::ifstream clientLog(secondLogs / "VCMI_Client_log.txt");
+					const std::string output((std::istreambuf_iterator<char>(clientLog)),
+						std::istreambuf_iterator<char>());
+					EXPECT_NE(output.find("Mounted verified LAN host mod: " + std::string(requiredMod)),
+						std::string::npos) << "Second GUI did not mount its previously cached host root";
+					EXPECT_NE(output.find("Loading mod: OK (" + std::string(requiredMod) + ")"),
+						std::string::npos) << "Second GUI did not load the cached mod into gameplay";
+					EXPECT_FALSE(fs::exists(secondUserData / "Mods" / requiredMod))
+						<< "Cached host mod must not be installed over a private version";
+				}
 				// Both GUI guests must remain connected while the production server
 				// processes gameplay packets from its registered human host.
 				std::string mapName = fs::path(mapResource).filename().string();
@@ -5332,6 +5365,11 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			}
 			EXPECT_TRUE(restoredFirst) << "First crashed GUI client did not recover its personal preset";
 			EXPECT_TRUE(restoredSecond) << "Second crashed GUI client did not recover its distinct personal preset";
+			EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(
+				secondUserData, requiredMod, cachedOffer->second.sha256))
+				<< "Crash recovery discarded a valid host package needed by the next LAN match";
+			EXPECT_FALSE(fs::exists(secondUserData / "Mods" / requiredMod))
+				<< "Recovery wrote cached content into the user's installed mod directory";
 		}
 		// Two independent GUI clients now exercise live lobby participation and
 		// crash recovery. Actual gameplay and clean disconnect still need a match.
