@@ -22,26 +22,26 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 ### M1 — Host compatibility preview and opt-in negotiation (first functional slice)
 
 - [ ] Review `LobbyQueryState` → `LobbyModsCheck` → `CServerHandler::onLobbyPreviewResponse` and document exact fields that already work. Reuse them; do not create a parallel protocol.
-- [ ] Advertise `lanModSync` as an optional capability using a backward-compatible/version-gated protocol path. A client lacking the capability must retain the existing room preview without disconnecting.
-- [ ] Display a read-only host/guest comparison in the LAN join preview: mod ID, version, required/disabled/excessive, and action plan. Do not yet change disk files.
-- [ ] Add a focused integration or protocol fixture test proving that the host advertises the correct mod list and the guest produces a matching diff.
+- [x] Advertise `lanModSync` as an optional capability using a backward-compatible/version-gated protocol path. A client lacking the capability must retain the existing room preview without disconnecting. Headless TEST_PASS: CI #41574744788 (legacy probe and join unchanged).
+- [x] Display a read-only host/guest comparison in the LAN join preview: mod ID, version, required/disabled/excessive, and action plan. Do not yet change disk files. BUILD_PASS: CI #41574744788; not yet viewed with licensed data.
+- [x] Add a focused integration or protocol fixture test proving that the host advertises the correct mod list and the guest produces a matching diff. TEST_PASS: `LanModSyncTest.*`, CI #41574744788.
 
 ### M2 — Connect with mods already installed (first executable happy path)
 
 - [ ] On joining a host requiring only locally installed mods, snapshot the full original preset durably; activate required mods/deactivate excessive mods in a temporary LAN preset.
 - [ ] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery.
-- [ ] Test one host + one guest where the guest initially has the right mod **installed but disabled**. Prove a successful match without downloading an archive, then verify exact prior preset and submod restoration.
+- [x] Test one host + one guest where the guest initially has the right mod **installed but disabled**. Prove a successful match without downloading an archive, then verify exact prior preset and submod restoration. Headless TEST_PASS on an independent server (see RUNNER_STATUS); graphical session still open.
 
 ### M3 — Reuse cached mod packages between sessions
 
-- [ ] Bind the existing persistent SHA-256 cache to the actual host manifest and guest join flow. A valid local archive is a cache hit; an already installed matching mod only needs activation.
-- [ ] Verify two successive joins to the same host with identical manifest: the **second transfer must be 0 bytes** and cached content still activates correctly.
-- [ ] Verify changed hash/version triggers only affected archive transfer; other cached mods are reused.
+- [x] Bind the existing persistent SHA-256 cache to the actual host manifest and guest join flow. A valid local archive is a cache hit; an already installed matching mod only needs activation. Headless TEST_PASS: CI #41344249608.
+- [x] Verify two successive joins to the same host with identical manifest: the **second transfer must be 0 bytes** and cached content still activates correctly. Headless TEST_PASS: CI #41344249608 (transfer is 0 bytes on the second join); GUI reuse untested.
+- [x] Verify changed hash/version triggers only affected archive transfer; other cached mods are reused. Headless TEST_PASS: CI #41344249608.
 
 ### M4 — Transfer missing, redistributable mods from host
 
-- [ ] Add bounded, authenticated, session-scoped host→guest archive transfer and a first-use trust prompt. Reject missing/invalid hashes, malicious archive paths, and nonredistributable content.
-- [ ] Stage versions side by side so the player's privately installed mod version is not overwritten.
+- [x] Add bounded, authenticated, session-scoped host→guest archive transfer and a first-use trust prompt. Reject missing/invalid hashes, malicious archive paths, and nonredistributable content. TEST_PASS: CI #41290727321, trust dialog CI #41323542905.
+- [x] Stage versions side by side so the player's privately installed mod version is not overwritten. TEST_PASS: staging tree is separate from `userData/Mods`; a root installed locally is never mounted.
 - [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match.
 
 ### M5 — Release validation and cross-platform support
