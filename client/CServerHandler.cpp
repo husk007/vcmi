@@ -1509,8 +1509,10 @@ void CServerHandler::requestNextLanArchiveChunk()
 	{
 		try
 		{
-			lanArchiveStaging = std::filesystem::temp_directory_path()
-				/ ("vcmi-lan-" + LanRelaunchToken::generate() + ".part");
+			// The OS temp directory can be a size-limited tmpfs or missing (Android).
+			const std::filesystem::path incoming = std::filesystem::path(VCMIDirs::get().userCachePath().native()) / "lan-mod-incoming";
+			std::filesystem::create_directories(incoming);
+			lanArchiveStaging = incoming / ("vcmi-lan-" + LanRelaunchToken::generate() + ".part");
 			std::ofstream stage(lanArchiveStaging, std::ios::binary | std::ios::trunc);
 			if(!stage)
 			{

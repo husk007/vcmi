@@ -264,8 +264,8 @@ std::vector<ZipArchive::FileEntry> ZipArchive::listEntries()
 		if(unzGetCurrentFileInfo64(archive, &info, filename.data(),
 			static_cast<uLong>(filename.size()), nullptr, 0, nullptr, 0) != UNZ_OK)
 			throw std::runtime_error("Invalid ZIP filename");
-		entries.push_back({std::string(filename.data(), filename.size()),
-			info.uncompressed_size, info.external_fa, info.version});
+		entries.push_back({std::string(filename.data(), filename.size()), info.uncompressed_size,
+			static_cast<std::uint32_t>(info.external_fa), static_cast<std::uint32_t>(info.version)});
 		result = unzGoToNextFile(archive);
 	}
 	if(result != UNZ_END_OF_LIST_OF_FILE)

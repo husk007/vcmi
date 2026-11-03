@@ -8,6 +8,7 @@
 #pragma once
 
 #include "LanModArchiveCache.h"
+#include "../logging/CLogger.h"
 #include "../filesystem/CZipLoader.h"
 #include "../filesystem/CFilesystemLoader.h"
 #include "../filesystem/AdapterLoaders.h"
@@ -52,6 +53,13 @@ inline bool isSafeRelativePath(std::string_view value)
 	return true;
 }
 
+/// Host archives are untrusted input: log the mod, digest and reason for every rejection.
+inline std::nullopt_t rejectArchive(std::string_view rootId, std::string_view digest, const char * reason)
+{
+	logGlobal->warn("LAN mod '%s' archive %s was not staged: %s", std::string(rootId), std::string(digest), reason);
+	return std::nullopt;
+}
+
 /// Extract into a persistent, versioned LAN-only tree. Never touch userData/Mods
 /// (including privately installed mod versions) and never mount content here.
 inline std::optional<std::filesystem::path> stageVerifiedArchive(
@@ -59,11 +67,11 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 {
 	namespace fs = std::filesystem;
 	if(rootId.empty() || rootId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") != rootId.npos)
-		return std::nullopt;
+		return rejectArchive(rootId, digest, "invalid root mod ID");
 	const auto cached = LanModArchiveCache::findVerifiedArchive(userData, rootId, digest);
 	const auto identity = LanModArchiveCache::archivePath(userData, rootId, digest);
 	if(!cached || !identity)
-		return std::nullopt;
+		return rejectArchive(rootId, digest, "no verified archive in the cache");
 
 	const fs::path parent = userData / "lan-mod-staged" / identity->parent_path().filename();
 	const fs::path finalRoot = parent / std::string(digest);
@@ -72,18 +80,19 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 	if(fs::exists(finalRoot, error))
 	{
 		// Existing staging may be used for inspection, not auto-activation.
-		return !error && fs::is_regular_file(fs::symlink_status(modFolder / "mod.json", error))
-			&& !error ? std::optional<fs::path>(modFolder) : std::nullopt;
+		if(!error && fs::is_regular_file(fs::symlink_status(modFolder / "mod.json", error)) && !error)
+			return modFolder;
+		return rejectArchive(rootId, digest, "existing staging has no mod.json");
 	}
 	if(error)
-		return std::nullopt;
+		return rejectArchive(rootId, digest, "staging directory is not accessible");
 
 	try
 	{
 		ZipArchive archive{boost::filesystem::path(cached->native())};
 		const auto entries = archive.listEntries();
 		if(entries.empty() || entries.size() > maxEntries)
-			return std::nullopt;
+			return rejectArchive(rootId, digest, "no entries or too many entries");
 
 		bool rootDefinition = false;
 		std::string packageFolder;
@@ -96,12 +105,12 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 				&& entry.name.substr(slash + 1) == "mod.json")
 			{
 				if(!packageFolder.empty() && packageFolder != entry.name.substr(0, slash))
-					return std::nullopt;
+					return rejectArchive(rootId, digest, "more than one package folder");
 				packageFolder = entry.name.substr(0, slash);
 			}
 		}
 		if(rootDefinition == !packageFolder.empty())
-			return std::nullopt;
+			return rejectArchive(rootId, digest, "mod.json is missing or ambiguous");
 
 		std::uint64_t totalBytes = 0;
 		std::set<std::string> names;
@@ -110,30 +119,30 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 			const bool directory = !entry.name.empty() && entry.name.back() == '/';
 			const std::string_view clean(entry.name.data(), entry.name.size() - (directory ? 1 : 0));
 			if(!isSafeRelativePath(clean))
-				return std::nullopt;
+				return rejectArchive(rootId, digest, "unsafe entry path");
 			if(!packageFolder.empty() && clean != packageFolder
 				&& !clean.starts_with(packageFolder + "/"))
-				return std::nullopt;
+				return rejectArchive(rootId, digest, "entry outside the package folder");
 			std::string folded(clean);
 			std::transform(folded.begin(), folded.end(), folded.begin(),
 				[](unsigned char c){ return static_cast<char>(std::tolower(c)); });
 			if(!names.insert(folded).second)
-				return std::nullopt;
+				return rejectArchive(rootId, digest, "duplicate entry name");
 			const auto unixType = (entry.externalAttributes >> 16) & 0170000U;
 			if((entry.madeBy >> 8) == 3 && unixType != 0
 				&& unixType != (directory ? 0040000U : 0100000U))
-				return std::nullopt; // reject symlinks and special files
+				return rejectArchive(rootId, digest, "symlink or special file entry");
 			if((directory && entry.uncompressedSize != 0)
 				|| entry.uncompressedSize > maxEntryBytes
 				|| entry.uncompressedSize > maxUnpackedBytes - totalBytes)
-				return std::nullopt;
+				return rejectArchive(rootId, digest, "entry or total unpacked size exceeds the limit");
 			totalBytes += entry.uncompressedSize;
 		}
 
 		fs::create_directories(parent);
 		const fs::path temporary = parent / (".partial-" + LanRelaunchToken::generate());
 		if(!fs::create_directory(temporary))
-			return std::nullopt;
+			return rejectArchive(rootId, digest, "cannot create the partial staging directory");
 		try
 		{
 			const fs::path extractRoot = temporary / "extract";
@@ -159,12 +168,12 @@ inline std::optional<std::filesystem::path> stageVerifiedArchive(
 		{
 			std::error_code cleanup;
 			fs::remove_all(temporary, cleanup);
-			return std::nullopt;
+			throw;
 		}
 	}
-	catch(const std::exception &)
+	catch(const std::exception & e)
 	{
-		return std::nullopt;
+		return rejectArchive(rootId, digest, e.what());
 	}
 }
 

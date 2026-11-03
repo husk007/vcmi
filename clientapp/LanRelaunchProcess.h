@@ -25,6 +25,9 @@
 #else
 #include <spawn.h>
 #include <unistd.h>
+#ifdef __APPLE__
+extern char ** environ; // macOS headers do not declare it
+#endif
 #endif
 #endif
 

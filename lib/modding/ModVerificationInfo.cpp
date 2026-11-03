@@ -12,7 +12,8 @@
 #include "ModArchiveDigest.h"
 #include "LanModArchiveCache.h"
 
-#include <fstream>
+#include <chrono>
+#include <mutex>
 
 #include "CModHandler.h"
 #include "ModDescription.h"
@@ -21,6 +22,50 @@
 
 #include "../json/JsonNode.h"
 #include "../GameLibrary.h"
+
+namespace
+{
+struct HostArchiveDigest
+{
+	std::uintmax_t size = 0;
+	std::filesystem::file_time_type modified;
+	std::string sha256;
+};
+
+/// Any peer may request the lobby preview, and each request lists every shared archive (up to 2 GiB each).
+/// A digest is reused while size and modification time are unchanged, but only once the modification is older
+/// than the timestamp granularity. LanHostArchiveTransfer hashes the pinned file again before serving bytes.
+std::optional<std::string> hostArchiveDigest(const std::filesystem::path & archive)
+{
+	static std::mutex cacheMutex;
+	static std::map<std::filesystem::path, HostArchiveDigest> cache;
+
+	std::error_code error;
+	const auto size = std::filesystem::file_size(archive, error);
+	if(error)
+		return std::nullopt;
+	const auto modified = std::filesystem::last_write_time(archive, error);
+	if(error)
+		return std::nullopt;
+	const bool settled = std::filesystem::file_time_type::clock::now() - modified > std::chrono::seconds(2);
+
+	if(settled)
+	{
+		std::lock_guard lock(cacheMutex);
+		const auto found = cache.find(archive);
+		if(found != cache.end() && found->second.size == size && found->second.modified == modified)
+			return found->second.sha256;
+	}
+
+	auto digest = ModArchiveDigest::sha256File(archive, LanModArchiveCache::maxArchiveBytes);
+	if(digest && settled)
+	{
+		std::lock_guard lock(cacheMutex);
+		cache[archive] = HostArchiveDigest{size, modified, *digest};
+	}
+	return digest;
+}
+}
 
 JsonNode ModVerificationInfo::jsonSerializeList(const ModCompatibilityInfo & input)
 {
@@ -262,43 +307,15 @@ ModArchiveManifest ModVerificationInfo::buildHostArchiveManifest(
 		const auto archive = shareDirectory / (rootId + ".zip");
 		if(!LanModArchiveCache::isAllowedArchiveSize(archive))
 			continue;
-		const auto digest = ModArchiveDigest::sha256File(archive, LanModArchiveCache::maxArchiveBytes);
+		const auto digest = hostArchiveDigest(archive);
 		if(!digest)
 			continue;
 		const auto size = std::filesystem::file_size(archive, error);
 		if(error)
 			continue;
-		manifest.emplace(rootId, ModArchiveManifestEntry{*digest, static_cast<std::uint64_t>(size)});
+		manifest.emplace(rootId, ModArchiveManifestEntry{*digest, static_cast<std::int64_t>(size)});
 	}
 	return manifest;
-}
-
-std::optional<ModArchiveChunk> ModVerificationInfo::readHostArchiveChunk(
-	const ModCompatibilityInfo & activeMods, const std::filesystem::path & userDataPath,
-	const TModID & rootId, const std::string & expectedSha256, std::int64_t offset)
-{
-	if(offset < 0 || !ModArchiveDigest::isSha256(expectedSha256))
-		return std::nullopt;
-
-	// Only an active root mod with an explicitly staged ZIP can be shared.
-	// Verify the complete archive before serving any bytes. The receiving client
-	// must also verify the full SHA-256 before publishing anything to its cache.
-	const auto offers = buildHostArchiveManifest(activeMods, userDataPath);
-	const auto offered = offers.find(rootId);
-	if(offered == offers.end() || !ModArchiveDigest::sameSha256(offered->second.sha256, expectedSha256)
-		|| offset >= offered->second.bytes)
-		return std::nullopt;
-
-	constexpr std::int64_t maxChunkBytes = 64 * 1024;
-	const auto chunkSize = std::min(maxChunkBytes, offered->second.bytes - offset);
-	std::ifstream archive(userDataPath / "lan-mod-shares" / (rootId + ".zip"), std::ios::binary);
-	if(!archive.seekg(offset, std::ios::beg))
-		return std::nullopt;
-	std::string data(static_cast<std::size_t>(chunkSize), '\0');
-	archive.read(data.data(), static_cast<std::streamsize>(chunkSize));
-	if(archive.gcount() != static_cast<std::streamsize>(chunkSize))
-		return std::nullopt;
-	return ModArchiveChunk{offered->second.bytes, std::move(data)};
 }
 
 LanArchivePreview ModVerificationInfo::inspectHostArchiveAvailability(
