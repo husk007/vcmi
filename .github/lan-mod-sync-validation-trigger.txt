@@ -1,2 +1,2 @@
-Checkpoint: 7a6e2044a3922d16d1abc7a72de7e999fd61dea3
-Reason: compile and run real LAN tests for selected-map human player capacity carried through opt-in TCP preview into guest lobby occupancy. Unknown map capacity remains unreported and legacy LobbyModsCheck is unchanged. Prior CI #41562475105 passed full Linux VCMI build and 104/104 LAN tests.
+Checkpoint: 29e2f571c39662082a847c20fd10ca20ee9295a6
+Reason: compile and validate real VCMI LAN tests after M5's two-GUI gameplay acceptance gains host-disconnect restoration checks. The scripted GUI branch needs owner-provided Heroes III data; CI can compile but cannot claim LAN_PASS. Prior CI #41568986427 passed full Linux VCMI build and 104/104 LanModSyncTest.*.
