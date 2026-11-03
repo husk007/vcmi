@@ -5319,9 +5319,61 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			}
 		}
 
-		if(guiJoined && secondGuiJoined)
+		const auto restored = [&](const fs::path & settings, const JsonNode & expected)
 		{
-			// Simulate both GUI clients crashing in the same lobby. A subsequent
+			try
+			{
+				std::ifstream input(settings, std::ios::binary);
+				if(!input)
+					return false;
+				const std::string bytes((std::istreambuf_iterator<char>(input)),
+						std::istreambuf_iterator<char>());
+				const JsonNode state(bytes.data(), bytes.size(), "Recovered GUI LAN guest settings");
+				const auto & name = expected["activePreset"].String();
+				return state["lanSession"].isNull()
+					&& state["activePreset"].isString() && state["activePreset"].String() == name
+					&& state["presets"][name].toCompactString() == expected["presets"][name].toCompactString()
+					&& state["presets"][LanModSessionState::temporaryPresetName()].isNull();
+			}
+			catch(const std::exception &)
+			{
+				return false; // The recovery process may be replacing the settings file.
+			}
+		};
+
+		// When the map reached gameplay, exercise normal socket loss in both
+		// real GUI clients instead of simulating another crash. Leaving as host
+		// shuts down this standalone server and disconnects both guests.
+		if(guiJoined && secondGuiJoined && std::getenv("VCMI_LAN_TEST_START_MAP"))
+		{
+			LobbyClientDisconnected leaving;
+			leaving.clientId = host.peer->connectionID;
+			host.peer->sendPack(leaving);
+
+			bool restoredFirst = false;
+			bool restoredSecond = false;
+			const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
+			while((!restoredFirst || !restoredSecond) && std::chrono::steady_clock::now() < deadline)
+			{
+				network->getContext().restart();
+				network->getContext().run_for(std::chrono::milliseconds(50));
+				restoredFirst = restored(modSettings, original);
+				restoredSecond = restored(secondModSettings, secondOriginal);
+				if(!restoredFirst || !restoredSecond)
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			EXPECT_TRUE(restoredFirst) << "First GUI did not restore its personal preset after LAN host disconnect";
+			EXPECT_TRUE(restoredSecond) << "Cached-mod GUI did not restore its personal preset after LAN host disconnect";
+			EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(
+				secondUserData, requiredMod, cachedOffer->second.sha256))
+				<< "LAN disconnect must preserve the previously verified host package";
+			EXPECT_FALSE(fs::exists(secondUserData / "Mods" / requiredMod))
+				<< "LAN disconnect must not install the cached host mod over personal files";
+		}
+		else if(guiJoined && secondGuiJoined)
+		{
+			// No playable map in this configuration: retain the independent
+			// two-client SIGKILL and subsequent launch recovery coverage. A subsequent
 			// ordinary launch must restore each distinct personal preset independently.
 			const auto terminate = [](pid_t & pid)
 			{
@@ -5359,27 +5411,6 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			pid_t recoveredSecondPid = launchRecovery(secondConfigRoot);
 			ASSERT_GT(recoveredSecondPid, 0);
 			const auto stopRecoveredSecond = vstd::makeScopeGuard([&](){ terminate(recoveredSecondPid); });
-			const auto restored = [&](const fs::path & settings, const JsonNode & expected)
-			{
-				try
-				{
-					std::ifstream input(settings, std::ios::binary);
-					if(!input)
-						return false;
-					const std::string bytes((std::istreambuf_iterator<char>(input)),
-							std::istreambuf_iterator<char>());
-					const JsonNode state(bytes.data(), bytes.size(), "Recovered GUI LAN guest settings");
-					const auto & name = expected["activePreset"].String();
-					return state["lanSession"].isNull()
-						&& state["activePreset"].isString() && state["activePreset"].String() == name
-						&& state["presets"][name].toCompactString() == expected["presets"][name].toCompactString()
-						&& state["presets"][LanModSessionState::temporaryPresetName()].isNull();
-				}
-				catch(const std::exception &)
-				{
-					return false; // The recovery process may be replacing the settings file.
-				}
-			};
 			bool restoredFirst = false;
 			bool restoredSecond = false;
 			for(int attempt = 0; attempt < 120 && (!restoredFirst || !restoredSecond); ++attempt)
