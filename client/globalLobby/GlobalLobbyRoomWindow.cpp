@@ -333,7 +333,9 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	accountListBackground = std::make_shared<TransparentFilledRectangle>(Rect(8, 98, 150, 180), ColorRGBA(0, 0, 0, 64), ColorRGBA(64, 80, 128, 255), 1);
 	accountList = std::make_shared<CListBox>(createAccountCardCallback, Point(10, 116), Point(0, 40), 4, roomDescription.participants.size(), 0, 1 | 4, Rect(130, 0, 160, 160));
 	accountList->setRedrawParent(true);
-	accountListTitle = std::make_shared<CLabel>( 12, 109, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, MetaString::createFromTextID("vcmi.lobby.preview.players").toString(&GAME->translator()));
+	const std::string playerCountText = MetaString::createFromTextID("vcmi.lobby.preview.players").toString(&GAME->translator())
+		+ " (" + std::to_string(roomDescription.participants.size()) + "/" + std::to_string(roomDescription.playerLimit) + ")";
+	accountListTitle = std::make_shared<CLabel>(12, 109, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW, playerCountText);
 
 	const auto & createModCardCallback = [this](size_t index) -> std::shared_ptr<CIntObject>
 	{

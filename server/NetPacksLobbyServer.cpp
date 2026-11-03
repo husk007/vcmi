@@ -123,6 +123,7 @@ void ApplyOnServerNetPackVisitor::visitLobbyQueryState(LobbyQueryState & pack)
 			// accept another LAN participant. Keep the legacy reply unchanged.
 			const auto playableSlots = std::count_if(srv.si->playerInfos.begin(), srv.si->playerInfos.end(),
 				[](const auto & entry){ return !entry.second.compOnly; });
+			preview.humanPlayerSlots = static_cast<std::uint32_t>(playableSlots);
 			preview.acceptingPlayers = srv.playerNames.size() < static_cast<std::size_t>(playableSlots);
 		}
 		preview.archives = ModVerificationInfo::buildHostArchiveManifest(

@@ -213,12 +213,14 @@ struct DLL_LINKAGE LobbyModSyncPreview : public LobbyModsCheck
 {
 	ModArchiveManifest archives;
 	bool acceptingPlayers = true;
+	std::uint32_t humanPlayerSlots = 0; ///< Zero until a host map is selected.
 
 	template <typename Handler> void serialize(Handler & h)
 	{
 		LobbyModsCheck::serialize(h);
 		h & archives;
 		h & acceptingPlayers;
+		h & humanPlayerSlots;
 	}
 };
 

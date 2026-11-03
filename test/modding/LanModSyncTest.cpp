@@ -236,6 +236,7 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	LobbyModSyncPreview optInResponse;
 	static_cast<LobbyModsCheck &>(optInResponse) = legacyResponse;
 	optInResponse.acceptingPlayers = false;
+	optInResponse.humanPlayerSlots = 3;
 	optInResponse.archives.emplace("hostmod", ModArchiveManifestEntry{std::string(64, 'a'), 42});
 	// The 2 GiB archive limit must also survive VCMI signed-varint serialization.
 	optInResponse.archives.emplace("largehostmod", ModArchiveManifestEntry{std::string(64, 'b'), static_cast<std::int64_t>(LanModArchiveCache::maxArchiveBytes)});
@@ -251,6 +252,7 @@ TEST(LanModSyncTest, LanTcpOptInPreviewRoundTripsHostModListWithoutAlteringLegac
 	EXPECT_EQ(decoded->hostAccountDisplayName, "Host");
 	EXPECT_EQ(decoded->participantNames, legacyResponse.participantNames);
 	EXPECT_FALSE(decoded->acceptingPlayers);
+	EXPECT_EQ(decoded->humanPlayerSlots, 3U);
 	ASSERT_EQ(decoded->mods.size(), 1);
 	EXPECT_EQ(decoded->mods.at("hostmod").name, mod.name);
 	EXPECT_EQ(decoded->mods.at("hostmod").version, mod.version);
@@ -4639,6 +4641,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 			EXPECT_EQ(dynamic_cast<LobbyModSyncPreview *>(legacyAtCapacity.response.get()), nullptr);
 			const auto * occupied = dynamic_cast<LobbyModSyncPreview *>(optInAtCapacity.response.get());
 			ASSERT_NE(occupied, nullptr);
+			EXPECT_EQ(occupied->humanPlayerSlots,
+				static_cast<std::uint32_t>(chosenMap->amountOfHumanControllablePlayers))
+				<< "LAN preview must advertise the selected map capacity, not eight default slots";
 			EXPECT_EQ(occupied->acceptingPlayers, chosenMap->amountOfHumanControllablePlayers > 3)
 				<< "LAN preview must reflect human player slots in the selected map";
 			legacyAtCapacity.connection->close();
