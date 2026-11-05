@@ -15,7 +15,7 @@ The hourly task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUN
 - [x] Add a narrowly triggered GitHub Actions workflow for a real Linux VCMI build and committed LAN tests: `.github/workflows/lan-mod-sync-validation.yml`.
 - [x] Obtain a real `vcmitest` build and execute `LanModSyncTest.*`: [CI run #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539) passed **71/71 tests** on commit `a1e2bf2e70eb9ac2636091c8baf6d1926087a374` after correcting the runtime data setup. The wider client build is a separate gate. Latest completed run: [CI #41568986427](https://github.com/husk007/vcmi/actions/runs/41568986427) passed **104/104** on `7d67416` with the full Linux client/server/`vcmitest` build.
 - [ ] If GitHub Actions is disabled or quota-blocked on this fork, record the blocker once and ask for the **specific** enablement action; do not replay the same failed DNS probe every hour. Continue M1–M3 with source-level validation and explicitly keep M0 open.
-- [ ] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup. Broader ctest: 1361/1361 passed on `30eb687` (local Ubuntu 24.04, GCC 13, 2026-11-04); game startup with licensed data still open.
+- [x] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup. Broader ctest: 1361/1361 passed on `30eb687` (local Ubuntu 24.04, GCC 13, 2026-11-04). Game startup: two GUI clients reach their human-controlled adventure map interfaces in the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs).
 
 GitHub Actions is intentionally **not** triggered by every hourly code commit. It runs when its workflow file or `.github/lan-mod-sync-validation-trigger.txt` changes, or when launched via `workflow_dispatch`. Change the trigger file only after a meaningful code milestone or a fix for a proven CI failure; do not generate empty reruns. GitHub Actions availability is unverified until a run appears.
 
@@ -29,7 +29,7 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 ### M2 — Connect with mods already installed (first executable happy path)
 
 - [x] On joining a host requiring only locally installed mods, snapshot the full original preset durably; activate required mods/deactivate excessive mods in a temporary LAN preset. Headless TEST_PASS against the independent `vcmiserver` (CI #41580945912, local run 2026-11-04).
-- [ ] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery.
+- [x] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery. GUI controlled relaunch, automatic rejoin and restore after host disconnect pass in the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs); rejected join and crash recovery are headless TEST_PASS.
 - [x] Test one host + one guest where the guest initially has the right mod **installed but disabled**. Prove a successful match without downloading an archive, then verify exact prior preset and submod restoration. Headless TEST_PASS on an independent server (see RUNNER_STATUS); graphical session still open.
 
 ### M3 — Reuse cached mod packages between sessions
@@ -46,7 +46,7 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 
 ### M5 — Release validation and cross-platform support
 
-- [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download.
+- [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download. Partial: the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs) covers two GUI guests on loopback through join, game start, host move/end turn, host disconnect, preset restoration and retained cache; a complete match between separate machines is still open.
 - [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery.
 - [ ] Only after LAN passes the above gates prioritize the browser W0–W4 milestones.
 
