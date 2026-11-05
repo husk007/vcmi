@@ -60,7 +60,6 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 - [ ] Compatibility gate: normal VCMI clients without the new capability still work; all guests confirm compatible gameplay content before start.
 - [ ] End-to-end gate: two real clients successfully finish a LAN match and return to their own original mod configurations.
 
-
 ## A. LAN multiplayer: host-managed mod set (first priority)
 
 **Goal:** Joining a game should automatically prepare the host's compatible gameplay mods, use previously downloaded packages without retransmitting them, and restore the guest's exact prior active preset after the match.

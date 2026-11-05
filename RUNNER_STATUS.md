@@ -43,4 +43,3 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 - `TEST_PASS`: committed `LanModSyncTest.*` executed under actual `vcmitest`.
 - `LAN_PASS`: actual two-client join/play/restore verified with proof.
 - No empty status-only commits. Do not mark M0–M5 or related L0–L4 checkboxes as complete without the matching evidence.
-
