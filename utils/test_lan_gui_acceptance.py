@@ -117,6 +117,7 @@ class LanGuiAcceptanceSetupTest(unittest.TestCase):
         parsed_mod = "LanModSyncTest.RealDesktopClientMountsCachedHostZipThenRecoversPersonalPreset"
         both_passed = f"[       OK ] {lobby} (250 ms)\n[       OK ] {parsed_mod} (300 ms)"
         self.assertTrue(required_gui_tests_passed(both_passed))
+        self.assertTrue(required_gui_tests_passed("\x1b[0m" + both_passed))
         self.assertFalse(required_gui_tests_passed(f"[       OK ] {lobby} (250 ms)\n"
                                                f"[  SKIPPED ] {parsed_mod} (0 ms)"))
         self.assertFalse(required_gui_tests_passed("[==========] 0 tests ran. (0 ms total)"))

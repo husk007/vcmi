@@ -27,6 +27,29 @@ The opt-in path is implemented from discovery to rejoin and covered by the headl
 | Relaunch and rejoin | `--lan-relaunch-token`, `LanRelaunchProcess`, `LanRejoinTarget` |
 | Host publishing | `utils/lan_mod_share.py` writes archives to `userData/lan-mod-shares/` |
 
+## Preview packet fields
+
+The LAN preview reuses the legacy query and reply. The opt-in packets derive from them and serialize the legacy fields first.
+
+`LobbyQueryState` has no fields. Any connection may send it; the server answers on the same connection and does not register a player.
+
+`LobbyModsCheck`, the legacy reply, filled in `ApplyOnServerNetPackVisitor::visitLobbyQueryState`:
+
+- `vcmiVersion` - `VCMI_VERSION_STRING` of the host; shown as the room game version.
+- `mods` - every active host mod as `ModVerificationInfo`: `name`, `version`, CRC-32 `checksum`, `parent` (empty for a root mod) and `impactsGameplay`. The guest compares it with `ModVerificationInfo::verifyListAgainstLocalMods`.
+- `hostAccountDisplayName` - name of the player on the host connection, empty before the host registers.
+- `participantNames` - names of all registered players.
+
+`LobbyQueryModSync` has no fields of its own. The client sends it instead of `LobbyQueryState` only when the UDP reply carried `;lanModSync=preview`.
+
+`LobbyModSyncPreview` adds:
+
+- `archives` - `ModArchiveManifest` of active root mods with a ZIP in `userData/lan-mod-shares/`: SHA-256 and size in bytes. A mod without an entry can only be enabled from a local installation.
+- `acceptingPlayers` - false outside the lobby state or when every human-playable slot is taken; the preview shows the room as busy.
+- `humanPlayerSlots` - number of slots of the selected map that are not `compOnly`; 0 before a map is selected.
+
+`CServerHandler::onLobbyPreviewResponse` maps the reply to a `GlobalLobbyRoom`, so `GlobalLobbyRoomWindow` shows LAN and global lobby rooms with the same code. The legacy reply leaves `playerLimit` at 0 and the room state at `open`, as before this feature.
+
 ## Proposed session lifecycle
 
 1. Host advertises support for synchronization and supplies a manifest for active gameplay mods.

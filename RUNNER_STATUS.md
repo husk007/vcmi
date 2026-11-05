@@ -1,6 +1,6 @@
 # VCMI Hourly Runner — current state
 
-**Last management review:** 2026-11-03, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
+**Last management review:** 2026-11-05, Europe/Warsaw. This is a compact checkpoint, not a per-hour transcript. Prior progress reports remain available in the Git history of this file.
 
 ## Configuration
 
@@ -14,13 +14,13 @@
 
 | Area | Current evidence | Status |
 | --- | --- | --- |
-| M0 real vcmitest + LAN GoogleTests | [CI #41574744788](https://github.com/husk007/vcmi/actions/runs/41574744788) passed on `3f10869`: full Linux client/server/vcmitest build and **104/104** LAN tests on the independent host; owned-data GUI game not executed. | BUILD_PASS / TEST_PASS (validated commit) |
+| M0 real vcmitest + LAN GoogleTests | [CI #41580945912](https://github.com/husk007/vcmi/actions/runs/41580945912) passed on `7a82d33`: full Linux client/server/vcmitest build, **104/104** LAN tests on the independent host. Local rerun on `30eb687` (Ubuntu 24.04, GCC 13, 2026-11-04): same 104/104 with the CI fixture script, and full `ctest --preset linux-gcc-test` **1361/1361**. Owned-data game startup not executed. | BUILD_PASS / TEST_PASS |
 | LAN helper code and tests | Existing `ModSyncPlan`, durable temporary preset/recovery and SHA-256 archive cache passed the 71 committed VCMI tests; these are unit tests, not a real two-client LAN session. | TEST_PASS (unit only) |
-| M1 host preview / capability negotiation | Opt-in TCP preview and legacy fallback are integrated. `35d9cbd` + `7a6e204` transmit selected-map human slots (unknown stays hidden). Commit `d563c44` additionally rejects over-capacity real TCP registrations, with a legacy-client test; this new path awaits CI. [CI #41574744788](https://github.com/husk007/vcmi/actions/runs/41574744788) also passed full desktop build and host preview. | BUILD_PASS / TEST_PASS (validated commit) |
+| M1 host preview / capability negotiation | Opt-in TCP preview and legacy fallback are integrated. `35d9cbd` + `7a6e204` transmit selected-map human slots (unknown stays hidden). Commit `d563c44` rejects over-capacity real TCP registrations; [CI #41580945912](https://github.com/husk007/vcmi/actions/runs/41580945912) passed 104/104 on `7a82d33`. Preview packet fields are documented in `docs/developers/Lan_Mod_Synchronization.md`. | BUILD_PASS / TEST_PASS (validated commit) |
 | M2 guest join with installed disabled mods | Required installed-but-disabled mod activation, guest-only deactivation and exact preset rollback passed independent-server tests. Token-free desktop restart after lobby/game/scenario results and completed-campaign epilogue/outro/results now builds and passes committed tests on `35d7122`. The graphical two-client session still needs licensed Heroes III assets. | TEST_PASS (non-GUI); LAN NOT TESTED |
 | M3 repeated-session cache reuse | Host manifest SHA-256 binds cache approvals and controlled rejoin. CI #41344249608 passed 103/103 real vcmitest tests including live host refresh: unchanged archive stays a cache hit; changed SHA-256 transfers only the modified root. GUI reuse still untested. | TEST_PASS (headless) |
 | M4 host-to-guest transfer | [CI #41290727321](https://github.com/husk007/vcmi/actions/runs/41290727321) passed on `d5a4127`: production server serves two active mod roots (including an active submod) to two guests, supports SHA-256-verified cache reuse, and restores temporary presets; 102 tests passed. One-command publisher-to-client integration passed CI #41294799985. Linux launcher XDG config/data alignment passed CI #41303434591. Licensed-data GUI play remains untested. First-use trust dialog identifies root mods, enabled submods, versions and archive digests; CI #41323542905 passed. The host launcher refreshes modified active-root ZIPs automatically; CI #41334098057 and #41344249608 passed. First-use trust and ZIP staging are covered by earlier tests. | BUILD_PASS / TEST_PASS (prior) |
-| M5 two-client LAN acceptance | [CI #41548405914](https://github.com/husk007/vcmi/actions/runs/41548405914) passed 104/104: headless gameplay and compiled two-GUI MoveHero/EndTurn. Commit `d38e4fe` adds a second GUI guest that mounts a missing root from its verified SHA-256 cache. Owned-data GUI execution unproven. Commit `29e2f57` adds real-GUI host-disconnect/preset-restore/cache-retention checks; CI #41574744788 compiled this path, but no licensed-data GUI acceptance has run. | BUILD_PASS / TEST_PASS (headless); GUI acceptance pending |
+| M5 two-client LAN acceptance | Licensed-data GUI acceptance passed **5/5** runs on `66b67d2` (local Ubuntu 24.04, Xvfb, owner's `.lod` files, 104/104 each): two GUI guests rejoin after controlled relaunch (one from installed mods, one from SHA-256 cache), the game starts, host moves and ends turn, host disconnect restores both personal presets and keeps the cache. The first runs found and fixed four test defects and a client crash (`0x0` interface scaling, `66b67d2`). Loopback on one machine, not a full match between machines. | BUILD_PASS / TEST_PASS (GUI, licensed data); LAN_PASS pending |
 | Browser W0–W4 | Feasibility documentation only, no compiled browser client. | NOT STARTED |
 
 ## Specific recurring blocker — resolved as an execution dead end
@@ -31,8 +31,10 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 
 ## Next executable tasks
 
-1. Check the new checkpoint CI for `d563c44`: a fourth legacy guest must be rejected when three human map slots are occupied, without changing the original players.
-2. Run `utils/lan_gui_acceptance.py` with owned Heroes III data to verify both graphical guests play, restore personal presets after host disconnect, and retain SHA-256 cached content.
+1. Owner action: play a complete match between two machines on a real LAN (e.g. Linux host + second PC), with a mod missing on the guest, to close M4 end-to-end, M5 and the release gates.
+2. Windows and Android checks for M5 need those platforms.
+3. A client can terminate the server by sending identifiers of a mod the host does not load (`HeroTypeID::decode` in `LobbySetMap`); handle it as a rejected request.
+4. PS4 P0–P4 stays gated until M5 passes.
 
 ## Evidence/reporting discipline
 
@@ -41,4 +43,3 @@ The previous `RUNNER_STATUS.md` had grown to roughly 90,000 characters with repe
 - `TEST_PASS`: committed `LanModSyncTest.*` executed under actual `vcmitest`.
 - `LAN_PASS`: actual two-client join/play/restore verified with proof.
 - No empty status-only commits. Do not mark M0–M5 or related L0–L4 checkboxes as complete without the matching evidence.
-
