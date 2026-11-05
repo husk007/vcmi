@@ -170,6 +170,8 @@ def run(args: argparse.Namespace) -> int:
     xvfb = shutil.which("xvfb-run")
     if not xvfb:
         raise ValueError("install xvfb and xauth to run two real SDL clients")
+    if not shutil.which("xdotool"):
+        raise ValueError("install xdotool to dismiss the turn dialog of a GUI guest")
 
     workspace = Path(tempfile.mkdtemp(prefix="vcmi-lan-gui-"))
     # stage_fixture intentionally requires a fresh path.
