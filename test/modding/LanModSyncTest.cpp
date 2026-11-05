@@ -4983,8 +4983,17 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		LanModSessionState::begin(staged);
 		// The live host requires both active mod roots and its enabled submod.
 		// A fixture that only activates requiredMod cannot pass the real lobby gate.
-		const ModSyncPlan installed = localOnly;
+		ModSyncPlan installed = localOnly;
 		ASSERT_TRUE(installed.activate.contains(requiredMod));
+		// The host loads vcmi-test to resolve the start map sent by vcmitest.
+		// A real client has no test-mode injection, so it must install the same mod.
+		const auto testModSource = fs::current_path() / "test" / "testdata" / "vcmi-test";
+		const bool hostUsesTestMod = syncedMods->mods.count("vcmi-test") != 0;
+		if(hostUsesTestMod)
+		{
+			ASSERT_TRUE(fs::is_regular_file(testModSource / "mod.json"));
+			installed.activate.insert("vcmi-test");
+		}
 		LanModSessionState::applyInstalledOnlyPlan(staged, installed);
 		const std::string guiGuestName = "LAN GUI relaunch guest";
 		LanModSessionState::setRejoinTarget(staged,
@@ -5039,6 +5048,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					throw std::runtime_error("LAN GUI fixture is missing installed mod: " + modId);
 				fs::copy(source, userData / "Mods" / modId, fs::copy_options::recursive);
 			}
+			if(hostUsesTestMod)
+				fs::copy(testModSource, userData / "Mods" / "vcmi-test", fs::copy_options::recursive);
 		};
 		ASSERT_NO_THROW(stageIsolatedGuestData(firstDataHome, true));
 		ASSERT_NO_THROW(stageIsolatedGuestData(secondDataHome, false));
@@ -5191,6 +5202,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				EXPECT_NE(std::find(liveRoom->participantNames.begin(), liveRoom->participantNames.end(), name),
 					liveRoom->participantNames.end()) << "GUI guest is no longer in the production lobby: " << name;
 			bothGraphicalGuests.connection->close();
+			// The cancelled read calls this listener, so run it before the listener is destroyed.
+			network->getContext().restart();
+			network->getContext().run_for(std::chrono::milliseconds(250));
 		}
 		if(guiJoined)
 		{
@@ -5378,18 +5392,50 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 
 			bool restoredFirst = false;
 			bool restoredSecond = false;
-			const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
-			while((!restoredFirst || !restoredSecond) && std::chrono::steady_clock::now() < deadline)
+			// The guest whose turn started after EndTurn waits in acceptTurn until its
+			// turn dialog is closed, and handles the disconnect only after that.
+			// Press Return in its window, as the player would.
+			const auto dismissTurnDialog = [](pid_t pid)
+			{
+				const std::string command = "for window in $(xdotool search --pid " + std::to_string(pid)
+					+ "); do xdotool windowfocus --sync \"$window\" key Return; done >/dev/null 2>&1";
+				EXPECT_EQ(std::system(command.c_str()), 0) << "Install xdotool to dismiss the GUI guest turn dialog";
+			};
+			const auto start = std::chrono::steady_clock::now();
+			bool dialogsDismissed = false;
+			while((!restoredFirst || !restoredSecond) && std::chrono::steady_clock::now() < start + std::chrono::seconds(40))
 			{
 				network->getContext().restart();
 				network->getContext().run_for(std::chrono::milliseconds(50));
 				restoredFirst = restored(modSettings, original);
 				restoredSecond = restored(secondModSettings, secondOriginal);
+				if(!dialogsDismissed && std::chrono::steady_clock::now() > start + std::chrono::seconds(15))
+				{
+					dialogsDismissed = true;
+					if(!restoredFirst)
+						dismissTurnDialog(guiPid);
+					if(!restoredSecond)
+						dismissTurnDialog(secondGuiPid);
+				}
 				if(!restoredFirst || !restoredSecond)
 					std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
-			EXPECT_TRUE(restoredFirst) << "First GUI did not restore its personal preset after LAN host disconnect";
-			EXPECT_TRUE(restoredSecond) << "Cached-mod GUI did not restore its personal preset after LAN host disconnect";
+			const auto reportUnrestored = [](const std::string & client, const fs::path & settings,
+				const fs::path & logDir, const JsonNode & expected)
+			{
+				std::ifstream settingsFile(settings, std::ios::binary);
+				const std::string settingsBytes((std::istreambuf_iterator<char>(settingsFile)), std::istreambuf_iterator<char>());
+				std::ifstream logFile(logDir / "VCMI_Client_log.txt");
+				const std::string logBytes((std::istreambuf_iterator<char>(logFile)), std::istreambuf_iterator<char>());
+				ADD_FAILURE() << client << " did not restore its personal preset after LAN host disconnect. "
+					<< "Expected preset: " << expected.toCompactString()
+					<< "\nMod settings: " << settingsBytes
+					<< "\nClient log tail: " << logBytes.substr(logBytes.size() > 4000 ? logBytes.size() - 4000 : 0);
+			};
+			if(!restoredFirst)
+				reportUnrestored("First GUI", modSettings, sandbox, original);
+			if(!restoredSecond)
+				reportUnrestored("Cached-mod GUI", secondModSettings, secondLogs, secondOriginal);
 			EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(
 				secondUserData, requiredMod, cachedOffer->second.sha256))
 				<< "LAN disconnect must preserve the previously verified host package";
