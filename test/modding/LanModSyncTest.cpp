@@ -2096,7 +2096,9 @@ TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
 	const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	EXPECT_EQ(content.size(), 4096);
 	if(!content.empty())
+	{
 		EXPECT_EQ(content, std::string(content.size(), content[0]));
+	}
 
 	for(const auto & entry : std::filesystem::directory_iterator(testDirectory))
 		EXPECT_FALSE(entry.path().filename().string().starts_with("modSettings.json.pending."))
@@ -3138,7 +3140,9 @@ TEST(LanModSyncTest, VerifiesCachedArchiveFileBeforeReusingAndDetectsTampering)
     std::error_code error;
     fs::create_symlink(archive, cacheFolder / "linked.zip", error);
     if(!error)
+    {
         EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder / "linked.zip"));
+    }
     fs::remove_all(cacheFolder, error);
 }
 
@@ -3587,7 +3591,9 @@ TEST(LanModSyncTest, PersistentLanArchiveSyncRejectsInvalidEntries)
     std::error_code error;
     fs::create_symlink(archive, directory / "linked.zip", error);
     if(!error)
+    {
         EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(directory / "linked.zip", false));
+    }
 
     fs::remove_all(directory, error);
 }
@@ -4538,8 +4544,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	const auto & activeAfterRelaunch = relaunchedGuest.getActiveMods();
 	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
 	if(requiredMod)
+	{
 		EXPECT_EQ(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), guestOnlyMod), activeAfterRelaunch.end())
 			<< "LAN guest must not load private gameplay mods absent from the host";
+	}
 	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, activeAfterRelaunch))
 		<< "Reloaded client did not resolve the gameplay mods required by the live host";
 
@@ -4845,7 +4853,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				endedPlayers.insert(finishTurn.player);
 			}
 			if(generatedThreeHumanMap)
+			{
 				EXPECT_TRUE(guestHeroMoved) << "Prepared LAN guest never completed a hero move";
+			}
 			EXPECT_EQ(endedPlayers, ownedPlayers)
 				<< "Not every human player completed their first gameplay turn";
 
@@ -5283,8 +5293,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				EXPECT_FALSE(secondHuman.empty())
 					<< "Second GUI did not initialize a human gameplay interface after LobbyStartGame";
 				if(!firstHuman.empty() && !secondHuman.empty())
+				{
 					EXPECT_NE(firstHuman, secondHuman)
 						<< "Both LAN guests were assigned the same playable color";
+				}
 				if(!secondHuman.empty())
 				{
 					std::ifstream clientLog(secondLogs / "VCMI_Client_log.txt");
