@@ -99,7 +99,9 @@ inline bool collectFiles(const Source & mod, std::vector<PackageFile> & files, s
 		}
 		totalBytes += size;
 		files.push_back({it->path(), archiveName});
-		state << relative << '\t' << size << '\t' << modified.time_since_epoch().count() << '\n';
+		// libc++ counts file times in __int128, which streams do not accept.
+		const auto modifiedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(modified.time_since_epoch()).count();
+		state << relative << '\t' << size << '\t' << static_cast<long long>(modifiedNs) << '\n';
 	}
 	if(error)
 	{
