@@ -165,6 +165,11 @@ jobs:
             }
           }
           JSON
+          # These tests publish archives by hand and compare their digests between
+          # previews, so the host must not pack its mods automatically.
+          cat > "$RUNNER_TEMP/lan-host-config/vcmi/settings.json" <<'JSON'
+          { "server" : { "lanModSharing" : false } }
+          JSON
           # Use the host's active preset rather than a handwritten mod list.
           # Consent covers each archive selected by this explicit command.
           python3 utils/lan_mod_share.py --active-from-settings \

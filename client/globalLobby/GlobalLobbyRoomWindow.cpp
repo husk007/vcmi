@@ -29,6 +29,7 @@
 #include "../../lib/modding/CModHandler.h"
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/LanModArchiveCache.h"
+#include "../../lib/modding/LanRelaunchSupport.h"
 #include "../../lib/VCMIDirs.h"
 #include "../../lib/texts/CGeneralTextHandler.h"
 #include "../../lib/texts/MetaString.h"
@@ -146,7 +147,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 			std::filesystem::path(VCMIDirs::get().userDataPath().native()))
 		: LanArchivePreview{};
 	bool completeHostOffer = false;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	if(lanPreview && onDownloadCallback)
 		completeHostOffer = ModVerificationInfo::canPrepareMissingHostArchives(
 			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
@@ -239,7 +240,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	directJoinAllowed = errorMessage.empty();
 	bool allowInstalledOnlyPreparation = false;
 	bool allowCachedPreparation = false;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	// A missing root already prepared in the LAN archive cache can be enabled
 	// only after explicit trust approval. The Join callback enforces that
 	// approval and prepares the token-gated temporary preset; do not offer this
@@ -271,10 +272,10 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	{
 		// The TCP lobby response already carries the host's active mod list.
 		// A locally installed mod can now be staged in the recoverable LAN preset.
-		// Mobile builds keep Join disabled until a restart mechanism is available.
+		// Builds without a restart mechanism (iOS) keep Join disabled.
 		if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && localPlan && localPlan->requiresChanges())
 		{
-			#if !defined(VCMI_MOBILE)
+			#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 			allowInstalledOnlyPreparation = true;
 			#endif
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");

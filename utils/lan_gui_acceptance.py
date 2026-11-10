@@ -67,6 +67,9 @@ def stage_fixture(assets: Path, workspace: Path) -> tuple[Path, Path]:
             "settings": {"lan-ci-extra": {"units": True}}
         }}
     }), encoding="utf-8")
+    # The tests publish archives by hand and compare their digests between previews.
+    (host_config / "vcmi" / "settings.json").write_text(
+        json.dumps({"server": {"lanModSharing": False}}), encoding="utf-8")
     return user_data, host_config
 
 

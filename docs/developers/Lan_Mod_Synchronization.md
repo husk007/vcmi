@@ -25,7 +25,7 @@ The opt-in path is implemented from discovery to rejoin and covered by the headl
 | Verified cache and staging | `ModArchiveDigest`, `LanModArchiveCache`, `LanModPackageStage` |
 | Temporary preset and recovery | `ModsPresetState`, `AtomicModSettings`, `LanModRecoveryJournal` |
 | Relaunch and rejoin | `--lan-relaunch-token`, `LanRelaunchProcess`, `LanRejoinTarget` |
-| Host publishing | `utils/lan_mod_share.py` writes archives to `userData/lan-mod-shares/` |
+| Host publishing | `LanHostModPublisher` packs active mods into `userData/lan-mod-shares/` when the server starts listening; `utils/lan_mod_share.py` publishes by hand |
 
 ## Preview packet fields
 
@@ -93,6 +93,14 @@ A cache entry is stored as `userData/lan-mod-archives/<SHA-256 of root mod ID>/<
 
 The host hashes each shared archive once per change of size or modification time. Every lobby preview lists all shared archives, so rehashing them for each request would stall the server network thread.
 
+## Host publishing
+
+A server that listens for LAN connections starts `LanHostModPublisher` on a background thread. For every active root mod installed in `userData/Mods` it writes `lan-mod-shares/<root>.zip` and `<root>.source`, the list of files with sizes and modification times. The archive is rebuilt only when this list changes, so a returning guest finds the same SHA-256 in its cache. Mods shipped with the game, such as `vcmi`, are not packed.
+
+- A mod with a link, a special file, original game data (`.lod`, `.snd`, `.vid`, `.exe`, `.iso`, `.cab`) or a size over the `LanModPackageStage` limits is not shared, and an earlier automatic archive of it is removed.
+- An archive without `.source` was published by hand and is never replaced.
+- `settings.server.lanModSharing` disables the publisher. Until an archive is ready, guests see the mod as `manual setup required`.
+
 ## Preset isolation and exact rollback
 
 `LanModSessionState::begin` clones the complete current preset into a reserved `__vcmi_lan_session` preset and stores `lanSession.originalPresetName` and `lanSession.originalPreset`. This retains disabled submods as well as enabled mods, and preserves the user's other presets. `restore` reinstates the original preset and its settings and removes the temporary preset.
@@ -104,13 +112,13 @@ The helper is available through `ModsPresetState` / `ModManager`. Joining with a
 - A missing or mismatched token restores the original preset. If the client crashes after consuming a valid token, the next startup also restores automatically. A corrupt session snapshot raises an error instead of discarding recovery data.
 - Under AppImage, the relaunch starts the original image instead of the temporary mount.
 - Leaving the session restores the original preset. On desktop, `requestLanRestoreRelaunch` then starts a client without a token so the personal mods load again.
-- `LanRelaunchProcess` is compiled out under `VCMI_MOBILE`. Mobile builds do not offer host-mod preparation in the preview, and a restored preset asks the player to restart manually.
+- On Android, `LanRelaunchProcess` calls `NativeMethods.relaunchGame`. It starts `ActivityLanRelaunch` in a separate process, which ends the game process and opens `VcmiSDLActivity` with the token as program argument. iOS has no relaunch path (`VCMI_LAN_RELAUNCH_SUPPORTED` is not defined), so it does not offer host-mod preparation and asks the player to restart manually.
 - The default constructor arguments supply no token, so clients without the feature keep interrupted-session restoration.
 
 Open items:
 
 - Run a real two-client match with licensed game data, including host disconnect and crash recovery.
-- Verify Windows. Android has no relaunch path.
+- Verify Windows and the Android relaunch on a device.
 - Keep the original personal version side by side when personal and host mod versions differ; never overwrite it. The staging tree is separate from `userData/Mods`, and the mount is refused for an installed root.
 
 ## Security and legal constraints

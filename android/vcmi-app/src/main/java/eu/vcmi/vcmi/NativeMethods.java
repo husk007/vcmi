@@ -1,6 +1,7 @@
 package eu.vcmi.vcmi;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Messenger;
 import android.os.VibrationEffect;
@@ -116,6 +117,18 @@ public class NativeMethods
     public static void showNotification(final String message)
     {
         Notifications.showGameNotification(message);
+    }
+
+    /// restarts the game process; a non-empty token makes the new process rejoin the prepared LAN game
+    @SuppressWarnings(Const.JNI_METHOD_SUPPRESS)
+    public static void relaunchGame(final String token)
+    {
+        final Context ctx = context();
+        final Intent intent = new Intent(ctx, ActivityLanRelaunch.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra(ActivityLanRelaunch.EXTRA_GAME_PID, android.os.Process.myPid());
+        intent.putExtra(ActivityLanRelaunch.EXTRA_TOKEN, token);
+        ctx.startActivity(intent);
     }
 
     @SuppressWarnings(Const.JNI_METHOD_SUPPRESS)

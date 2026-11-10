@@ -65,6 +65,7 @@
 #include "../lib/modding/LanModArchiveCache.h"
 #include "../lib/modding/LanModPackageStage.h"
 #include "../lib/modding/LanRelaunchToken.h"
+#include "../lib/modding/LanRelaunchSupport.h"
 
 #include <fstream>
 #include "../lib/rmg/CMapGenOptions.h"
@@ -83,7 +84,7 @@ static void restartAfterRestoringLanMods()
 {
 	if(!ENGINE || !LIBRARY || !LIBRARY->modh)
 		return;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	LIBRARY->modh->requestLanRestoreRelaunch();
 	ENGINE->dispatchMainThread([]()
 	{

@@ -38,6 +38,7 @@
 #include "../../lib/modding/LanModArchiveCache.h"
 #include "../../lib/modding/LanModPackageStage.h"
 #include "../../lib/modding/LanHostArchiveTransfer.h"
+#include "../../lib/modding/LanHostModPublisher.h"
 #include "../../lib/filesystem/MinizipExtensions.h"
 #include "../../lib/filesystem/AdapterLoaders.h"
 #include "../../lib/filesystem/CFilesystemLoader.h"
@@ -510,6 +511,56 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 	EXPECT_FALSE(fs::exists(base / "guest" / "lan-mod-staged" / "mod.json"));
 }
 
+
+
+TEST(LanModSyncTest, HostPublishesInstalledModThatGuestStagesFromManifest)
+{
+	namespace fs = std::filesystem;
+	const fs::path base = fs::temp_directory_path() / ("vcmi-lan-publish-" + LanRelaunchToken::generate());
+	const auto cleanup = vstd::makeScopeGuard([&](){ std::error_code ec; fs::remove_all(base, ec); });
+	const fs::path modRoot = base / "host" / "Mods" / "hostmod";
+	ASSERT_TRUE(fs::create_directories(modRoot / "Mods" / "units"));
+	ASSERT_TRUE(fs::create_directories(modRoot / "content"));
+	const auto writeFile = [](const fs::path & path, const std::string & text)
+	{
+		std::ofstream output(path, std::ios::binary | std::ios::trunc);
+		output << text;
+	};
+	writeFile(modRoot / "mod.json", R"({"name":"LAN host mod","version":"1.0"})");
+	writeFile(modRoot / "Mods" / "units" / "mod.json", R"({"name":"LAN host submod","version":"1.0"})");
+	writeFile(modRoot / "content" / "payload.txt", "first payload");
+
+	const std::atomic<bool> cancel = false;
+	const LanHostModPublisher::Source source{"hostmod", modRoot};
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	const ModCompatibilityInfo hostMods = {{"hostmod", ModVerificationInfo{}}, {"hostmod.units", ModVerificationInfo{}}};
+	const auto manifest = ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host");
+	ASSERT_EQ(manifest.count("hostmod"), 1);
+	const auto & offer = manifest.at("hostmod");
+
+	// The guest accepts the host package through the same cache and staging code as a real download.
+	const fs::path archive = base / "host" / "lan-mod-shares" / "hostmod.zip";
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(base / "guest", "hostmod", offer.sha256, archive));
+	const auto staged = LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", offer.sha256);
+	ASSERT_TRUE(staged);
+	EXPECT_TRUE(fs::is_regular_file(*staged / "mod.json"));
+	EXPECT_TRUE(fs::is_regular_file(*staged / "Mods" / "units" / "mod.json"));
+	EXPECT_EQ(LanHostModPublisher::readText(*staged / "content" / "payload.txt"), "first payload");
+
+	// An unchanged mod keeps its archive, so a returning guest finds it in the cache.
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_EQ(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").at("hostmod").sha256, offer.sha256);
+
+	writeFile(modRoot / "content" / "payload.txt", "changed and longer payload");
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_NE(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").at("hostmod").sha256, offer.sha256);
+
+	// Original game archives are never shared, and an earlier automatic archive is withdrawn.
+	writeFile(modRoot / "content" / "h3sprite.lod", "original game data");
+	EXPECT_FALSE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_FALSE(fs::exists(archive));
+	EXPECT_TRUE(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").empty());
+}
 
 TEST(LanModSyncTest, LanLobbyPreviewShowsOnlyActionsActuallyAvailableToGuest)
 {
