@@ -29,6 +29,7 @@
 #include "../../lib/modding/CModHandler.h"
 #include "../../lib/modding/ModDescription.h"
 #include "../../lib/modding/LanModArchiveCache.h"
+#include "../../lib/modding/LanRelaunchSupport.h"
 #include "../../lib/VCMIDirs.h"
 #include "../../lib/texts/CGeneralTextHandler.h"
 #include "../../lib/texts/MetaString.h"
@@ -146,11 +147,14 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 			std::filesystem::path(VCMIDirs::get().userDataPath().native()))
 		: LanArchivePreview{};
 	bool completeHostOffer = false;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	if(lanPreview && onDownloadCallback)
 		completeHostOffer = ModVerificationInfo::canPrepareMissingHostArchives(
 			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
 #endif
+	// The mod list fills the right column down to the button row, so the download button gets a row below it.
+	if(completeHostOffer)
+		pos.h += 44;
 	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
@@ -239,7 +243,7 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	directJoinAllowed = errorMessage.empty();
 	bool allowInstalledOnlyPreparation = false;
 	bool allowCachedPreparation = false;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	// A missing root already prepared in the LAN archive cache can be enabled
 	// only after explicit trust approval. The Join callback enforces that
 	// approval and prepares the token-gated temporary preset; do not offer this
@@ -262,19 +266,19 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	// A previously approved, verified offer already has a direct Join action.
 	if(allowCachedPreparation && !cachedLanJoinPrepared)
 	{
-		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
+		buttonDownload = std::make_shared<CButton>(Point(10, 400), AnimationPath::builtin("MuBchck"),
 			CButton::tooltip(), [this](){ onDownloadCallback(); });
-		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
-			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
+		labelDownload = std::make_shared<CLabel>(90, 417, FONT_MEDIUM, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 300);
 	}
 	if (!errorMessage.empty())
 	{
 		// The TCP lobby response already carries the host's active mod list.
 		// A locally installed mod can now be staged in the recoverable LAN preset.
-		// Mobile builds keep Join disabled until a restart mechanism is available.
+		// Builds without a restart mechanism (iOS) keep Join disabled.
 		if(lanPreview && errorMessage == "vcmi.lobby.preview.error.mods" && localPlan && localPlan->requiresChanges())
 		{
-			#if !defined(VCMI_MOBILE)
+			#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 			allowInstalledOnlyPreparation = true;
 			#endif
 			joinStatusText.appendTextID("vcmi.lobby.preview.lanLocalPlan");
@@ -391,9 +395,13 @@ void GlobalLobbyRoomWindow::showLanArchiveProgress(const std::string & hostFinge
 		return;
 	lanTransferInProgress = true;
 	buttonDownload->block(true);
-	labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
-		+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
-		+ " (" + std::to_string(currentPercent) + "%)");
+	if(currentPercent >= 100)
+		labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveVerifying")
+			+ "\n" + std::to_string(prepared + 1) + "/" + std::to_string(total));
+	else
+		labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
+			+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
+			+ " (" + std::to_string(currentPercent) + "%)");
 }
 
 void GlobalLobbyRoomWindow::resetLanArchiveProgress(const std::string & hostFingerprint)

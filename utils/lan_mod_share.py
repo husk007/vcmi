@@ -13,9 +13,9 @@ import tempfile
 import zipfile
 
 MAX_ARCHIVE_BYTES = 2 * 1024**3
-MAX_UNPACKED_BYTES = 512 * 1024**2
-MAX_ENTRY_BYTES = 128 * 1024**2
-MAX_ENTRIES = 8192
+MAX_UNPACKED_BYTES = 2 * 1024**3
+MAX_ENTRY_BYTES = 256 * 1024**2
+MAX_ENTRIES = 65535
 # Never publish original Heroes III archives or executable installers.
 FORBIDDEN_SUFFIXES = {".lod", ".snd", ".vid", ".exe", ".iso", ".cab"}
 

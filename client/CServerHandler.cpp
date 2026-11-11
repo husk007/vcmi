@@ -65,6 +65,8 @@
 #include "../lib/modding/LanModArchiveCache.h"
 #include "../lib/modding/LanModPackageStage.h"
 #include "../lib/modding/LanRelaunchToken.h"
+#include "../lib/modding/LanRelaunchSupport.h"
+#include "../lib/ScopeGuard.h"
 
 #include <fstream>
 #include "../lib/rmg/CMapGenOptions.h"
@@ -83,7 +85,7 @@ static void restartAfterRestoringLanMods()
 {
 	if(!ENGINE || !LIBRARY || !LIBRARY->modh)
 		return;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 	LIBRARY->modh->requestLanRestoreRelaunch();
 	ENGINE->dispatchMainThread([]()
 	{
@@ -1547,6 +1549,8 @@ void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
 		|| static_cast<std::uintmax_t>(current.totalBytes) > LanModArchiveCache::maxArchiveBytes
 		|| static_cast<std::int64_t>(chunk.data.size()) > current.totalBytes - lanArchiveOffset)
 	{
+		logNetwork->warn("LAN mod '%s': host did not send the expected archive chunk at offset %d (granted: %d)",
+			current.rootId, lanArchiveOffset, chunk.granted);
 		finishLanArchiveDownload(false);
 		return;
 	}
@@ -1564,12 +1568,35 @@ void CServerHandler::onLanArchiveChunk(LobbyLanModArchiveChunk & chunk)
 	if(lanArchiveOffset == current.totalBytes)
 	{
 		const auto userData = std::filesystem::path(VCMIDirs::get().userDataPath().native());
-		if(!LanModArchiveCache::publishVerifiedArchive(userData, current.rootId, current.sha256, lanArchiveStaging)
-			|| !LanModPackageStage::stageVerifiedArchive(userData, current.rootId, current.sha256))
+		const auto finished = current;
+		const auto staging = lanArchiveStaging;
+		const auto started = std::chrono::steady_clock::now();
+		logNetwork->info("LAN mod '%s': downloaded %d bytes, verifying and unpacking", finished.rootId, finished.totalBytes);
+		if(ENGINE)
+			for(const auto & room : ENGINE->windows().findWindows<GlobalLobbyRoomWindow>())
+				room->showLanArchiveProgress(lanArchiveRequestedHostOffer, lanArchiveCachedCount,
+					lanArchiveCachedCount + lanArchivePending.size(), 100);
+		bool prepared = false;
+		{
+			// Hashing and unpacking a large mod takes minutes on a phone. onPacketReceived holds the interface
+			// mutex; release it meanwhile so that the GUI keeps drawing and the player can cancel.
+			const bool unlocked = ENGINE != nullptr;
+			if(unlocked)
+				ENGINE->interfaceMutex.unlock();
+			const auto relock = vstd::makeScopeGuard([unlocked](){ if(unlocked) ENGINE->interfaceMutex.lock(); });
+			prepared = LanModArchiveCache::publishVerifiedArchive(userData, finished.rootId, finished.sha256, staging)
+				&& LanModPackageStage::stageVerifiedArchive(userData, finished.rootId, finished.sha256);
+		}
+		// The player may have cancelled the download while the interface was unlocked.
+		if(!lanArchiveDownloading || lanArchivePending.empty() || lanArchivePending.front().rootId != finished.rootId)
+			return;
+		if(!prepared)
 		{
 			finishLanArchiveDownload(false);
 			return;
 		}
+		logNetwork->info("LAN mod '%s': cached and unpacked in %d ms", finished.rootId,
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
 		std::error_code cleanup;
 		std::filesystem::remove(lanArchiveStaging, cleanup);
 		lanArchiveStaging.clear();
@@ -1592,6 +1619,8 @@ void CServerHandler::finishLanArchiveDownload(bool success, bool cancelledByPlay
 {
 	if(!lanArchiveDownloading)
 		return;
+	logNetwork->info("LAN mod download finished: success %d, cancelled %d, connection lost %d, archives cached %d",
+		success, cancelledByPlayer, connectionLost, lanArchiveCachedCount);
 	const auto cachedCount = lanArchiveCachedCount;
 	const auto requestedOffer = lanArchiveRequestedHostOffer;
 	if(success)

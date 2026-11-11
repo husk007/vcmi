@@ -29,6 +29,10 @@
 #include "../lib/modding/CModHandler.h"
 #include "../lib/modding/ModDescription.h"
 #include "../lib/modding/ModIncompatibility.h"
+#include "../lib/modding/LanHostModPublisher.h"
+#include "../lib/CConfigHandler.h"
+#include "../lib/filesystem/Filesystem.h"
+#include "../lib/VCMIDirs.h"
 #include "../lib/rmg/CMapGenOptions.h"
 #include "../lib/serializer/CMemorySerializer.h"
 #include "../lib/serializer/GameConnection.h"
@@ -93,6 +97,52 @@ CVCMIServer::CVCMIServer(uint16_t port, bool runByClient)
 CVCMIServer::~CVCMIServer()
 {
 	stopDiscoveryListener();
+	lanModPublisherCancel = true;
+	if(lanModPublisher.joinable())
+		lanModPublisher.join();
+}
+
+void CVCMIServer::startLanModPublisher()
+{
+	if(!settings["server"]["lanModSharing"].Bool() || lanModPublisher.joinable())
+		return;
+
+	// Resolve directories here: the resource handler is not used from the packing thread.
+	namespace fs = std::filesystem;
+	const fs::path userData(VCMIDirs::get().userDataPath().native());
+	std::error_code error;
+	const fs::path userMods = fs::weakly_canonical(userData / "Mods", error);
+	std::set<TModID> roots;
+	for(const auto & modId : LIBRARY->modh->getActiveMods())
+		roots.insert(modId.substr(0, modId.find('.')));
+
+	std::vector<LanHostModPublisher::Source> sources;
+	for(const auto & root : roots)
+	{
+		const auto directory = CResourceHandler::get()->getResourceName(
+			ResourcePath("MODS/" + boost::to_upper_copy(root), EResType::DIRECTORY));
+		if(!directory)
+			continue;
+		const fs::path path = fs::weakly_canonical(fs::path(directory->native()), error);
+		// Mods shipped with the game, such as 'vcmi', are present on every guest.
+		const auto relative = path.lexically_relative(userMods);
+		if(error || relative.empty() || *relative.begin() == "..")
+			continue;
+		sources.push_back({root, path});
+	}
+	if(sources.empty())
+		return;
+
+	lanModPublisher = std::thread([this, sources, userData]()
+	{
+		setThreadName("lanModPublisher");
+		for(const auto & source : sources)
+		{
+			if(lanModPublisherCancel)
+				return;
+			LanHostModPublisher::publish(source, userData, lanModPublisherCancel);
+		}
+	});
 }
 
 uint16_t CVCMIServer::prepare(bool connectToLobby, bool listenForConnections) {
@@ -116,6 +166,7 @@ uint16_t CVCMIServer::startAcceptingIncomingConnections(bool listenForConnection
 
 	if (listenForConnections)
 	{
+		startLanModPublisher();
 		auto srvport = networkServer->start(port);
 		logNetwork->info("Listening for connections at port %d", srvport);
 		return srvport;
