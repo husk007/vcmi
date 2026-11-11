@@ -293,14 +293,18 @@ inline bool syncCacheEntry(const std::filesystem::path & target, bool directory)
 }
 #endif
 
-/// POSIX rename may overwrite a file created after an earlier existence check.
-/// A hard link creates the destination atomically only if it is still absent.
 /// The staged file resides alongside the destination, on the same filesystem.
 inline bool publishWithoutReplacing(const std::filesystem::path & temporary, const std::filesystem::path & destination)
 {
-    std::error_code error;
-    std::filesystem::create_hard_link(temporary, destination, error);
-    return !error;
+    try
+    {
+        AtomicModSettings::moveWithoutReplacing(temporary, destination);
+        return true;
+    }
+    catch(const std::filesystem::filesystem_error &)
+    {
+        return false;
+    }
 }
 }
 

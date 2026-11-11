@@ -152,6 +152,9 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 		completeHostOffer = ModVerificationInfo::canPrepareMissingHostArchives(
 			modStatuses, archiveAvailability, LIBRARY->modh->getAllMods());
 #endif
+	// The mod list fills the right column down to the button row, so the download button gets a row below it.
+	if(completeHostOffer)
+		pos.h += 44;
 	for(const auto & modEntry : modStatuses)
 	{
 		GlobalLobbyRoomModInfo modInfo;
@@ -263,10 +266,10 @@ GlobalLobbyRoomWindow::GlobalLobbyRoomWindow(const GlobalLobbyRoom & roomDescrip
 	// A previously approved, verified offer already has a direct Join action.
 	if(allowCachedPreparation && !cachedLanJoinPrepared)
 	{
-		buttonDownload = std::make_shared<CButton>(Point(190, 360), AnimationPath::builtin("MuBchck"),
+		buttonDownload = std::make_shared<CButton>(Point(10, 400), AnimationPath::builtin("MuBchck"),
 			CButton::tooltip(), [this](){ onDownloadCallback(); });
-		labelDownload = std::make_shared<CLabel>(270, 377, FONT_SMALL, ETextAlignment::CENTERLEFT, Colors::YELLOW,
-			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 120);
+		labelDownload = std::make_shared<CLabel>(90, 417, FONT_MEDIUM, ETextAlignment::CENTERLEFT, Colors::YELLOW,
+			LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton"), 300);
 	}
 	if (!errorMessage.empty())
 	{

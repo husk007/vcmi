@@ -21,6 +21,12 @@
 #else
 #include <fcntl.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#ifndef RENAME_NOREPLACE
+#define RENAME_NOREPLACE (1 << 0)
+#endif
+#endif
 #endif
 
 namespace AtomicModSettings
@@ -40,6 +46,39 @@ inline bool syncDescriptorWithRetry(int descriptor, Sync && sync)
 	return result == 0;
 }
 #endif
+
+/// Moves a file to a destination that must not exist yet; throws std::filesystem::filesystem_error otherwise.
+/// A hard link fails atomically for an existing destination. Storage without hard links, such as the
+/// shared storage of Android apps, uses rename with RENAME_NOREPLACE on Linux and otherwise an existence
+/// check followed by rename.
+inline void moveWithoutReplacing(const std::filesystem::path & source, const std::filesystem::path & destination)
+{
+	std::error_code linkError;
+	std::filesystem::create_hard_link(source, destination, linkError);
+	if(!linkError)
+	{
+		std::filesystem::remove(source);
+		return;
+	}
+	if(linkError == std::errc::file_exists)
+		throw std::filesystem::filesystem_error("Destination already exists", destination, linkError);
+
+#if defined(__linux__)
+	if(::syscall(SYS_renameat2, AT_FDCWD, source.c_str(), AT_FDCWD, destination.c_str(), RENAME_NOREPLACE) == 0)
+		return;
+	if(errno == EEXIST)
+		throw std::filesystem::filesystem_error("Destination already exists", destination,
+			std::make_error_code(std::errc::file_exists));
+	// EINVAL or ENOSYS: the filesystem or kernel does not support RENAME_NOREPLACE.
+#endif
+
+	std::error_code statusError;
+	const auto status = std::filesystem::symlink_status(destination, statusError);
+	if(status.type() != std::filesystem::file_type::not_found)
+		throw std::filesystem::filesystem_error("Destination already exists", destination,
+			statusError ? statusError : std::make_error_code(std::errc::file_exists));
+	std::filesystem::rename(source, destination);
+}
 
 namespace detail
 {
@@ -130,9 +169,8 @@ inline bool writeAtomic(const std::filesystem::path & destination, const std::st
 			std::filesystem::rename(temporary, destination);
 		else
 		{
-			// A hard link cannot replace a concurrent writer's existing journal.
-			std::filesystem::create_hard_link(temporary, destination);
-			std::filesystem::remove(temporary);
+			// Never replace a concurrent writer's existing journal.
+			moveWithoutReplacing(temporary, destination);
 		}
 #endif
 	}
