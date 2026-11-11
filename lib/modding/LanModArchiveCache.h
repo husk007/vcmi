@@ -312,10 +312,18 @@ inline bool publishWithoutReplacing(const std::filesystem::path & temporary, con
 inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::filesystem::path & userDataPath,
     std::string_view rootModId, std::string_view expectedSha256, const std::filesystem::path & stagedArchive)
 {
-    const auto destination = archivePath(userDataPath, rootModId, expectedSha256);
-    if(!destination || !isAllowedArchiveSize(stagedArchive)
-        || !ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256, maxArchiveBytes))
+    const auto reject = [&](const char * reason) -> std::optional<std::filesystem::path>
+    {
+        logGlobal->warn("LAN mod '%s' archive %s was not cached: %s", std::string(rootModId), std::string(expectedSha256), reason);
         return std::nullopt;
+    };
+    const auto destination = archivePath(userDataPath, rootModId, expectedSha256);
+    if(!destination)
+        return reject("invalid mod ID or digest");
+    if(!isAllowedArchiveSize(stagedArchive))
+        return reject("downloaded archive is missing or too large");
+    if(!ModArchiveDigest::matchesFileSha256(stagedArchive, expectedSha256, maxArchiveBytes))
+        return reject("downloaded archive does not match the SHA-256 of the host");
 
     if(const auto existing = findVerifiedArchive(userDataPath, rootModId, expectedSha256))
         return existing;
@@ -325,27 +333,27 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     // Reject linked cache roots before creating the mod-specific directory.
     std::filesystem::create_directories(cacheRoot, error);
     if(error)
-        return std::nullopt;
+        return reject("cannot create the cache directory");
 
     // A link in the cache path could redirect received content outside the user data directory.
     if(!isTrustedCacheDirectory(cacheRoot))
-        return std::nullopt;
+        return reject("cache directory is not a plain directory");
     error.clear();
     std::filesystem::create_directories(destination->parent_path(), error);
     if(error || !isTrustedCacheDirectory(destination->parent_path()))
-        return std::nullopt;
+        return reject("cannot create the mod cache directory");
 
 #ifndef _WIN32
     // Flush directory names created for this cache entry before publishing its contents.
     if(!detail::syncCacheEntry(userDataPath, true) || !detail::syncCacheEntry(cacheRoot, true))
-        return std::nullopt;
+        return reject("cannot sync the cache directory");
 #endif
 
     // Never silently replace an existing cache entry that failed integrity verification.
     if(std::filesystem::exists(std::filesystem::symlink_status(*destination, error)))
-        return std::nullopt;
+        return reject("a cache entry with this digest exists but fails verification");
     if(error && error != std::errc::no_such_file_or_directory)
-        return std::nullopt;
+        return reject("cannot inspect the cache entry");
 
     std::filesystem::path temporary = *destination;
     temporary += "." + LanRelaunchToken::generate() + ".part";
@@ -355,21 +363,21 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     {
         std::error_code cleanupError;
         std::filesystem::remove(temporary, cleanupError);
-        return std::nullopt;
+        return reject("cannot copy the archive into the cache");
     }
 
     if(!isAllowedArchiveSize(temporary)
         || !ModArchiveDigest::matchesFileSha256(temporary, expectedSha256, maxArchiveBytes))
     {
         std::filesystem::remove(temporary, error);
-        return std::nullopt;
+        return reject("cached copy does not match the SHA-256 of the host");
     }
 
 #ifndef _WIN32
     if(!detail::syncCacheEntry(temporary, false))
     {
         std::filesystem::remove(temporary, error);
-        return std::nullopt;
+        return reject("cannot sync the cached copy");
     }
 #endif
 
@@ -385,7 +393,7 @@ inline std::optional<std::filesystem::path> publishVerifiedArchive(const std::fi
     std::filesystem::remove(temporary, cleanupError);
 #ifndef _WIN32
     if(!detail::syncCacheEntry(destination->parent_path(), true))
-        return std::nullopt;
+        return reject("cannot sync the mod cache directory");
 #endif
     return findVerifiedArchive(userDataPath, rootModId, expectedSha256);
 }

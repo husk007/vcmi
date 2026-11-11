@@ -395,9 +395,13 @@ void GlobalLobbyRoomWindow::showLanArchiveProgress(const std::string & hostFinge
 		return;
 	lanTransferInProgress = true;
 	buttonDownload->block(true);
-	labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
-		+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
-		+ " (" + std::to_string(currentPercent) + "%)");
+	if(currentPercent >= 100)
+		labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveVerifying")
+			+ "\n" + std::to_string(prepared + 1) + "/" + std::to_string(total));
+	else
+		labelJoinStatus->setText(LIBRARY->generaltexth->translate("vcmi.lobby.preview.lanArchiveDownloadButton")
+			+ "\n" + std::to_string(prepared) + "/" + std::to_string(total)
+			+ " (" + std::to_string(currentPercent) + "%)");
 }
 
 void GlobalLobbyRoomWindow::resetLanArchiveProgress(const std::string & hostFingerprint)

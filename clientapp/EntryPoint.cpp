@@ -248,6 +248,11 @@ int main(int argc, char * argv[])
 	boost::filesystem::path logPath = VCMIDirs::get().userLogsPath() / "VCMI_Client_log.txt";
 	if(vm.count("logLocation"))
 		logPath = vm["logLocation"].as<std::string>() + "/VCMI_Client_log.txt";
+	{
+		// Keep the log of the previous run, for example of a crash, which a restart would otherwise overwrite.
+		boost::system::error_code renameError;
+		boost::filesystem::rename(logPath, logPath.parent_path() / "VCMI_Client_log_previous.txt", renameError);
+	}
 
 #ifndef VCMI_IOS
 
