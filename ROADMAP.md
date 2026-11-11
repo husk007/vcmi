@@ -42,12 +42,13 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 
 - [x] Add bounded, authenticated, session-scoped host→guest archive transfer and a first-use trust prompt. Reject missing/invalid hashes, malicious archive paths, and nonredistributable content. TEST_PASS: CI #41290727321, trust dialog CI #41323542905.
 - [x] Stage versions side by side so the player's privately installed mod version is not overwritten. TEST_PASS: staging tree is separate from `userData/Mods`; a root installed locally is never mounted.
-- [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match.
+- [x] The host packs its own active mods for guests, without a hand-run script. `LanHostModPublisher`; TEST_PASS `LanModSyncTest.HostPublishesInstalledModThatGuestStagesFromManifest`; on Android the host packed hota, market-of-time, new-old-spells-plus, tears-of-ashan and vcmi-extras (device log, 2026-11-10).
+- [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match. Partial, two Android phones on `a59571f` (2026-11-11): the guest downloaded 596 MB, cached and unpacked four roots, relaunched, rejoined and started the game with the host's mods; the guest connection then stopped carrying data, so play and restore after the match are unverified.
 
 ### M5 — Release validation and cross-platform support
 
 - [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download. Partial: the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs) covers two GUI guests on loopback through join, game start, host move/end turn, host disconnect, preset restoration and retained cache; a complete match between separate machines is still open.
-- [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery.
+- [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery. Partial: Android relaunch, download and crash recovery of the preset worked on two phones; Windows untested; iOS and macOS on Intel do not build (`std::filesystem`).
 - [ ] Only after LAN passes the above gates prioritize the browser W0–W4 milestones.
 
 **Anti-stall rule:** Do not repeatedly implement unrelated edge-case hardening in L0/L2 while M1 is unimplemented. A missing CI environment is a verification blocker, not a prohibition on reviewing or implementing the next small functional slice. After two consecutive runs with the same blocker, skip repeating the probe and work on M1/M2. Every run must identify the milestone and prove a change in functional coverage, a fixed real compiler error, or a new test result; do not treat documentation/status growth as product progress.
