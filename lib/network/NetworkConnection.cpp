@@ -95,6 +95,7 @@ void NetworkConnection::onHeaderReceived(const boost::system::error_code & ecHea
 	if (messageSize == 0)
 	{
 		//heartbeat package with no payload - wait for next packet
+		logNetwork->trace("Received heartbeat");
 		startReceiving();
 		return;
 	}
