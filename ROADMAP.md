@@ -15,21 +15,21 @@ The hourly task follows [RUNNER.md](RUNNER.md), [AGENTS.md](AGENTS.md), and [RUN
 - [x] Add a narrowly triggered GitHub Actions workflow for a real Linux VCMI build and committed LAN tests: `.github/workflows/lan-mod-sync-validation.yml`.
 - [x] Obtain a real `vcmitest` build and execute `LanModSyncTest.*`: [CI run #40796885539](https://github.com/husk007/vcmi/actions/runs/40796885539) passed **71/71 tests** on commit `a1e2bf2e70eb9ac2636091c8baf6d1926087a374` after correcting the runtime data setup. The wider client build is a separate gate. Latest completed run: [CI #41568986427](https://github.com/husk007/vcmi/actions/runs/41568986427) passed **104/104** on `7d67416` with the full Linux client/server/`vcmitest` build.
 - [ ] If GitHub Actions is disabled or quota-blocked on this fork, record the blocker once and ask for the **specific** enablement action; do not replay the same failed DNS probe every hour. Continue M1–M3 with source-level validation and explicitly keep M0 open.
-- [ ] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup.
+- [x] Before a feature release, run the broader `ctest --preset linux-gcc-test` and verify at least one actual game startup. Broader ctest: 1361/1361 passed on `30eb687` (local Ubuntu 24.04, GCC 13, 2026-11-04). Game startup: two GUI clients reach their human-controlled adventure map interfaces in the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs).
 
 GitHub Actions is intentionally **not** triggered by every hourly code commit. It runs when its workflow file or `.github/lan-mod-sync-validation-trigger.txt` changes, or when launched via `workflow_dispatch`. Change the trigger file only after a meaningful code milestone or a fix for a proven CI failure; do not generate empty reruns. GitHub Actions availability is unverified until a run appears.
 
 ### M1 — Host compatibility preview and opt-in negotiation (first functional slice)
 
-- [ ] Review `LobbyQueryState` → `LobbyModsCheck` → `CServerHandler::onLobbyPreviewResponse` and document exact fields that already work. Reuse them; do not create a parallel protocol.
+- [x] Review `LobbyQueryState` → `LobbyModsCheck` → `CServerHandler::onLobbyPreviewResponse` and document exact fields that already work. Reuse them; do not create a parallel protocol. Documented under "Preview packet fields" in `docs/developers/Lan_Mod_Synchronization.md`; the opt-in packets derive from the legacy ones.
 - [x] Advertise `lanModSync` as an optional capability using a backward-compatible/version-gated protocol path. A client lacking the capability must retain the existing room preview without disconnecting. Headless TEST_PASS: CI #41574744788 (legacy probe and join unchanged).
 - [x] Display a read-only host/guest comparison in the LAN join preview: mod ID, version, required/disabled/excessive, and action plan. Do not yet change disk files. BUILD_PASS: CI #41574744788; not yet viewed with licensed data.
 - [x] Add a focused integration or protocol fixture test proving that the host advertises the correct mod list and the guest produces a matching diff. TEST_PASS: `LanModSyncTest.*`, CI #41574744788.
 
 ### M2 — Connect with mods already installed (first executable happy path)
 
-- [ ] On joining a host requiring only locally installed mods, snapshot the full original preset durably; activate required mods/deactivate excessive mods in a temporary LAN preset.
-- [ ] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery.
+- [x] On joining a host requiring only locally installed mods, snapshot the full original preset durably; activate required mods/deactivate excessive mods in a temporary LAN preset. Headless TEST_PASS against the independent `vcmiserver` (CI #41580945912, local run 2026-11-04).
+- [x] Safely reload game resources or restart/rejoin the same LAN room; perform the connection with the correct active mods, then restore the original preset on clean disconnect, rejected join, and crash recovery. GUI controlled relaunch, automatic rejoin and restore after host disconnect pass in the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs); rejected join and crash recovery are headless TEST_PASS.
 - [x] Test one host + one guest where the guest initially has the right mod **installed but disabled**. Prove a successful match without downloading an archive, then verify exact prior preset and submod restoration. Headless TEST_PASS on an independent server (see RUNNER_STATUS); graphical session still open.
 
 ### M3 — Reuse cached mod packages between sessions
@@ -42,12 +42,13 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 
 - [x] Add bounded, authenticated, session-scoped host→guest archive transfer and a first-use trust prompt. Reject missing/invalid hashes, malicious archive paths, and nonredistributable content. TEST_PASS: CI #41290727321, trust dialog CI #41323542905.
 - [x] Stage versions side by side so the player's privately installed mod version is not overwritten. TEST_PASS: staging tree is separate from `userData/Mods`; a root installed locally is never mounted.
-- [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match.
+- [x] The host packs its own active mods for guests, without a hand-run script. `LanHostModPublisher`; TEST_PASS `LanModSyncTest.HostPublishesInstalledModThatGuestStagesFromManifest`; on Android the host packed hota, market-of-time, new-old-spells-plus, tears-of-ashan and vcmi-extras (device log, 2026-11-10).
+- [ ] Complete an end-to-end join where the guest initially lacks a mod, downloads it from host, plays, restores the original preset, and keeps the downloaded package for another match. Partial, two Android phones on `a59571f` (2026-11-11): the guest downloaded 596 MB, cached and unpacked four roots, relaunched, rejoined and started the game with the host's mods; the guest connection then stopped carrying data, so play and restore after the match are unverified.
 
 ### M5 — Release validation and cross-platform support
 
-- [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download.
-- [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery.
+- [ ] Demonstrate a two-client Linux LAN match through join → play → disconnect with complete mod restoration and no repeat download. Partial: the licensed-data GUI acceptance (`utils/lan_gui_acceptance.py`, owner's Heroes III `.lod` files, Xvfb, local Ubuntu 24.04, `66b67d2`, 5/5 runs) covers two GUI guests on loopback through join, game start, host move/end turn, host disconnect, preset restoration and retained cache; a complete match between separate machines is still open.
+- [ ] Test Windows and Android compatibility, including old clients without `lanModSync`, reconnect, interrupted transfer, and crash recovery. Partial: Android relaunch, download and crash recovery of the preset worked on two phones; Windows untested; iOS and macOS on Intel do not build (`std::filesystem`).
 - [ ] Only after LAN passes the above gates prioritize the browser W0–W4 milestones.
 
 **Anti-stall rule:** Do not repeatedly implement unrelated edge-case hardening in L0/L2 while M1 is unimplemented. A missing CI environment is a verification blocker, not a prohibition on reviewing or implementing the next small functional slice. After two consecutive runs with the same blocker, skip repeating the probe and work on M1/M2. Every run must identify the milestone and prove a change in functional coverage, a fixed real compiler error, or a new test result; do not treat documentation/status growth as product progress.
@@ -59,7 +60,6 @@ GitHub Actions is intentionally **not** triggered by every hourly code commit. I
 - [ ] Integrity gate: SHA-256 verified for staged content; no overwrite of privately installed versions, no proprietary game assets transmitted.
 - [ ] Compatibility gate: normal VCMI clients without the new capability still work; all guests confirm compatible gameplay content before start.
 - [ ] End-to-end gate: two real clients successfully finish a LAN match and return to their own original mod configurations.
-
 
 ## A. LAN multiplayer: host-managed mod set (first priority)
 
@@ -75,12 +75,12 @@ The helpers and their tests compile and pass in the real `vcmitest` build (see M
 - [x] Add a LAN-only preset snapshot helper retaining the original active preset and submod settings.
 - [x] Add targeted unit tests for both behaviors.
 - [x] Verify compilation and run `vcmitest` on a compatible Linux build: see M0, CI #41568986427.
-- [ ] Persist LAN session journal with crash-safe atomic writes and recovery semantics.
+- [x] Persist LAN session journal with crash-safe atomic writes and recovery semantics. TEST_PASS: `RealDesktopClientProcessesResumeInstalledModThenRecoverAfterCrash` kills a real `vcmiclient` and recovers the preset (CI #41580945912).
 - [ ] Complete guest lifecycle integration. Restore/cancellation hooks already exist in source, but actual host-selected mod activation and automatic LAN rejoin are not wired or validated in a real client.
 
 ### L1 — Capability negotiation and manifest
 
-- [ ] Negotiate an optional `lanModSync` capability before modifying any guest files; retain interoperability with unmodified VCMI clients.
+- [x] Negotiate an optional `lanModSync` capability before modifying any guest files; retain interoperability with unmodified VCMI clients. Same evidence as M1.
 - [ ] Extend the existing `LobbyQueryState` / `LobbyModsCheck` preview flow with host game version and an authenticated mod manifest: canonical mod ID, root ID, version, enabled submods, archive SHA-256, size, dependencies, and redistributability.
 - [ ] Compare manifest against installed mods *and* a verified persistent cache; version string alone is not an integrity check.
 - [ ] Reject unsupported game versions and incompatible dependencies, and block game start until everyone confirms matching gameplay content.

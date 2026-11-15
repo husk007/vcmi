@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shutil
 import socket
@@ -66,6 +67,9 @@ def stage_fixture(assets: Path, workspace: Path) -> tuple[Path, Path]:
             "settings": {"lan-ci-extra": {"units": True}}
         }}
     }), encoding="utf-8")
+    # The tests publish archives by hand and compare their digests between previews.
+    (host_config / "vcmi" / "settings.json").write_text(
+        json.dumps({"server": {"lanModSharing": False}}), encoding="utf-8")
     return user_data, host_config
 
 
@@ -129,7 +133,9 @@ def required_gui_tests_passed(log: str) -> bool:
     """A green exit code is insufficient when mandatory GoogleTests were skipped."""
     passed = set()
     prefix = "[       OK ] "
+    # Client processes share the output stream and can leave an ANSI colour reset before the line.
     for line in log.splitlines():
+        line = re.sub(r"\x1b\[[0-9;]*m", "", line)
         if line.startswith(prefix):
             test_name = line[len(prefix):].split(" ", 1)[0]
             if test_name in REQUIRED_GUI_TESTS:
@@ -167,6 +173,8 @@ def run(args: argparse.Namespace) -> int:
     xvfb = shutil.which("xvfb-run")
     if not xvfb:
         raise ValueError("install xvfb and xauth to run two real SDL clients")
+    if not shutil.which("xdotool"):
+        raise ValueError("install xdotool to dismiss the turn dialog of a GUI guest")
 
     workspace = Path(tempfile.mkdtemp(prefix="vcmi-lan-gui-"))
     # stage_fixture intentionally requires a fresh path.
@@ -191,6 +199,17 @@ def run(args: argparse.Namespace) -> int:
         for mod in ("lan-ci-fixture", "lan-ci-extra"):
             if (user_data / "lan-mod-shares" / (mod + ".zip")).stat().st_size <= 65536:
                 raise ValueError(f"host ZIP for {mod} is too small for the multi-chunk test")
+        # vcmitest always activates vcmi-test and sends its identifiers in
+        # LobbySetMap, so the host must load the same mod. Publish first, as
+        # in Linux CI, so the test mod is not shared as a LAN archive.
+        test_mod = binaries / "test" / "testdata" / "vcmi-test"
+        if not (test_mod / "mod.json").is_file():
+            raise ValueError(f"missing vcmitest fixture mod: {test_mod}")
+        shutil.copytree(test_mod, user_data / "Mods" / "vcmi-test")
+        settings_path = host_config / "vcmi" / "modSettings.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        settings["presets"]["default"]["mods"].append("vcmi-test")
+        settings_path.write_text(json.dumps(settings), encoding="utf-8")
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]

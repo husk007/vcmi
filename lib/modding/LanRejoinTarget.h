@@ -16,7 +16,7 @@ struct LanRejoinTarget
 	std::string hostname;
 	std::uint16_t port = 0;
 	bool previewCapability = false;
-	std::vector<std::string> playerNames;
+	std::vector<std::string> playerNames{};
 	bool loadGame = false;
-	std::string approvedHostModsSha256;
+	std::string approvedHostModsSha256{};
 };

@@ -38,6 +38,7 @@
 #include "../../lib/modding/LanModArchiveCache.h"
 #include "../../lib/modding/LanModPackageStage.h"
 #include "../../lib/modding/LanHostArchiveTransfer.h"
+#include "../../lib/modding/LanHostModPublisher.h"
 #include "../../lib/filesystem/MinizipExtensions.h"
 #include "../../lib/filesystem/AdapterLoaders.h"
 #include "../../lib/filesystem/CFilesystemLoader.h"
@@ -510,6 +511,56 @@ TEST(LanModSyncTest, VerifiedCachedZipStagesSideBySideWithoutTouchingPrivateMod)
 	EXPECT_FALSE(fs::exists(base / "guest" / "lan-mod-staged" / "mod.json"));
 }
 
+
+
+TEST(LanModSyncTest, HostPublishesInstalledModThatGuestStagesFromManifest)
+{
+	namespace fs = std::filesystem;
+	const fs::path base = fs::temp_directory_path() / ("vcmi-lan-publish-" + LanRelaunchToken::generate());
+	const auto cleanup = vstd::makeScopeGuard([&](){ std::error_code ec; fs::remove_all(base, ec); });
+	const fs::path modRoot = base / "host" / "Mods" / "hostmod";
+	ASSERT_TRUE(fs::create_directories(modRoot / "Mods" / "units"));
+	ASSERT_TRUE(fs::create_directories(modRoot / "content"));
+	const auto writeFile = [](const fs::path & path, const std::string & text)
+	{
+		std::ofstream output(path, std::ios::binary | std::ios::trunc);
+		output << text;
+	};
+	writeFile(modRoot / "mod.json", R"({"name":"LAN host mod","version":"1.0"})");
+	writeFile(modRoot / "Mods" / "units" / "mod.json", R"({"name":"LAN host submod","version":"1.0"})");
+	writeFile(modRoot / "content" / "payload.txt", "first payload");
+
+	const std::atomic<bool> cancel = false;
+	const LanHostModPublisher::Source source{"hostmod", modRoot};
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	const ModCompatibilityInfo hostMods = {{"hostmod", ModVerificationInfo{}}, {"hostmod.units", ModVerificationInfo{}}};
+	const auto manifest = ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host");
+	ASSERT_EQ(manifest.count("hostmod"), 1);
+	const auto & offer = manifest.at("hostmod");
+
+	// The guest accepts the host package through the same cache and staging code as a real download.
+	const fs::path archive = base / "host" / "lan-mod-shares" / "hostmod.zip";
+	ASSERT_TRUE(LanModArchiveCache::publishVerifiedArchive(base / "guest", "hostmod", offer.sha256, archive));
+	const auto staged = LanModPackageStage::stageVerifiedArchive(base / "guest", "hostmod", offer.sha256);
+	ASSERT_TRUE(staged);
+	EXPECT_TRUE(fs::is_regular_file(*staged / "mod.json"));
+	EXPECT_TRUE(fs::is_regular_file(*staged / "Mods" / "units" / "mod.json"));
+	EXPECT_EQ(LanHostModPublisher::readText(*staged / "content" / "payload.txt"), "first payload");
+
+	// An unchanged mod keeps its archive, so a returning guest finds it in the cache.
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_EQ(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").at("hostmod").sha256, offer.sha256);
+
+	writeFile(modRoot / "content" / "payload.txt", "changed and longer payload");
+	ASSERT_TRUE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_NE(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").at("hostmod").sha256, offer.sha256);
+
+	// Original game archives are never shared, and an earlier automatic archive is withdrawn.
+	writeFile(modRoot / "content" / "h3sprite.lod", "original game data");
+	EXPECT_FALSE(LanHostModPublisher::publish(source, base / "host", cancel));
+	EXPECT_FALSE(fs::exists(archive));
+	EXPECT_TRUE(ModVerificationInfo::buildHostArchiveManifest(hostMods, base / "host").empty());
+}
 
 TEST(LanModSyncTest, LanLobbyPreviewShowsOnlyActionsActuallyAvailableToGuest)
 {
@@ -2096,7 +2147,9 @@ TEST(LanModSyncTest, ConcurrentAtomicWritesDoNotMixOrLeaveStagingFiles)
 	const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	EXPECT_EQ(content.size(), 4096);
 	if(!content.empty())
+	{
 		EXPECT_EQ(content, std::string(content.size(), content[0]));
+	}
 
 	for(const auto & entry : std::filesystem::directory_iterator(testDirectory))
 		EXPECT_FALSE(entry.path().filename().string().starts_with("modSettings.json.pending."))
@@ -3138,7 +3191,9 @@ TEST(LanModSyncTest, VerifiesCachedArchiveFileBeforeReusingAndDetectsTampering)
     std::error_code error;
     fs::create_symlink(archive, cacheFolder / "linked.zip", error);
     if(!error)
+    {
         EXPECT_FALSE(ModArchiveDigest::sha256File(cacheFolder / "linked.zip"));
+    }
     fs::remove_all(cacheFolder, error);
 }
 
@@ -3587,7 +3642,9 @@ TEST(LanModSyncTest, PersistentLanArchiveSyncRejectsInvalidEntries)
     std::error_code error;
     fs::create_symlink(archive, directory / "linked.zip", error);
     if(!error)
+    {
         EXPECT_FALSE(LanModArchiveCache::detail::syncCacheEntry(directory / "linked.zip", false));
+    }
 
     fs::remove_all(directory, error);
 }
@@ -4538,8 +4595,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 	const auto & activeAfterRelaunch = relaunchedGuest.getActiveMods();
 	EXPECT_NE(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), stagedModId), activeAfterRelaunch.end());
 	if(requiredMod)
+	{
 		EXPECT_EQ(std::find(activeAfterRelaunch.begin(), activeAfterRelaunch.end(), guestOnlyMod), activeAfterRelaunch.end())
 			<< "LAN guest must not load private gameplay mods absent from the host";
+	}
 	EXPECT_TRUE(localOnly.matchesResolvedHostMods(syncedMods->mods, activeAfterRelaunch))
 		<< "Reloaded client did not resolve the gameplay mods required by the live host";
 
@@ -4845,7 +4904,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				endedPlayers.insert(finishTurn.player);
 			}
 			if(generatedThreeHumanMap)
+			{
 				EXPECT_TRUE(guestHeroMoved) << "Prepared LAN guest never completed a hero move";
+			}
 			EXPECT_EQ(endedPlayers, ownedPlayers)
 				<< "Not every human player completed their first gameplay turn";
 
@@ -4983,8 +5044,17 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 		LanModSessionState::begin(staged);
 		// The live host requires both active mod roots and its enabled submod.
 		// A fixture that only activates requiredMod cannot pass the real lobby gate.
-		const ModSyncPlan installed = localOnly;
+		ModSyncPlan installed = localOnly;
 		ASSERT_TRUE(installed.activate.contains(requiredMod));
+		// The host loads vcmi-test to resolve the start map sent by vcmitest.
+		// A real client has no test-mode injection, so it must install the same mod.
+		const auto testModSource = fs::current_path() / "test" / "testdata" / "vcmi-test";
+		const bool hostUsesTestMod = syncedMods->mods.count("vcmi-test") != 0;
+		if(hostUsesTestMod)
+		{
+			ASSERT_TRUE(fs::is_regular_file(testModSource / "mod.json"));
+			installed.activate.insert("vcmi-test");
+		}
 		LanModSessionState::applyInstalledOnlyPlan(staged, installed);
 		const std::string guiGuestName = "LAN GUI relaunch guest";
 		LanModSessionState::setRejoinTarget(staged,
@@ -5039,6 +5109,8 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 					throw std::runtime_error("LAN GUI fixture is missing installed mod: " + modId);
 				fs::copy(source, userData / "Mods" / modId, fs::copy_options::recursive);
 			}
+			if(hostUsesTestMod)
+				fs::copy(testModSource, userData / "Mods" / "vcmi-test", fs::copy_options::recursive);
 		};
 		ASSERT_NO_THROW(stageIsolatedGuestData(firstDataHome, true));
 		ASSERT_NO_THROW(stageIsolatedGuestData(secondDataHome, false));
@@ -5191,6 +5263,9 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				EXPECT_NE(std::find(liveRoom->participantNames.begin(), liveRoom->participantNames.end(), name),
 					liveRoom->participantNames.end()) << "GUI guest is no longer in the production lobby: " << name;
 			bothGraphicalGuests.connection->close();
+			// The cancelled read calls this listener, so run it before the listener is destroyed.
+			network->getContext().restart();
+			network->getContext().run_for(std::chrono::milliseconds(250));
 		}
 		if(guiJoined)
 		{
@@ -5269,8 +5344,10 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 				EXPECT_FALSE(secondHuman.empty())
 					<< "Second GUI did not initialize a human gameplay interface after LobbyStartGame";
 				if(!firstHuman.empty() && !secondHuman.empty())
+				{
 					EXPECT_NE(firstHuman, secondHuman)
 						<< "Both LAN guests were assigned the same playable color";
+				}
 				if(!secondHuman.empty())
 				{
 					std::ifstream clientLog(secondLogs / "VCMI_Client_log.txt");
@@ -5378,18 +5455,50 @@ TEST(LanModSyncTest, RealIndependentVCMIServerProvidesLegacyAndOptInLobbyPreview
 
 			bool restoredFirst = false;
 			bool restoredSecond = false;
-			const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(40);
-			while((!restoredFirst || !restoredSecond) && std::chrono::steady_clock::now() < deadline)
+			// The guest whose turn started after EndTurn waits in acceptTurn until its
+			// turn dialog is closed, and handles the disconnect only after that.
+			// Press Return in its window, as the player would.
+			const auto dismissTurnDialog = [](pid_t pid)
+			{
+				const std::string command = "for window in $(xdotool search --pid " + std::to_string(pid)
+					+ "); do xdotool windowfocus --sync \"$window\" key Return; done >/dev/null 2>&1";
+				EXPECT_EQ(std::system(command.c_str()), 0) << "Install xdotool to dismiss the GUI guest turn dialog";
+			};
+			const auto start = std::chrono::steady_clock::now();
+			bool dialogsDismissed = false;
+			while((!restoredFirst || !restoredSecond) && std::chrono::steady_clock::now() < start + std::chrono::seconds(40))
 			{
 				network->getContext().restart();
 				network->getContext().run_for(std::chrono::milliseconds(50));
 				restoredFirst = restored(modSettings, original);
 				restoredSecond = restored(secondModSettings, secondOriginal);
+				if(!dialogsDismissed && std::chrono::steady_clock::now() > start + std::chrono::seconds(15))
+				{
+					dialogsDismissed = true;
+					if(!restoredFirst)
+						dismissTurnDialog(guiPid);
+					if(!restoredSecond)
+						dismissTurnDialog(secondGuiPid);
+				}
 				if(!restoredFirst || !restoredSecond)
 					std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
-			EXPECT_TRUE(restoredFirst) << "First GUI did not restore its personal preset after LAN host disconnect";
-			EXPECT_TRUE(restoredSecond) << "Cached-mod GUI did not restore its personal preset after LAN host disconnect";
+			const auto reportUnrestored = [](const std::string & client, const fs::path & settings,
+				const fs::path & logDir, const JsonNode & expected)
+			{
+				std::ifstream settingsFile(settings, std::ios::binary);
+				const std::string settingsBytes((std::istreambuf_iterator<char>(settingsFile)), std::istreambuf_iterator<char>());
+				std::ifstream logFile(logDir / "VCMI_Client_log.txt");
+				const std::string logBytes((std::istreambuf_iterator<char>(logFile)), std::istreambuf_iterator<char>());
+				ADD_FAILURE() << client << " did not restore its personal preset after LAN host disconnect. "
+					<< "Expected preset: " << expected.toCompactString()
+					<< "\nMod settings: " << settingsBytes
+					<< "\nClient log tail: " << logBytes.substr(logBytes.size() > 4000 ? logBytes.size() - 4000 : 0);
+			};
+			if(!restoredFirst)
+				reportUnrestored("First GUI", modSettings, sandbox, original);
+			if(!restoredSecond)
+				reportUnrestored("Cached-mod GUI", secondModSettings, secondLogs, secondOriginal);
 			EXPECT_TRUE(LanModArchiveCache::findVerifiedArchive(
 				secondUserData, requiredMod, cachedOffer->second.sha256))
 				<< "LAN disconnect must preserve the previously verified host package";

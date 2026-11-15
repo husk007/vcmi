@@ -63,6 +63,8 @@ std::tuple<int, int> ScreenHandler::getSupportedScalingRange() const
 	double maximalScalingWidth = 100.0 * availableResolution.x / minResolution.x;
 	double maximalScalingHeight = 100.0 * availableResolution.y / minResolution.y;
 	double maximalScaling = std::min(maximalScalingWidth, maximalScalingHeight);
+	// The render size can be transiently too small (seen as 0% scaling under Xvfb); std::clamp requires min <= max.
+	maximalScaling = std::max(maximalScaling, minimalScaling);
 
 	return { minimalScaling, maximalScaling };
 }

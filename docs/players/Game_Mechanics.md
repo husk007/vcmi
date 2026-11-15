@@ -197,6 +197,16 @@ Differences compared to HD Mod version:
 - In VCMI, players can see actions of other players immediately (provided that they have revealed fog of war) instead of waiting for next turn
 - In VCMI, attempt to attack hero of another player during simultaneous turns will be blocked instead of reloading save from start of turn like in HD Mod
 
+### LAN mod synchronization
+
+When both devices run a VCMI build with LAN mod synchronization, a guest can join a LAN game whose host uses other mods.
+
+- The host packs its active mods for guests when it creates a multiplayer game. This setting is `server.lanModSharing` and is on by default. A large mod such as Horn of the Abyss takes up to a minute to pack the first time; until then, guests see it as "manual setup required".
+- The join window lists each host mod and what happens to it: enabled or disabled for this game, used from the cache, or downloaded from the host.
+- Missing mods are downloaded after the guest presses Prepare host mods and approves the host. Mods can contain scripts, so approve only hosts you trust. Downloaded packages are verified, kept for later games and never replace mods you installed yourself.
+- After Join, the game restarts with the host's mods and returns to the same room. After the game, your own mod set is restored, also after a crash.
+- Original Heroes III data is never transferred; every player needs their own copy.
+
 ## Manuals and guides
 
 - <https://heroes.thelazy.net/index.php/Main_Page> Wiki that aims to be a complete reference to Heroes of Might and Magic III.

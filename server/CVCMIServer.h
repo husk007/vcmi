@@ -56,6 +56,11 @@ class CVCMIServer : public LobbyInfo, public INetworkServerListener, public INet
 
 	std::shared_ptr<IServerDiscoveryListener> discoveryListener;
 
+	/// Packs the host's active mods for LAN guests without blocking the network thread.
+	std::thread lanModPublisher;
+	std::atomic<bool> lanModPublisherCancel = false;
+	void startLanModPublisher();
+
 	bool loadSavedGame(CGameHandler & handler, const StartInfo & info);
 public:
 	uint16_t getPort() const override

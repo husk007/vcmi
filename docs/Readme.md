@@ -96,6 +96,8 @@ Engine documentation: (NOTE: may be outdated)
 - [Code Structure](developers/Code_Structure.md)
 - [Logging API](developers/Logging_API.md)
 - [Lua Scripting System](developers/Lua_Scripting_System.md)
+- [LAN Mod Synchronization](developers/Lan_Mod_Synchronization.md)
+- [WebAssembly Browser Port](developers/WebAssembly_Port.md)
 - [Serialization](developers/Serialization.md)
 
 ## Documentation and guidelines for maintainers

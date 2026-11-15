@@ -15,6 +15,11 @@
 #include <vector>
 
 #include "../lib/modding/LanRelaunchTokenFormat.h"
+#include "../lib/modding/LanRelaunchSupport.h"
+
+#if defined(VCMI_ANDROID)
+#include "../lib/CAndroidVMHelper.h"
+#endif
 
 #if !defined(VCMI_MOBILE)
 #ifdef _WIN32
@@ -31,7 +36,7 @@ extern char ** environ; // macOS headers do not declare it
 #endif
 #endif
 
-/// Starts a desktop VCMI client with a previously persisted one-shot session marker.
+/// Starts a new VCMI client process with a previously persisted one-shot session marker.
 namespace LanRelaunchProcess
 {
 inline bool isValidToken(const std::string & token)
@@ -39,7 +44,31 @@ inline bool isValidToken(const std::string & token)
 	return LanRelaunchTokenFormat::isValid(token);
 }
 
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_ANDROID)
+/// Android cannot spawn a second client process. NativeMethods.relaunchGame starts a helper
+/// activity that ends this process and opens the game again with the token as argument.
+inline std::uint64_t spawnImpl(const std::filesystem::path &, const std::string * token)
+{
+	if(token && !isValidToken(*token))
+		throw std::invalid_argument("LAN relaunch token must contain 64 lowercase hexadecimal characters");
+	CAndroidVMHelper helper;
+	helper.callCustomMethod(CAndroidVMHelper::NATIVE_METHODS_DEFAULT_CLASS, "relaunchGame", "(Ljava/lang/String;)V",
+		[&token](JNIEnv * env, jclass cls, jmethodID method)
+		{
+			if(!method)
+				throw std::runtime_error("NativeMethods.relaunchGame is not available");
+			jstring argument = env->NewStringUTF(token ? token->c_str() : "");
+			env->CallStaticVoidMethod(cls, method, argument);
+			env->DeleteLocalRef(argument);
+			if(env->ExceptionCheck())
+			{
+				env->ExceptionClear();
+				throw std::runtime_error("NativeMethods.relaunchGame failed");
+			}
+		});
+	return 0;
+}
+#elif !defined(VCMI_MOBILE)
 /// When the running binary is inside a temporary AppImage mount, restart the
 /// original AppImage. The next process then has its own mount after this one exits.
 inline std::filesystem::path executableForRelaunch(
@@ -111,7 +140,9 @@ inline std::uint64_t spawnImpl(const std::filesystem::path & executable, const s
 	return static_cast<std::uint64_t>(pid);
 #endif
 }
+#endif
 
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 inline std::uint64_t spawn(const std::filesystem::path & executable, const std::string & token)
 {
 	return spawnImpl(executable, &token);

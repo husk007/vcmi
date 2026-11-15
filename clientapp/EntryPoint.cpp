@@ -168,6 +168,9 @@ int main(int argc, char * argv[])
 	const std::filesystem::path lanRelaunchExecutable(boost::dll::program_location().native());
 	// Use the real executable directory for relative paths, even when started through PATH or a symlink.
 	boost::filesystem::current_path(boost::filesystem::path(lanRelaunchExecutable.parent_path().native()));
+#elif defined(VCMI_LAN_RELAUNCH_SUPPORTED)
+	// Android restarts the game activity instead of an executable.
+	const std::filesystem::path lanRelaunchExecutable;
 #endif
 	std::cout << "Starting... " << std::endl;
 	po::options_description opts("Allowed options");
@@ -245,6 +248,11 @@ int main(int argc, char * argv[])
 	boost::filesystem::path logPath = VCMIDirs::get().userLogsPath() / "VCMI_Client_log.txt";
 	if(vm.count("logLocation"))
 		logPath = vm["logLocation"].as<std::string>() + "/VCMI_Client_log.txt";
+	{
+		// Keep the log of the previous run, for example of a crash, which a restart would otherwise overwrite.
+		boost::system::error_code renameError;
+		boost::filesystem::rename(logPath, logPath.parent_path() / "VCMI_Client_log_previous.txt", renameError);
+	}
 
 #ifndef VCMI_IOS
 
@@ -416,7 +424,7 @@ int main(int argc, char * argv[])
 			GAME->mainmenu()->makeActiveInterface();
 
 			bool rejoiningLan = false;
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 			// The endpoint is exposed only after the matching one-shot relaunch marker was accepted.
 			if(!lanRelaunchToken.empty())
 			{
@@ -514,7 +522,7 @@ int main(int argc, char * argv[])
 				ENGINE.reset();
 			}
 
-#if !defined(VCMI_MOBILE)
+#if defined(VCMI_LAN_RELAUNCH_SUPPORTED)
 			if(LIBRARY && LIBRARY->modh && LIBRARY->modh->consumeLanRelaunchRequest())
 			{
 				try

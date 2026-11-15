@@ -25,6 +25,7 @@ import eu.vcmi.vcmi.util.Notifications;
 public class VcmiSDLActivity extends SDLActivity
 {
     protected static final int COMMAND_USER = 0x8000;
+    public static final String EXTRA_LAN_RELAUNCH_TOKEN = "eu.vcmi.vcmi.lanRelaunchToken";
 
     private static final long INPUT_FOCUS_RETRY_DELAY_MS = 200;
     private static final int INPUT_FOCUS_RETRY_COUNT = 4;
@@ -87,6 +88,16 @@ public class VcmiSDLActivity extends SDLActivity
         // app main library and SDL are loaded when launcher starts, no extra work to do
         return new String[] {
         };
+    }
+
+    @Override
+    protected String[] getArguments()
+    {
+        final Intent intent = getIntent();
+        final String token = intent != null ? intent.getStringExtra(EXTRA_LAN_RELAUNCH_TOKEN) : null;
+        if (token == null || token.isEmpty())
+            return new String[0];
+        return new String[] { "--lan-relaunch-token", token };
     }
 
     @Override

@@ -135,6 +135,15 @@
 			android:screenOrientation="fullSensor" />
 
 		<activity
+			android:name=".ActivityLanRelaunch"
+			android:process=":lanrelaunch"
+			android:excludeFromRecents="true"
+			android:exported="false"
+			android:noHistory="true"
+			android:taskAffinity=""
+			android:theme="@style/TranslucentTheme" />
+
+		<activity
 			android:name=".ActivityQuitConfirm"
 			android:excludeFromRecents="true"
 			android:exported="false"

@@ -27,9 +27,9 @@
 
 namespace LanModPackageStage
 {
-constexpr std::uint64_t maxUnpackedBytes = 512ULL * 1024 * 1024;
-constexpr std::uint64_t maxEntryBytes = 128ULL * 1024 * 1024;
-constexpr std::size_t maxEntries = 8192;
+constexpr std::uint64_t maxUnpackedBytes = 2ULL * 1024 * 1024 * 1024;
+constexpr std::uint64_t maxEntryBytes = 256ULL * 1024 * 1024;
+constexpr std::size_t maxEntries = 65535; ///< ZIP without the ZIP64 extension
 
 inline bool isSafeRelativePath(std::string_view value)
 {
